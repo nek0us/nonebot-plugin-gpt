@@ -1,0 +1,19 @@
+[project]
+name = "nonebot-plugin-gpt"
+version = "0.0.1"
+description = "Nonebot2's plugin of ChatGPT "
+authors = [
+    {name = "nek0us", email = "nekouss@mail.com"},
+]
+license = {text = "GPL3"}
+dependencies = ["ChatGPTWeb","nonebot2","more_itertools","nonebot_plugin_htmlrender","nonebot_plugin_localstore"]
+requires-python = ">=3.10"
+readme = "README.md"
+
+[project.urls]
+Homepage = "https://github.com/nek0us/nonebot-plugin-gpt"
+Repository = "https://github.com/nek0us/nonebot-plugin-gpt"
+
+[build-system]
+requires = ["pdm-pep517>=0.12.0"]
+build-backend = "pdm.pep517.api"
