@@ -29,8 +29,8 @@ except Exception:
     
 
 __plugin_meta__ = PluginMetadata(
-    name="ChatGPT 浏览器聊天",
-    description="通过浏览器使用 ChatGPT",
+    name="ChatGPT 聊天",
+    description="通过浏览器使用 ChatGPT,兼容 onebot v11 与 adapter-qq 适配器",
     usage="""
 | 指令 | 适配器 | 权限 | 需要@ | 范围 |  说明 |
 |:-----:|:----:|:----:|:----:|:----:|:----:|
