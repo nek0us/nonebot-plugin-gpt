@@ -88,7 +88,7 @@ _✨ NoneBot GPT ✨_
 | gpt_white_list_mode | 否 | true | bool | 聊天白名单模式 |
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
-| gpt_manage_ids | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
+| gpt_manage_ids | 否 | 无 | List[str] | 超管群/频道id，通过日志等方式获得 |
 
 ```bash
 # gpt配置示例
@@ -126,7 +126,7 @@ gpt_ban_str='[
     "我是猪",
     "你是猪",
 ]'
-
+# qq适配器使用的超管群id
 gpt_manage_ids=['qq group id......']
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
