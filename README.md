@@ -92,7 +92,7 @@ _✨ NoneBot GPT ✨_
 
 ```bash
 # gpt配置示例
-# 当mode为空或者为openai时，建议提前手动登录一次获取session_token填入，mode目前不支持苹果账号
+# 当mode为空或者为openai时，建议提前手动登录一次获取session_token填入（成功使用后可删除session_token项），mode目前不支持苹果账号
 gpt_session='[
     {
         "email": "xxxx@hotmail.com",
