@@ -42,7 +42,7 @@ whitepath.mkdir(parents=True, exist_ok=True)
 whitepath = whitepath / "white_list.json" 
 whitepath.touch()
 if not whitepath.stat().st_size:
-    tmp = {'group':[],'private':[]}
+    tmp = {'group':[],'private':[],'qqgroup':[],'qqguild':[]}
     whitepath.write_text(json.dumps(tmp)) 
         
 # 人设r18与归属扩展
@@ -55,3 +55,16 @@ if not personpath.stat().st_size:
 
 # gpt会话存储
 chatpath = data_dir / "conversation"
+
+# cdk
+cdkpath = data_dir / "cdk"
+cdkpath.mkdir(parents=True, exist_ok=True)
+cdklistpath = cdkpath / "cdklist.json"
+cdklistpath.touch()
+if not cdklistpath.stat().st_size:
+    cdklistpath.write_text("{}")  
+    
+cdksource = cdkpath / "cdksource.json"
+cdksource.touch()
+if not cdksource.stat().st_size:
+    cdksource.write_text("{}")   

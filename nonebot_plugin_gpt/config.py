@@ -18,6 +18,18 @@ class Config(BaseModel):
     gpt_white_list_mode: bool = True
     gpt_replay_to_replay: bool = False
     gpt_ban_str: Optional[List[str]]|str = []
+    gpt_manage_ids: list = []
+    
+    @validator("gpt_manage_ids", always=True, pre=True)
+    def check_gpt_manage_ids(cls,v):
+        if isinstance(v,list):
+            if v != []:
+                logger.success(f"已开启 官方管理群 gpt_manage_ids {v}")
+            else:
+                logger.warning(f"gpt_manage_ids 未配置")
+            return v    
+        else:
+            logger.warning(f"gpt_manage_ids 配置错误")
         
     @validator("gpt_chat_priority", always=True, pre=True)
     def check_gpt_chat_priority(cls,v):
@@ -122,3 +134,4 @@ class Config(BaseModel):
 
                             
 config_gpt = Config.parse_obj(get_driver().config)
+config_nb = get_driver().config
