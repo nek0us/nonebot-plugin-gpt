@@ -55,7 +55,8 @@ async def gpt_rule(event: MessageEvent|QQMessageEvent) -> bool:
             id,value = await get_id_from_all(event)
             if id in white_tmp[value]:
                 return True
-                
+            if event.get_user_id() in white_tmp["private"]:
+                return True
     return False
 
 async def gpt_manage_rule(event: MessageEvent|QQMessageEvent) -> bool:
