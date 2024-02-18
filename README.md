@@ -100,9 +100,15 @@ gpt_session='[
         "session_token": "ey....", 
     },
     {
-        "email": "aaaa@sss.com",
+        "email": "aaaa@gmail.com",
         "password": "xxxx",
         "mode": "google",
+    },
+    {
+        "email": "bbb@sss.com",
+        "password": "xxxx",
+        "mode": "microsoft",
+        "help_email": "xxx@xx.com"
     },
 ]'
 
@@ -163,5 +169,13 @@ SUPERUSERS=["qq num"]
 | 结束吧 | qq | 白名单 | 是 | 群聊/频道 | 结束吧 ，用户自主解除白名单 |
 
 <为必填内容>，(为选填内容)
-### 待续
+
+## 常见问题
+### 微软辅助邮箱验证
+当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
+
+### 更新日志
+1. 临时修复200问题 与 添加 微软辅助邮箱验证
+
+## 待续
 自用挺久了，匆忙改改发出来，很多东西还没补充
