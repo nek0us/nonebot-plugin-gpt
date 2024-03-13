@@ -22,64 +22,6 @@ from .check import *
 
 bot_name = list(config_nb.nickname)
 
-       
-async def node_msg(user_id,plain_text:list,name: str|list|None = None):
-    '''以转发方式返回聊天记录'''
-    if not plain_text:
-        plain_text.append("无")
-    msg = []
-    if type(name) == str:
-        msg = [
-        {
-            "type": "node",
-            "data": {
-                "name": name,
-                "uin": int(user_id),
-                "content": [
-                    {
-                        "type": "text",
-                        "data": {
-                            "text": x
-                        }
-                    }
-                ]
-            }
-        } for x in plain_text]
-    elif name == None:
-        msg = [
-        {
-            "type": "node",
-            "data": {
-                "name": str(index),
-                "uin": int(user_id),
-                "content": [
-                    {
-                        "type": "text",
-                        "data": {
-                            "text": x
-                        }
-                    }
-                ]
-            }
-        } for index,x in enumerate(plain_text)]
-    elif type(name) == list:
-        msg = [
-        {
-            "type": "node",
-            "data": {
-                "name": n,
-                "uin": int(user_id),
-                "content": [
-                    {
-                        "type": "text",
-                        "data": {
-                            "text": x
-                        }
-                    }
-                ]
-            }
-        } for x,n in zip(plain_text,name)]    
-    return msg    
 
 async def name_or_tome(event: MessageEvent) -> bool:
     '''
@@ -114,6 +56,10 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher,text)
     data = MsgData()
+    if config_gpt.gpt_chat_start and not config_gpt.gpt_chat_start_in_msg:
+        chat_start = [gpt_start for gpt_start in config_gpt.gpt_chat_start if event.get_plaintext().startswith(gpt_start)]
+        if chat_start:
+            text = Message(text.extract_plain_text()[len(chat_start[0]):])
     text_handle = text.extract_plain_text()
     if isinstance(event,MessageEvent):
         if event.reply:
@@ -322,7 +268,7 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     if isinstance(event,QQMessageEvent):
         await matcher.finish(replace_name(data).msg_recv)
     else:
-        msg = await node_msg(event.user_id,[replace_name(data).msg_recv])
+        msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(replace_name(data).msg_recv)))
         if isinstance(event,GroupMessageEvent):
             await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg)
         else:
@@ -333,23 +279,20 @@ async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
     '''人设列表'''
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
-    person_list = ["序号  人设名  r18  公开"]
+    person_list = [MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text("序号  人设名  r18  公开")))]
     person_type = json.loads(personpath.read_text("utf8"))
     if person_type == {}:
         await matcher.finish("还没有人设")
     for index,x in enumerate(chatbot.personality.init_list):
         r18 = "是" if person_type[x.get('name')]['r18'] else "否"
         open = "否" if person_type[x.get('name')]['open'] else "是"
-        person_list.append(f"{(index+1):02}  {x.get('name')}  {r18}  {open} ")
-    if isinstance(event,MessageEvent):    
-        person_list = await node_msg(event.user_id,person_list)
-        
-        if isinstance(event,GroupMessageEvent):
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list)
-        else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list)
+        person_list.append(MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text(f"{(index+1):02}  {x.get('name')}  {r18}  {open} "))))
+
+    if isinstance(event,GroupMessageEvent):
+        await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list)
     else:
-        await matcher.finish("\n".join(person_list))
+        await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list)
+
     await matcher.finish()
                 
 async def cat_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg: Message|QQMessage):
@@ -369,7 +312,7 @@ async def cat_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg: Messag
         if not value:
             await matcher.finish("没有找到哦，请检查名字是否正确")
         if isinstance(event,MessageEvent):    
-            msg = await node_msg(event.user_id,[value],"人设详情")
+            msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(value)))
             if isinstance(event,GroupMessageEvent):
                 await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg)
             else:
@@ -502,7 +445,9 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
             data.conversation_id = tmp[str(event.group_id)]
         else:
             await matcher.finish("还没有聊天记录")    
-        chat_his = await node_msg(10000,await chatbot.show_chat_history(data))
+            
+        chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
+        # chat_his = await node_msg(10000,await chatbot.show_chat_history(data))
         if len(chat_his) > 100:
             chunks = list(chunked(chat_his,100))
             for list_value in chunks: 
@@ -516,7 +461,7 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
             data.conversation_id = tmp[event.get_user_id()]
         else:
             await matcher.finish("还没有聊天记录")  
-        chat_his = await node_msg(10000,await chatbot.show_chat_history(data))
+        chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
         
         if len(chat_his) > 200:
             chunks = list(chunked(chat_his,200))

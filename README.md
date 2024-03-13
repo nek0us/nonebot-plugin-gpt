@@ -82,6 +82,8 @@ _✨ NoneBot GPT ✨_
 | gpt_proxy | 否 | 无 | str | 使用的代理 |
 | arkose_status | 否 | false | bool | gpt是否开启了arkose验证 |
 | group_chat | 否 | true | bool | 群里开启多人识别 |
+| gpt_chat_start | 否 | [] | list | 聊天前缀，参考nb命令前缀 |
+| gpt_chat_start_in_msg | 否 | false | bool | 命令前缀是否包含在消息内 |
 | begin_sleep_time | 否 | false | bool | 关闭启动等待时间（建议账号数量大于5开启） |
 | gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
 | gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
@@ -117,6 +119,10 @@ gpt_proxy='http://127.0.0.1:8080'
 arkose_status=false
 
 group_chat=true
+
+gpt_chat_start=[]
+
+gpt_chat_start_in_msg=false
 
 begin_sleep_time=true
 
@@ -175,8 +181,13 @@ SUPERUSERS=["qq num"]
 当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
 
 ### 更新日志
+2024.03.13
+1. 兼容拉格兰合并转发，修复合并转发失败的问题
+2. 添加自定义聊天前缀，现在可以不用@也能触发了
+
+
 2024.03.11
-1.临时修复200问题（chatgpt新的websocket问题），最近好忙，等闲了的时候再优化，有什么问题都可以先提issue
+1. 临时修复200问题（chatgpt新的websocket问题），最近好忙，等闲了的时候再优化，有什么问题都可以先提issue
 
 
 2024.02.19

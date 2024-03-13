@@ -12,6 +12,8 @@ class Config(BaseModel):
     arkose_status: bool = False
     gpt_session: Optional[List[dict]]|str = []
     group_chat: bool = True
+    gpt_chat_start: list = []
+    gpt_chat_start_in_msg: bool = False 
     begin_sleep_time: bool = False
     gpt_chat_priority: int = 90
     gpt_command_priority: int = 19
@@ -74,6 +76,22 @@ class Config(BaseModel):
                 logger.success(f"已关闭 group_chat 多人识别配置")
             return v    
         
+    @validator("gpt_chat_start", always=True, pre=True)
+    def check_gpt_chat_start(cls,v):
+        if isinstance(v,list):
+            if v:
+                logger.success(f"已配置 gpt_chat_start 聊天前缀 {' '.join(v)}")
+            return v      
+        
+    @validator("gpt_chat_start_in_msg", always=True, pre=True)
+    def check_gpt_chat_start_in_msg(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success(f"已开启 gpt_chat_start_in_msg 聊天前缀加入消息")
+            else:
+                logger.success(f"已关闭 gpt_chat_start_in_msg 聊天前缀加入消息")
+            return v    
+            
     @validator("begin_sleep_time", always=True, pre=True)
     def check_begin_sleep_time(cls,v):
         if isinstance(v,bool):

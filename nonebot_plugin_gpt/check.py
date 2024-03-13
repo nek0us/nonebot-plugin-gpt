@@ -42,7 +42,7 @@ async def get_id_from_all(event: MessageEvent|QQMessageEvent):
 
 async def gpt_rule(event: MessageEvent|QQMessageEvent) -> bool:
     '''gpt事件匹配规则'''
-    if event.to_me:
+    if event.to_me or [gpt_start for gpt_start in config_gpt.gpt_chat_start if event.get_plaintext().startswith(gpt_start)]:
         ban_tmp = json.loads(banpath.read_text("utf-8"))
         if event.get_user_id() not in ban_tmp:
             # 不在黑名单？继续
