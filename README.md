@@ -72,6 +72,13 @@ _✨ NoneBot GPT ✨_
 
 </details>
 
+<details open>
+<summary>升级插件版本</summary>
+
+    pip install nonebot-plugin-gpt -U
+
+</details>
+
 ## ⚙️ 配置
 
 在 nonebot2 项目的`.env`文件中添加下表中的必填配置
