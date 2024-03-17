@@ -21,6 +21,7 @@ class Config(BaseModel):
     gpt_replay_to_replay: bool = False
     gpt_ban_str: Optional[List[str]]|str = []
     gpt_manage_ids: list = []
+    gpt_lgr_markdown: bool = False
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
@@ -150,6 +151,14 @@ class Config(BaseModel):
         except Exception as e:
             logger.warning(f"未配置 gpt 屏蔽词")
 
-                            
+    @validator("gpt_lgr_markdown", always=True, pre=True)
+    def check_gpt_lgr_markdown(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success(f"已开启 gpt_lgr_markdown 拉格兰MarkDown转换")
+            else:
+                logger.success(f"已关闭 gpt_lgr_markdown 拉格兰MarkDown转换")
+            return v               
+                 
 config_gpt = Config.parse_obj(get_driver().config)
 config_nb = get_driver().config

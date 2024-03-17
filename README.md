@@ -98,6 +98,7 @@ _✨ NoneBot GPT ✨_
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
 | gpt_manage_ids | 否 | 无 | List[str] | 超管群/频道id，通过日志等方式获得 |
+| gpt_lgr_markdown| 否 | false | bool | 以拉格兰md消息回复 |
 
 ```bash
 # gpt配置示例
@@ -147,6 +148,8 @@ gpt_ban_str='[
 ]'
 # qq适配器使用的超管群id
 gpt_manage_ids=['qq group id......']
+# onebot适配器 拉格兰md消息兼容
+gpt_lgr_markdown=false
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
@@ -188,6 +191,11 @@ SUPERUSERS=["qq num"]
 当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
 
 ### 更新日志
+2024.03.17
+1. 优化了底层代码，减少错误，暂不支持gpt plus账号（待填坑）
+2. 支持拉格兰md发送
+
+
 2024.03.13
 1. 兼容拉格兰合并转发，修复合并转发失败的问题
 2. 添加自定义聊天前缀，现在可以不用@也能触发了
