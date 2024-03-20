@@ -75,7 +75,8 @@ if isinstance(config_gpt.gpt_session,list):
         chat_file = data_dir,
         proxy = config_gpt.pywt_proxy,
         begin_sleep_time = config_gpt.begin_sleep_time,
-        personality=personality
+        personality=personality,
+        httpx_status=config_gpt.gpt_httpx
         )
     
     driver = get_driver()
