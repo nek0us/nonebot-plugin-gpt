@@ -120,7 +120,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     await ban_check(event,matcher,Message(data.msg_recv))
     
     if config_gpt.gpt_lgr_markdown and isinstance(event,MessageEvent):
-        await tools.send_text2md(data.msg_recv)
+        await tools.send_text2md(data.msg_recv,str(event.self_id))
         await matcher.finish()
 
     await matcher.finish(replace_name(data).msg_recv)
