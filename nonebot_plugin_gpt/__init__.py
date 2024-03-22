@@ -73,7 +73,7 @@ if isinstance(config_gpt.gpt_session,list):
         plugin = True,
         arkose_status = config_gpt.arkose_status,
         chat_file = data_dir,
-        proxy = config_gpt.pywt_proxy,
+        proxy = config_gpt.gpt_proxy,
         begin_sleep_time = config_gpt.begin_sleep_time,
         personality=personality,
         httpx_status=config_gpt.gpt_httpx
