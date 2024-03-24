@@ -94,9 +94,10 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         # 替换qq
         data.msg_send=data.msg_send.replace("CQ:at,qq=","")
         data = await chatbot.continue_chat(data)
-        tmp[str(event.group_id)] = data.conversation_id
-        grouppath.write_text(json.dumps(tmp))
-        data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
+        if not data.error_info:
+            tmp[str(event.group_id)] = data.conversation_id
+            grouppath.write_text(json.dumps(tmp))
+            data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
         
     elif isinstance(event,PrivateMessageEvent):
         tmp = json.loads(privatepath.read_text("utf-8"))
@@ -104,9 +105,9 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             data.conversation_id = tmp[event.get_user_id()]
         data.msg_send=event.raw_message
         data = await chatbot.continue_chat(data)
-        
-        tmp[str(event.user_id)] = data.conversation_id
-        privatepath.write_text(json.dumps(tmp))
+        if not data.error_info:
+            tmp[str(event.user_id)] = data.conversation_id
+            privatepath.write_text(json.dumps(tmp))
     elif isinstance(event,QQMessageEvent):
         tmp = json.loads(grouppath.read_text("utf-8"))
         id,value = await get_id_from_guild_group(event)
@@ -114,8 +115,9 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             data.conversation_id = tmp[id]
         data.msg_send=text_handle
         data = await chatbot.continue_chat(data)
-        tmp[id] = data.conversation_id
-        grouppath.write_text(json.dumps(tmp))
+        if not data.error_info:
+            tmp[id] = data.conversation_id
+            grouppath.write_text(json.dumps(tmp))
         
     await ban_check(event,matcher,Message(data.msg_recv))
     
@@ -283,20 +285,31 @@ async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
     '''人设列表'''
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
-    person_list = [MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text("序号  人设名  r18  公开")))]
+    if isinstance(event,MessageEvent):
+        person_list = [MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text("序号  人设名  r18  公开")))]
+    else:
+        person_list = "\n|序号|人设名|r18|公开|\n|:----:|:------:|:------:|:------:|\n"
     person_type = json.loads(personpath.read_text("utf8"))
     if person_type == {}:
         await matcher.finish("还没有人设")
     for index,x in enumerate(chatbot.personality.init_list):
         r18 = "是" if person_type[x.get('name')]['r18'] else "否"
         open = "否" if person_type[x.get('name')]['open'] else "是"
-        person_list.append(MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text(f"{(index+1):02}  {x.get('name')}  {r18}  {open} "))))
-
-    if isinstance(event,GroupMessageEvent):
-        await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list)
+        if isinstance(event,MessageEvent):
+            person_list.append(MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text(f"{(index+1):02}  {x.get('name')}  {r18}  {open} "))))
+        else:
+            person_list += f"|{(index+1):03}|{x.get('name')}|{r18}|{open}|\n"
+            
+    if isinstance(event,MessageEvent):        
+        if isinstance(event,GroupMessageEvent):
+            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list)
+        else:
+            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list)
     else:
-        await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list)
-
+        if isinstance(event,QQGroupAtMessageCreateEvent):
+            await matcher.finish(person_list.replace("|:----:|:------:|:------:|:------:|\n",""))
+        img = await md_to_pic(person_list)
+        await matcher.finish(QQMessageSegment.file_image(img))
     await matcher.finish()
                 
 async def cat_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg: Message|QQMessage):
@@ -495,7 +508,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     except Exception as e:
         logger.debug(e)
         await matcher.finish()
-    msg = "|序号|账户|存活|工作状态|历史会话|\n|:----:|:------:|:------:|:------:|:------:|\n"
+    msg = "\n|序号|账户|存活|工作状态|历史会话|\n|:----:|:------:|:------:|:------:|:------:|\n"
     for index,x in enumerate(tmp["token"]):
         if len(tmp['cid_num']) < len(tmp["token"]):
             for num in range(0,len(tmp["token"])-len(tmp['cid_num'])):
@@ -505,7 +518,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     event = current_event.get()
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg.replace(".com","")))
+        await matcher.finish(''.join(msg.replace(".com","").replace("|:----:|:------:|:------:|:------:|:------:|\n","")))
     elif isinstance(event,MessageEvent):
         await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
     else:
@@ -515,12 +528,12 @@ async def black_list(event: MessageEvent|QQMessageEvent):
     '''黑名单列表'''
     matcher: Matcher = current_matcher.get()
     ban_tmp = json.loads(banpath.read_text("utf-8"))
-    msg = "|账户|内容|\n|:------:|:------:|\n"
+    msg = "\n|账户|内容|\n|:------:|:------:|\n"
     for x in ban_tmp:
         msg += f"|{x}|{ban_tmp[x][0]}|\n"
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg))
+        await matcher.finish(''.join(msg.replace("|:------:|:------:|\n","")))
     elif isinstance(event,MessageEvent):
         await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
     else:
@@ -596,14 +609,14 @@ async def white_list():
     '''获取白名单列表'''
     matcher: Matcher = current_matcher.get()
     white_tmp = json.loads(whitepath.read_text("utf-8"))
-    msg = "|类型|账号|\n|:------:|:------:|\n"
+    msg = "\n|类型|账号|\n|:------:|:------:|\n"
     for x in white_tmp:
         for id in white_tmp[x]:
             msg += f"|{x}|{str(id)}|\n"
     event = current_event.get()
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg))
+        await matcher.finish(''.join(msg.replace("|:------:|:------:|\n","")))
     elif isinstance(event,MessageEvent):
         await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
     else:
