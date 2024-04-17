@@ -94,7 +94,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         # 替换qq
         data.msg_send=data.msg_send.replace("CQ:at,qq=","")
         data = await chatbot.continue_chat(data)
-        if not data.error_info:
+        if not data.error_info or data.status:
             tmp[str(event.group_id)] = data.conversation_id
             grouppath.write_text(json.dumps(tmp))
             data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
@@ -105,7 +105,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             data.conversation_id = tmp[event.get_user_id()]
         data.msg_send=event.raw_message
         data = await chatbot.continue_chat(data)
-        if not data.error_info:
+        if not data.error_info or data.status:
             tmp[str(event.user_id)] = data.conversation_id
             privatepath.write_text(json.dumps(tmp))
     elif isinstance(event,QQMessageEvent):
@@ -119,6 +119,9 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             tmp[id] = data.conversation_id
             grouppath.write_text(json.dumps(tmp))
         
+    if data.error_info and not data.msg_recv:
+        data.msg_recv = data.error_info
+    
     await ban_check(event,matcher,Message(data.msg_recv))
     
     send_md_status = False
