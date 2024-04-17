@@ -191,6 +191,11 @@ if isinstance(config_gpt.gpt_session,list):
     async def white_list_handle():
         await white_list()
         
+    md_status_cmd = on_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @md_status_cmd.handle()
+    async def md_status_cmd_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
+        await md_status(event,arg)
+        
         
     # ------------------------------ adapter-qq
     get_local_id = on_command("获取本地id",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)

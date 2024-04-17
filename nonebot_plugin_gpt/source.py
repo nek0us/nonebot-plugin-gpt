@@ -68,3 +68,10 @@ cdksource = cdkpath / "cdksource.json"
 cdksource.touch()
 if not cdksource.stat().st_size:
     cdksource.write_text("{}")   
+    
+# md状态存储
+mdstatus = data_dir / "mdstatus.json"
+mdstatus.touch()
+if not mdstatus.stat().st_size:
+    tmp = {"group":[],"private":[]}
+    mdstatus.write_text(json.dumps(tmp))  

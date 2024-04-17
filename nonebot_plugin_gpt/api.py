@@ -115,15 +115,28 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             data.conversation_id = tmp[id]
         data.msg_send=text_handle
         data = await chatbot.continue_chat(data)
-        if not data.error_info:
+        if not data.error_info or data.status:
             tmp[id] = data.conversation_id
             grouppath.write_text(json.dumps(tmp))
         
     await ban_check(event,matcher,Message(data.msg_recv))
     
+    send_md_status = False
     if config_gpt.gpt_lgr_markdown and isinstance(event,MessageEvent):
-        await tools.send_text2md(data.msg_recv,str(event.self_id))
+        md_status_tmp = json.loads(mdstatus.read_text())
+        if isinstance(event,PrivateMessageEvent):
+            if event.get_user_id() not in md_status_tmp['private']:
+                send_md_status = True
+        else:
+            id,value = await get_id_from_all(event)
+            if id not in md_status_tmp['group']:
+                send_md_status = True
+    if send_md_status and isinstance(event,MessageEvent):
+        await tools.send_text2md(replace_name(data).msg_recv,str(event.self_id))
         await matcher.finish()
+    elif send_md_status and isinstance(event,QQMessageEvent):
+        #TODO QQ适配器 md模板等兼容发送，待续
+        pass
 
     await matcher.finish(replace_name(data).msg_recv)
     
@@ -621,6 +634,49 @@ async def white_list():
         await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
     else:
         await matcher.finish(QQMessageSegment.file_image(await md_to_pic(msg)))
+        
+async def md_status(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
+    '''md开关'''
+    md_status_tmp = json.loads(mdstatus.read_text())
+    matcher: Matcher = current_matcher.get()
+    if isinstance(event,PrivateMessageEvent):
+        # 私聊协议bot
+        if arg.extract_plain_text().strip() == "开启":
+            if event.get_user_id() not in md_status_tmp["private"]:
+                await matcher.finish("已经开启过了")
+            else:
+                md_status_tmp["private"].remove(event.get_user_id())
+        elif arg.extract_plain_text().strip() == "关闭":
+            if event.get_user_id() in md_status_tmp["private"]:
+                await matcher.finish("已经关闭过了")
+            else:
+                md_status_tmp["private"].append(event.get_user_id())
+        else:
+            await matcher.finish("指令不正确，请输入 md状态开启 或 md状态关闭")
+            
+    else:
+        if isinstance(event,GroupMessageEvent):
+            # 群协议bot，仅管理员
+            if event.sender.role != "owner" and event.sender.role != "admin":
+                await matcher.finish("在群内仅群管理员可修改md状态")
+        id,value = await get_id_from_all(event)
+        if arg.extract_plain_text().strip() == "开启":
+            if id not in md_status_tmp["group"]:
+                await matcher.finish("已经开启过了")
+            else:
+                md_status_tmp["group"].remove(id)
+        elif arg.extract_plain_text().strip() == "关闭":
+            if id in md_status_tmp["group"]:
+                await matcher.finish("已经关闭过了")
+            else:
+                md_status_tmp["group"].append(id)
+        else:
+            await matcher.finish("指令不正确，输入 md状态开启 或 md状态关闭")
+
+        
+    mdstatus.write_text(json.dumps(md_status_tmp))
+    await matcher.finish("状态修改成功")
+    
     
 async def random_cdk_api(arg: QQMessage):
     '''生成用户可用的cdk'''
