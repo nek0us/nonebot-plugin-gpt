@@ -292,9 +292,9 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     else:
         msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(replace_name(data).msg_recv)))
         if isinstance(event,GroupMessageEvent):
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg)
+            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg,bot_id=str(event.self_id))
         else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=msg)
+            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=msg,bot_id=str(event.self_id))
     await matcher.finish()
     
 async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
