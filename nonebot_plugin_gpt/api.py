@@ -529,7 +529,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
         if len(tmp['cid_num']) < len(tmp["token"]):
             for num in range(0,len(tmp["token"])-len(tmp['cid_num'])):
                 tmp['cid_num'] += ['0']
-        msg += f"|{(index+1):03}|{tmp['account'][index]}|{x}|{tmp['work'][index]}|  {int(tmp['cid_num'][index]):03}  |\n"
+        msg += f"|{(index+1):03}|{x}|{tmp['work'][index]}|  {int(tmp['cid_num'][index]):03}|{tmp['account'][index]}|\n"
     
     event = current_event.get()
     if isinstance(event,QQGroupAtMessageCreateEvent):
