@@ -1,14 +1,12 @@
-from pydantic import BaseModel, validator, root_validator
+from pydantic import BaseModel, validator
 from typing import List, Optional
-from playwright._impl._api_structures import ProxySettings
 from nonebot.log import logger
-from nonebot import get_driver
+from nonebot import get_driver,get_plugin_config
 
 from .source import ban_str_path
 
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
-    pywt_proxy: Optional[ProxySettings] = None
     arkose_status: bool = False
     gpt_session: Optional[List[dict]]|str = []
     group_chat: bool = True
@@ -52,12 +50,7 @@ class Config(BaseModel):
         if isinstance(v,str):
             logger.success(f"已应用 gpt_proxy 代理配置：{v}")
             return v
-        
-    @root_validator(pre=False)
-    def set_pywt_proxy(cls, values):
-        gpt_proxy = values.get('gpt_proxy')
-        values['pywt_proxy'] = {"server": gpt_proxy} if gpt_proxy else None
-        return values
+
         
     @validator("arkose_status", always=True, pre=True)
     def check_arkose_status(cls,v):
@@ -170,5 +163,5 @@ class Config(BaseModel):
                 logger.success(f"已关闭 gpt_httpx httpx使用")
             return v    
                          
-config_gpt = Config.parse_obj(get_driver().config)
+config_gpt = get_plugin_config(Config)
 config_nb = get_driver().config
