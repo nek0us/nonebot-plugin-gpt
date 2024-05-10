@@ -286,7 +286,8 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
         tmp[id] = data.conversation_id
         grouppath.write_text(json.dumps(tmp))
         await ban_check(event,matcher,QQMessage(data.msg_recv))
-        
+    if not data.msg_recv:
+        data.msg_recv = f"初始化失败，错误为：\n{data.error_info}"    
     if isinstance(event,QQMessageEvent):
         await matcher.finish(replace_name(data).msg_recv)
     else:
