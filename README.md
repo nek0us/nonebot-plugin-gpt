@@ -195,6 +195,9 @@ SUPERUSERS=["qq num"]
 ### 微软辅助邮箱验证
 当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
 
+### 数据缓存
+见 nonebot_plugin_localstore 插件说明，通常为用户目录下 ./nonebot2/nonebot_plugin_gpt/\{bot_name\}
+
 ### 更新日志
 2024.05.16 0.0.25
 1. 修复websocket账号未正常工作的bug
