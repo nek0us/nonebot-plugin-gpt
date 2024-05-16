@@ -525,7 +525,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     except Exception as e:
         logger.debug(e)
         await matcher.finish()
-    msg = "\n|序号|账户|存活|工作状态|历史会话|\n|:----:|:------:|:------:|:------:|:------:|\n"
+    msg = "\n|序号|存活|工作状态|历史会话|账户|\n|:----:|:------:|:------:|:------:|:------:|\n"
     for index,x in enumerate(tmp["token"]):
         if len(tmp['cid_num']) < len(tmp["token"]):
             for num in range(0,len(tmp["token"])-len(tmp['cid_num'])):
@@ -626,11 +626,18 @@ async def white_list():
     '''获取白名单列表'''
     matcher: Matcher = current_matcher.get()
     white_tmp = json.loads(whitepath.read_text("utf-8"))
+    cdk_list = json.loads(cdklistpath.read_text())
+    cdk_source = json.loads(cdksource.read_text())
+    combined_dict = {cdk_list[key]: cdk_source[key] for key in cdk_list if key in cdk_source}
     msg = "\n|类型|账号|\n|:------:|:------:|\n"
     for x in white_tmp:
         for id in white_tmp[x]:
-            msg += f"|{x}|{str(id)}|\n"
+            if id in combined_dict:
+                msg += f"|{x}|{str(id)}({combined_dict[id]})|\n"
+            else:
+                msg += f"|{x}|{str(id)}|\n"
     event = current_event.get()
+    
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片    
         await matcher.finish(''.join(msg.replace("|:------:|:------:|\n","")))
