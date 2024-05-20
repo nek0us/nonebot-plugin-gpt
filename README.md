@@ -199,6 +199,10 @@ SUPERUSERS=["qq num"]
 见 nonebot_plugin_localstore 插件说明，通常为用户目录下 ./nonebot2/nonebot_plugin_gpt/\{bot_name\}
 
 ### 更新日志
+2024.05.20 0.0.26
+1. 修复非全局代理下，websocket灰度账号代理未生效的问题
+
+
 2024.05.16 0.0.25
 1. 修复websocket账号未正常工作的bug
 2. 跟进openai新（旧）token验证
