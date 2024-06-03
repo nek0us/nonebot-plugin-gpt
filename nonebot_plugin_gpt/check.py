@@ -44,8 +44,8 @@ async def plus_status(event: MessageEvent|QQMessageEvent) -> bool:
                 return True
         ban_tmp = json.loads(banpath.read_text("utf-8"))
         if event.get_user_id() not in ban_tmp:
-            if not config_gpt.gpt_white_list_mode:
-            # 关闭白名单？那放行
+            if not config_gpt.gptplus_white_list_mode:
+            # 关闭gpt4白名单？那放行
                 return True
             # 开了白名单？那检查plus白名单
             white_plus_tmp = json.loads(plusstatus.read_text("utf-8"))

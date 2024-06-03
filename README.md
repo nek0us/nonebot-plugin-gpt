@@ -95,6 +95,7 @@ _✨ NoneBot GPT ✨_
 | gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
 | gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
 | gpt_white_list_mode | 否 | true | bool | 聊天白名单模式 |
+| gptplus_white_list_mode | 否 | true | bool | gptplus聊天白名单模式 |
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
 | gpt_manage_ids | 否 | 无 | List[str] | 超管群/频道id，通过日志等方式获得 |
@@ -223,11 +224,12 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
 ### 更新日志
-2024.06.04 0.0.27
+2024.06.04 0.0.28
 1. 添加gptplus账户支持及其gpt4 4o模型使用
 2. 修复windows下数据目录异常问题
 3. 添加QQ适配器图片发送支持
 4. 优化图片间距
+5. 修复添加账户后，会话数计数错误
 
 
 2024.05.20 0.0.26

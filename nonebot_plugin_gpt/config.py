@@ -16,6 +16,7 @@ class Config(BaseModel):
     gpt_chat_priority: int = 90
     gpt_command_priority: int = 19
     gpt_white_list_mode: bool = True
+    gptplus_white_list_mode: bool = True
     gpt_replay_to_replay: bool = False
     gpt_ban_str: Optional[List[str]]|str = []
     gpt_manage_ids: list = []
@@ -119,7 +120,16 @@ class Config(BaseModel):
             else:
                 logger.success("已关闭 gpt_white_list_mode 白名单模式")
             return v    
-        
+
+    @validator("gptplus_white_list_mode", always=True, pre=True)
+    def check_gptplus_white_list_mode(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gptplus_white_list_mode 白名单模式")
+            else:
+                logger.success("已关闭 gptplus_white_list_mode 白名单模式")
+            return v  
+                
     @validator("gpt_replay_to_replay", always=True, pre=True)
     def check_gpt_replay_to_replay(cls,v):
         if isinstance(v,bool):
