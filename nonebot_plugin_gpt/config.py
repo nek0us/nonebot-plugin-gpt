@@ -28,10 +28,10 @@ class Config(BaseModel):
             if v != []:
                 logger.success(f"已开启 官方管理群 gpt_manage_ids {v}")
             else:
-                logger.warning(f"gpt_manage_ids 未配置")
+                logger.warning("gpt_manage_ids 未配置")
             return v    
         else:
-            logger.warning(f"gpt_manage_ids 配置错误")
+            logger.warning("gpt_manage_ids 配置错误")
         
     @validator("gpt_chat_priority", always=True, pre=True)
     def check_gpt_chat_priority(cls,v):
@@ -56,9 +56,9 @@ class Config(BaseModel):
     def check_arkose_status(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已应用 arkose_status 验证配置")
+                logger.success("已应用 arkose_status 验证配置")
             else:
-                logger.success(f"已关闭 arkose_status 验证配置")
+                logger.success("已关闭 arkose_status 验证配置")
             return v
         
         
@@ -66,9 +66,9 @@ class Config(BaseModel):
     def check_group_chat(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 group_chat 多人识别配置")
+                logger.success("已开启 group_chat 多人识别配置")
             else:
-                logger.success(f"已关闭 group_chat 多人识别配置")
+                logger.success("已关闭 group_chat 多人识别配置")
             return v    
         
     @validator("gpt_chat_start", always=True, pre=True)
@@ -82,18 +82,18 @@ class Config(BaseModel):
     def check_gpt_chat_start_in_msg(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 gpt_chat_start_in_msg 聊天前缀加入消息")
+                logger.success("已开启 gpt_chat_start_in_msg 聊天前缀加入消息")
             else:
-                logger.success(f"已关闭 gpt_chat_start_in_msg 聊天前缀加入消息")
+                logger.success("已关闭 gpt_chat_start_in_msg 聊天前缀加入消息")
             return v    
             
     @validator("begin_sleep_time", always=True, pre=True)
     def check_begin_sleep_time(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 随机延迟登录")
+                logger.success("已开启 随机延迟登录")
             else:
-                logger.success(f"已关闭 随机延迟登录")
+                logger.success("已关闭 随机延迟登录")
             return v 
         
     @validator("gpt_session", always=True, pre=True)
@@ -106,27 +106,27 @@ class Config(BaseModel):
                 if num > 0:
                     logger.success(f"已配置 {str(num)} 个账号信息")
                 else:
-                    logger.warning(f"账号信息数量异常，请检查")
+                    logger.warning("账号信息数量异常，请检查")
                 return v 
-        except:
-            logger.warning(f"未检测到符合条件的账号信息")
+        except Exception:
+            logger.warning("未检测到符合条件的账号信息")
 
     @validator("gpt_white_list_mode", always=True, pre=True)
     def check_gpt_white_list_mode(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 gpt_white_list_mode 白名单模式")
+                logger.success("已开启 gpt_white_list_mode 白名单模式")
             else:
-                logger.success(f"已关闭 gpt_white_list_mode 白名单模式")
+                logger.success("已关闭 gpt_white_list_mode 白名单模式")
             return v    
         
     @validator("gpt_replay_to_replay", always=True, pre=True)
     def check_gpt_replay_to_replay(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 gpt_replay_to_replay 回复 回复消息")
+                logger.success("已开启 gpt_replay_to_replay 回复 回复消息")
             else:
-                logger.success(f"已关闭 gpt_replay_to_replay 回复 回复消息")
+                logger.success("已关闭 gpt_replay_to_replay 回复 回复消息")
             return v      
         
     @validator("gpt_ban_str", always=True, pre=True)
@@ -137,30 +137,30 @@ class Config(BaseModel):
                 v = ban_str
                 if v:
                     ban_str_path.write_text('\n'.join(v))
-                    logger.success(f"已应用 gpt_ban_str 屏蔽词列表")
+                    logger.success("已应用 gpt_ban_str 屏蔽词列表")
                 else:
-                    logger.warning(f"未配置 gpt 屏蔽词")
+                    logger.warning("未配置 gpt 屏蔽词")
                 return v 
-            logger.warning(f"未配置 gpt 屏蔽词")
-        except Exception as e:
-            logger.warning(f"未配置 gpt 屏蔽词")
+            logger.warning("未配置 gpt 屏蔽词")
+        except Exception:
+            logger.warning("未配置 gpt 屏蔽词")
 
     @validator("gpt_lgr_markdown", always=True, pre=True)
     def check_gpt_lgr_markdown(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 gpt_lgr_markdown 拉格兰MarkDown转换")
+                logger.success("已开启 gpt_lgr_markdown 拉格兰MarkDown转换")
             else:
-                logger.success(f"已关闭 gpt_lgr_markdown 拉格兰MarkDown转换")
+                logger.success("已关闭 gpt_lgr_markdown 拉格兰MarkDown转换")
             return v               
 
     @validator("gpt_httpx", always=True, pre=True)
     def check_gpt_httpx(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success(f"已开启 gpt_httpx httpx使用")
+                logger.success("已开启 gpt_httpx httpx使用")
             else:
-                logger.success(f"已关闭 gpt_httpx httpx使用")
+                logger.success("已关闭 gpt_httpx httpx使用")
             return v    
                          
 config_gpt = get_plugin_config(Config)

@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import List, Literal,Dict
 import json
 
-from .source import banpath,ban_str_path,whitepath
+from .source import banpath,ban_str_path,whitepath,plusstatus
 from .config import config_gpt,config_nb
 
 # 获取id    
@@ -30,14 +30,29 @@ async def get_id_from_all(event: MessageEvent|QQMessageEvent):
     if isinstance(event,GroupMessageEvent):
         id = str(event.group_id)
         value = "group"
-    elif isinstance(event,PrivateMessageEvent):
-        id = str(event.user_id)
-        value = "private"
     elif isinstance(event,QQMessageEvent):
         id,value = await get_id_from_guild_group(event)
     else:
-        id,value = "",""
+        id = str(event.user_id)
+        value = "private"
     return id,value
+    
+async def plus_status(event: MessageEvent|QQMessageEvent) -> bool:
+    if event.to_me:
+        if isinstance(event,MessageEvent):
+            if event.get_user_id() in config_nb.superusers:
+                return True
+        ban_tmp = json.loads(banpath.read_text("utf-8"))
+        if event.get_user_id() not in ban_tmp:
+            if not config_gpt.gpt_white_list_mode:
+            # 关闭白名单？那放行
+                return True
+            # 开了白名单？那检查plus白名单
+            white_plus_tmp = json.loads(plusstatus.read_text("utf-8"))
+            id,value = await get_id_from_all(event)
+            if id in white_plus_tmp:
+                return True
+    return False
 
 
 async def gpt_rule(event: MessageEvent|QQMessageEvent) -> bool:
@@ -71,11 +86,15 @@ async def gpt_manage_rule(event: MessageEvent|QQMessageEvent) -> bool:
                 return True
     return False
 
-async def add_white(num: str,this_type: Literal["group", "private", "qqgroup", "qqguild"] = "group"):
+async def add_white(num: str,this_type: Literal["group", "private", "qqgroup", "qqguild"] = "group",plus: bool = False):
     '''添加白名单'''
-    white_tmp: Dict[str, List[str]] = json.loads(whitepath.read_text("utf-8"))
+    white_tmp: Dict[str, List[str]] =  json.loads(whitepath.read_text("utf-8")) 
     if num in white_tmp[this_type]:
         return "白名单已存在"
+    if plus:
+        plus_tmp = json.loads(plusstatus.read_text("utf-8")) 
+        plus_tmp[num] = "text-davinci-002-render-sha"
+        plusstatus.write_text(json.dumps(plus_tmp))
     white_tmp[this_type].append(num)
     whitepath.write_text(json.dumps(white_tmp))
     return "添加成功"
@@ -85,6 +104,10 @@ async def del_white(num: str,this_type: Literal["group", "private", "qqgroup", "
     white_tmp: Dict[str, List[str]] = json.loads(whitepath.read_text("utf-8"))
     if num not in white_tmp[this_type]:
         return "不在白名单中"
+    plus_tmp = json.loads(plusstatus.read_text("utf-8")) 
+    if num in plus_tmp:
+        del plus_tmp[num]
+    plusstatus.write_text(json.dumps(plus_tmp))
     white_tmp[this_type].remove(num)
     whitepath.write_text(json.dumps(white_tmp))
     return "删除成功"

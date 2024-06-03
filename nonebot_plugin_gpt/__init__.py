@@ -2,14 +2,11 @@ from ChatGPTWeb import chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_command,on_message
-from nonebot.adapters.onebot.v11 import Bot,Message,MessageEvent
+from nonebot.adapters.onebot.v11 import Message,MessageEvent
 from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent
-from nonebot.adapters.qq.event import AtMessageCreateEvent as QQAtMessageCreateEvent
 from nonebot.adapters.qq.message import Message as QQMessage
 from nonebot.matcher import Matcher
 from nonebot.params import Arg, CommandArg,EventMessage
-from nonebot.rule import to_me
-from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
@@ -18,8 +15,41 @@ import asyncio
 
 
 from .config import config_gpt,Config
-from .source import *
-from .api import *
+from .source import data_dir
+from .check import gpt_manage_rule,gpt_rule,plus_status
+
+from .api import (
+    add_default_ps,
+    chat_msg,
+    reset_history,
+    back_last,
+    back_anywhere,
+    init_gpt,
+    ps_list,
+    cat_ps,
+    add_ps1,
+    add_ps2,
+    add_ps3,
+    add_ps4,
+    add_ps5,
+    del_ps,
+    chatmsg_history,
+    status_pic,
+    black_list,
+    remove_ban_user,
+    add_white_list,
+    del_white_list,
+    white_list,
+    md_status,
+    get_id_from_guild_group,
+    random_cdk_api,
+    add_checker_api,
+    add_plus,
+    del_plus,
+    plus_change,
+    plus_all_status
+    
+)
 
 try:
     __version__ = version("nonebot_plugin_gpt")
@@ -35,7 +65,7 @@ __plugin_meta__ = PluginMetadata(
 | 指令 | 适配器 | 权限 | 需要@ | 范围 |  说明 |
 |:-----:|:----:|:----:|:----:|:----:|:----:|
 | @bot 聊天内容... | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | @或者叫名+内容 开始聊天，随所有者白名单模式设置改变 |
-| 初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 初始化 <人设名> |
+| 初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 初始化(人设名) |
 | 重置 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到初始化人设后的第二句话时 |
 | 重置上一句 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 刷新上一句的回答 |
 | 回到过去 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到过去 <对话序号/p_id/最后一次出现的关键词> ，回到括号内的对话时间点|
@@ -43,16 +73,22 @@ __plugin_meta__ = PluginMetadata(
 | 查看人设 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看人设的具体内容 |
 | 添加人设 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 添加人设 (人设名) |
 | 历史聊天 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看当前人格历史聊天记录 |
+| md状态开启 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自开启markdown输出内容 |
+| md状态关闭 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自关闭markdown输出内容 |
 | 删除人设 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除人设 (人设名) |
 | 黑名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看黑名单列表 |
-| 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑 <账号> ，解除黑名单 |
+| 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
-| 添加白名单 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加白名单 <账号/群号> (个人/群) ，添加白名单，最后不写默认为群 |
-| 删除白名单 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除白名单 <账号/群号> (个人/群) ，删除白名单，最后不写默认为群 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
+| 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus 群号/账号/QQ适配器openid |
+| 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus 群号/账号/QQ适配器openid |
+| plus切换 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | plus切换 <模型名称> ，如 3.5/4/4o，白名单状态开启后，仅支持有plus状态的|
+| 全局plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 全局plus 开启/关闭，关闭后所有人的plus状态不可用，仅能使用3.5模型，超管自己除外 |
+| 删除白名单 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除白名单 <账号/群号> (个人/群) ，删除白名单，最后不写默认为群 |
+| 添加白名单 | OneBot | 超级管理员/超管群 | 是 | 群聊/私聊 | 添加白名单(plus) <账号/群号> (个人/群) ，添加白名单，最后不写默认为群，加了plus字样则默认同时添加进plus状态 |
 | 获取本地id | qq | 无/白名单 | 是 | 群聊/频道 | 群聊内获取id |
 | 生成cdk | qq | 超管群 | 是 | 群聊/频道 | 生成cdk <群号/其他信息>，以绑定信息方式生成白名单cdk |
-| 出现吧 | qq | 无| 是 | 群聊/频道 | 出现吧 <cdk>，以绑定id形式使用cdk加入白名单 |
+| 出现吧 | qq | 无 | 是 | 群聊/频道 | 出现吧 <cdk>，以绑定id形式使用cdk加入白名单 |
 | 结束吧 | qq | 白名单 | 是 | 群聊/频道 | 结束吧 ，用户自主解除白名单 |
     """,
     type="application",
@@ -91,17 +127,18 @@ if isinstance(config_gpt.gpt_session,list):
     @chat.handle()
     async def chat_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
         await chat_msg(event,chatbot,text)
-                
+
+                        
     reset = on_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
-    async def reset_handle(event: MessageEvent|QQMessageEvent):
-        await reset_history(event,chatbot)
+    async def reset_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
+        await reset_history(event,chatbot,text)
     
             
     last = on_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()
-    async def last_handle(event: MessageEvent|QQMessageEvent):
-        await back_last(event,chatbot)
+    async def last_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
+        await back_last(event,chatbot,text)
             
             
     back = on_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -157,8 +194,8 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat_history = on_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(event: MessageEvent|QQMessageEvent):
-        await chatmsg_history(event,chatbot)
+    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
+        await chatmsg_history(event,chatbot,text)
 
             
     status = on_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -176,11 +213,6 @@ if isinstance(config_gpt.gpt_session,list):
     async def ban_del_handle(arg: Message|QQMessage = CommandArg()):
         await remove_ban_user(arg)
         
-    add_white_cmd = on_command("添加白名单",aliases={"加白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
-    @add_white_cmd.handle()
-    async def add_white_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
-        await add_white_list(arg)
-        
     del_white_cmd = on_command("删除白名单",aliases={"解除白名单","解白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_white_cmd.handle()
     async def del_white_handle(arg: Message|QQMessage = CommandArg()):
@@ -196,6 +228,33 @@ if isinstance(config_gpt.gpt_session,list):
     async def md_status_cmd_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
         await md_status(event,arg)
         
+    add_plus_cmd = on_command("添加plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @add_plus_cmd.handle()
+    async def add_plus_handle(arg: Message|QQMessage = CommandArg()):
+        await add_plus(arg)
+    
+    del_plus_cmd = on_command("删除plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @del_plus_cmd.handle()
+    async def del_plus_handle(arg: Message|QQMessage = CommandArg()):
+        await del_plus(arg)
+    
+    plus_change_cmd = on_command("plus切换",rule=plus_status,priority=config_gpt.gpt_command_priority,block=True)
+    @plus_change_cmd.handle()
+    async def plus_change_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
+        await plus_change(event,arg)
+    
+    plus_all_status_cmd = on_command("全局plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @plus_all_status_cmd.handle()
+    async def plus_all_status_handle(arg: Message|QQMessage = CommandArg()):
+        await plus_all_status(arg)
+    
+    
+    
+    # ------------------------------ adapter-OneBot        
+    add_white_cmd = on_command("添加白名单",aliases={"加白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @add_white_cmd.handle()
+    async def add_white_handle(arg: Message = CommandArg()):
+        await add_white_list(arg)
         
     # ------------------------------ adapter-qq
     get_local_id = on_command("获取本地id",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)

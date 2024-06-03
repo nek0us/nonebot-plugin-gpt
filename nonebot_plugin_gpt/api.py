@@ -1,5 +1,5 @@
 
-from nonebot.adapters.onebot.v11 import Bot,Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
@@ -7,17 +7,45 @@ from ChatGPTWeb.config import MsgData
 from nonebot.log import logger
 from nonebot.typing import T_State
 from nonebot import require
-require("nonebot_plugin_htmlrender")
-from nonebot_plugin_htmlrender import md_to_pic
 from nonebot_plugin_sendmsg_by_bots import tools
 from more_itertools import chunked
+from base64 import b64encode
 import json
 import re
 import uuid
 
 from .config import config_gpt,config_nb
-from .source import *
-from .check import *
+from .source import (
+    grouppath,
+    privatepath,
+    mdstatus,
+    personpath,
+    whitepath,
+    cdklistpath,
+    cdksource,
+    ban_str_path,
+    banpath,
+    plusstatus,
+    
+)
+from .check import (
+    QQMessageEvent,
+    QQMessage,
+    QQGroupAtMessageCreateEvent,
+    QQAtMessageCreateEvent,
+    QQMessageSegment,
+    get_id_from_guild_group,
+    get_id_from_all,
+    ban_check,
+    add_ban,
+    add_white,
+    del_white,
+    
+    
+    
+)
+require("nonebot_plugin_htmlrender")
+from nonebot_plugin_htmlrender import md_to_pic  # noqa: E402
 
 
 bot_name = list(config_nb.nickname)
@@ -50,6 +78,30 @@ def replace_name(data: MsgData) -> MsgData:
     for name in bot_name:
         data.msg_recv = data.msg_recv.replace(f"{name}：","").replace(f"{name}:","")
     return data
+
+def get_c_id(id:str, data: MsgData) -> MsgData:
+    tmp = json.loads(grouppath.read_text("utf-8"))
+    if data.gpt_model == "gpt-4":
+        if id + '-gpt-4' in tmp:
+            data.conversation_id = tmp[id + '-gpt-4']
+    elif data.gpt_model == "gpt-4o":
+        if id + '-gpt-4o' in tmp:
+            data.conversation_id = tmp[id + '-gpt-4o']
+    else:
+        if id in tmp:
+            data.conversation_id = tmp[id]
+    return data
+
+def set_c_id(id:str, data: MsgData):
+    tmp = json.loads(grouppath.read_text("utf-8"))
+    if data.gpt_model == "gpt-4":
+        tmp[id + '-gpt-4'] = data.conversation_id
+    elif data.gpt_model == "gpt-4o":
+        tmp[id + '-gpt-4o'] = data.conversation_id
+    else:
+        tmp[id] = data.conversation_id
+    grouppath.write_text(json.dumps(tmp)) 
+    
     
 async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
     '''聊天处理'''
@@ -60,6 +112,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         chat_start = [gpt_start for gpt_start in config_gpt.gpt_chat_start if event.get_plaintext().startswith(gpt_start)]
         if chat_start:
             text = Message(text.extract_plain_text()[len(chat_start[0]):])
+    
     text_handle = text.extract_plain_text()
     if isinstance(event,MessageEvent):
         if event.reply:
@@ -83,10 +136,14 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
                 text_handle = f"{bot_name[0]}" 
             else:
                 text_handle = text.extract_plain_text()
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
     if isinstance(event,GroupMessageEvent):
+        data = get_c_id(str(event.group_id),data)
         tmp = json.loads(grouppath.read_text("utf-8"))
-        if str(event.group_id) in tmp:
-            data.conversation_id = tmp[str(event.group_id)]
         if config_gpt.group_chat:
             data.msg_send = f'{event.get_user_id()}对你说：{text_handle}'
         else:
@@ -95,29 +152,22 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         data.msg_send=data.msg_send.replace("CQ:at,qq=","")
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            tmp[str(event.group_id)] = data.conversation_id
-            grouppath.write_text(json.dumps(tmp))
+            set_c_id(str(event.group_id),data)
             data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
         
     elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf-8"))
-        if event.get_user_id() in tmp:
-            data.conversation_id = tmp[event.get_user_id()]
+        data = get_c_id(event.get_user_id(),data)
         data.msg_send=event.raw_message
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            tmp[str(event.user_id)] = data.conversation_id
-            privatepath.write_text(json.dumps(tmp))
+            set_c_id(event.get_user_id(),data)
     elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
         id,value = await get_id_from_guild_group(event)
-        if id in tmp:
-            data.conversation_id = tmp[id]
+        data = get_c_id(id,data)
         data.msg_send=text_handle
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            tmp[id] = data.conversation_id
-            grouppath.write_text(json.dumps(tmp))
+            set_c_id(id,data)
         
     if data.error_info and not data.msg_recv:
         data.msg_recv = data.error_info
@@ -144,58 +194,37 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     await matcher.finish(replace_name(data).msg_recv)
     
 
-async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
+async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
     '''重置'''
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
     data = MsgData() 
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
+    data = get_c_id(id,data)  
+    data = await chatbot.back_init_personality(data)  
     if isinstance(event,GroupMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        if str(event.group_id) in tmp:
-            data.conversation_id = tmp[str(event.group_id)]
-        data = await chatbot.back_init_personality(data)
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
-        
-    elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf-8"))
-        if event.get_user_id() in tmp:
-            data.conversation_id = tmp[event.get_user_id()]
-        data = await chatbot.back_init_personality(data)
-    elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        id,value = await get_id_from_guild_group(event)
-        if id in tmp:
-            data.conversation_id = tmp[id]
-        data = await chatbot.back_init_personality(data)
-        
     await matcher.finish(replace_name(data).msg_recv)
 
-async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
+async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
     '''重置上一句'''
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
     data = MsgData() 
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
+    data = get_c_id(id,data)  
+    data.msg_send = "-1"
+    data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        if str(event.group_id) in tmp:
-            data.conversation_id = tmp[str(event.group_id)]
-            data.msg_send = "-1"
-        data = await chatbot.back_chat_from_input(data)
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
-        
-    elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf-8"))
-        if event.get_user_id() in tmp:
-            data.conversation_id = tmp[event.get_user_id()]
-        data.msg_send = "-1"
-        data = await chatbot.back_chat_from_input(data)
-    elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        id,value = await get_id_from_guild_group(event)
-        if id in tmp:
-            data.conversation_id = tmp[id]
-        data.msg_send = "-1"
-        data = await chatbot.back_chat_from_input(data)
     await matcher.finish(replace_name(data).msg_recv)
     
 async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: Message|QQMessage):
@@ -203,29 +232,16 @@ async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: 
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
     data = MsgData() 
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
+    data = get_c_id(id,data)  
+    data.msg_send = arg.extract_plain_text()
+    data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        if str(event.group_id) in tmp:
-            data.conversation_id = tmp[str(event.group_id)]
-            data.msg_send = arg.extract_plain_text()
-        data = await chatbot.back_chat_from_input(data)
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
-        
-    elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf-8"))
-        if event.get_user_id() in tmp:
-            data.conversation_id = tmp[event.get_user_id()]
-        data.msg_send = arg.extract_plain_text()
-        data = await chatbot.back_chat_from_input(data)
-    
-    elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        id,value = await get_id_from_guild_group(event)
-        if id in tmp:
-            data.conversation_id = tmp[id]
-            data.msg_send = arg.extract_plain_text()
-            data = await chatbot.back_chat_from_input(data)
-            
     await matcher.finish(replace_name(data).msg_recv)
     
 async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Message|QQMessage):
@@ -235,6 +251,11 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     data = MsgData()
     if arg.extract_plain_text() == '':
         arg = Message("默认")
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
     person_type = json.loads(personpath.read_text("utf8"))
     if " " in arg.extract_plain_text():
         data.msg_send = arg.extract_plain_text().split(" ")[0]
@@ -244,50 +265,26 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
                 await matcher.finish("别人的私有人设不可以用哦")
         
         if arg.extract_plain_text().split(" ")[1] == "继续":
-            if isinstance(event,GroupMessageEvent):
-                tmp = json.loads(grouppath.read_text("utf-8"))
-                if str(event.group_id) in tmp:
-                    data.conversation_id = tmp[str(event.group_id)]
-            elif isinstance(event,PrivateMessageEvent):
-                tmp = json.loads(privatepath.read_text("utf-8"))
-                if event.get_user_id() in tmp:
-                    data.conversation_id = tmp[event.get_user_id()]
-            elif isinstance(event,QQMessageEvent):
-                tmp = json.loads(grouppath.read_text("utf-8"))
-                id,value = await get_id_from_guild_group(event)
-                if id in tmp:
-                    data.conversation_id = tmp[id]
+            data = get_c_id(id,data)  
     else:
         data.msg_send = arg.extract_plain_text()
         if person_type[data.msg_send]['open'] != '':
             if event.get_user_id() != person_type[data.msg_send]['open']:
                 await matcher.finish("别人的私有人设不可以用哦")
-    #data.msg_send = arg.extract_plain_text()
+    
     if isinstance(event,GroupMessageEvent):
         if person_type[data.msg_send]['r18']:
             if event.sender.role != "owner" and event.sender.role != "admin":
                 await matcher.finish("在群里仅群管理员可初始化r18人设哦")
     data = await chatbot.init_personality(data)
-    if isinstance(event,GroupMessageEvent):
-        
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        tmp[str(event.group_id)] = data.conversation_id
-        grouppath.write_text(json.dumps(tmp))
-        data = await group_handle(data,await tools.get_group_member_list(event.group_id))
-        await ban_check(event,matcher,Message(data.msg_recv))
-    elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf-8"))
-        tmp[str(event.user_id)] = data.conversation_id
-        privatepath.write_text(json.dumps(tmp))
-        await ban_check(event,matcher,Message(data.msg_recv))
-    elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf-8"))
-        id,value = await get_id_from_guild_group(event)
-        tmp[id] = data.conversation_id
-        grouppath.write_text(json.dumps(tmp))
-        await ban_check(event,matcher,QQMessage(data.msg_recv))
+    
     if not data.msg_recv:
-        data.msg_recv = f"初始化失败，错误为：\n{data.error_info}"    
+        await matcher.finish( f"初始化失败，错误为：\n{data.error_info}")
+    set_c_id(id,data)    
+    if isinstance(event,GroupMessageEvent):
+        data = await group_handle(data,await tools.get_group_member_list(event.group_id))
+    await ban_check(event,matcher,Message(data.msg_recv))
+    
     if isinstance(event,QQMessageEvent):
         await matcher.finish(replace_name(data).msg_recv)
     else:
@@ -313,19 +310,19 @@ async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
         r18 = "是" if person_type[x.get('name')]['r18'] else "否"
         open = "否" if person_type[x.get('name')]['open'] else "是"
         if isinstance(event,MessageEvent):
-            person_list.append(MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text(f"{(index+1):02}  {x.get('name')}  {r18}  {open} "))))
+            person_list.append(MessageSegment.node_custom(user_id=event.self_id,nickname="0",content=Message(MessageSegment.text(f"{(index+1):02}  {x.get('name')}  {r18}  {open} ")))) # type: ignore
         else:
-            person_list += f"|{(index+1):03}|{x.get('name')}|{r18}|{open}|\n"
+            person_list += f"|{(index+1):03}|{x.get('name')}|{r18}|{open}|\n" # type: ignore
             
     if isinstance(event,MessageEvent):        
         if isinstance(event,GroupMessageEvent):
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list)
+            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list) # type: ignore
         else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list)
+            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list) # type: ignore
     else:
         if isinstance(event,QQGroupAtMessageCreateEvent):
-            await matcher.finish(person_list.replace("|:----:|:------:|:------:|:------:|\n",""))
-        img = await md_to_pic(person_list)
+            await matcher.finish(person_list.replace("|:----:|:------:|:------:|:------:|\n","")) # type: ignore
+        img = await md_to_pic(person_list) # type: ignore
         await matcher.finish(QQMessageSegment.file_image(img))
     await matcher.finish()
                 
@@ -465,21 +462,23 @@ async def del_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg :Messag
     try:
         del person_type[arg.extract_plain_text()]
         personpath.write_text(json.dumps(person_type))
-    except:
+    except Exception:
         await matcher.finish("没有找到这个人设")
     await matcher.finish(await chatbot.del_personality(arg.extract_plain_text()))
     
-async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
+async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
     '''历史记录'''
     data = MsgData()
+    # 检测plus模型状态
+    plus_tmp = json.loads(plusstatus.read_text())
+    id,value = await get_id_from_all(event)
+    if id in plus_tmp and plus_tmp['status']:
+        data.gpt_model = plus_tmp[id]
+    data = get_c_id(id,data)
     matcher: Matcher = current_matcher.get()
+    if not data.conversation_id:
+        await matcher.finish("还没有聊天记录")  
     if isinstance(event,GroupMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf8"))
-        if str(event.group_id) in tmp:
-            data.conversation_id = tmp[str(event.group_id)]
-        else:
-            await matcher.finish("还没有聊天记录")    
-            
         chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
         # chat_his = await node_msg(10000,await chatbot.show_chat_history(data))
         if len(chat_his) > 100:
@@ -489,12 +488,7 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
         else:
             await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his)
         
-    elif isinstance(event,PrivateMessageEvent):
-        tmp = json.loads(privatepath.read_text("utf8"))
-        if event.get_user_id() in tmp:
-            data.conversation_id = tmp[event.get_user_id()]
-        else:
-            await matcher.finish("还没有聊天记录")  
+    elif isinstance(event,PrivateMessageEvent): 
         chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
         
         if len(chat_his) > 200:
@@ -504,12 +498,6 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
         else:
             await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his)
     elif isinstance(event,QQMessageEvent):
-        tmp = json.loads(grouppath.read_text("utf8"))
-        id,value = await get_id_from_guild_group(event)
-        if id in tmp:
-            data.conversation_id = tmp[id]
-        else:
-            await matcher.finish("还没有聊天记录")  
         res = await chatbot.show_chat_history(data)
         await matcher.finish('\n'.join(res))
         
@@ -521,25 +509,25 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     try:
         tmp = await chatbot.token_status()
         if len(tmp["token"]) != len(tmp["work"]):
-            await matcher.finish(f"似乎还没启动完咩")
+            await matcher.finish("似乎还没启动完咩")
     except Exception as e:
         logger.debug(e)
         await matcher.finish()
-    msg = "\n|序号|存活|工作状态|历史会话|账户|\n|:----:|:------:|:------:|:------:|:------:|\n"
+    msg = "\n|序号|存活|工作状态|历史会话|plus|账户|\n|:----:|:------:|:------:|:------:|:------:|:------:|\n"
     for index,x in enumerate(tmp["token"]):
         if len(tmp['cid_num']) < len(tmp["token"]):
             for num in range(0,len(tmp["token"])-len(tmp['cid_num'])):
                 tmp['cid_num'] += ['0']
-        msg += f"|{(index+1):03}|{x}|{tmp['work'][index]}|  {int(tmp['cid_num'][index]):03}|{tmp['account'][index]}|\n"
+        msg += f"|{(index+1):03}|{x}|{tmp['work'][index]}|  {int(tmp['cid_num'][index]):03}|{tmp['plus'][index]}|{tmp['account'][index]}|\n"
     
     event = current_event.get()
-    if isinstance(event,QQGroupAtMessageCreateEvent):
-        #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg.replace(".com","").replace("|:----:|:------:|:------:|:------:|:------:|\n","")))
+    img = await md_to_pic(msg)
+    if isinstance(event,QQGroupAtMessageCreateEvent):  
+        await matcher.finish(QQMessageSegment.file_image(b64encode(img).decode('utf-8'))) # type: ignore
     elif isinstance(event,MessageEvent):
-        await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
+        await matcher.finish(MessageSegment.image(file=img))
     else:
-        await matcher.finish(QQMessageSegment.file_image(await md_to_pic(msg)))
+        await matcher.finish(QQMessageSegment.file_image(img))
     
 async def black_list(event: MessageEvent|QQMessageEvent):
     '''黑名单列表'''
@@ -548,13 +536,14 @@ async def black_list(event: MessageEvent|QQMessageEvent):
     msg = "\n|账户|内容|\n|:------:|:------:|\n"
     for x in ban_tmp:
         msg += f"|{x}|{ban_tmp[x][0]}|\n"
+    img = await md_to_pic(msg, width=650)
     if isinstance(event,QQGroupAtMessageCreateEvent):
-        #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg.replace("|:------:|:------:|\n","")))
+        #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
+        await matcher.finish(QQMessageSegment.file_image(b64encode(img).decode('utf-8'))) # type: ignore
     elif isinstance(event,MessageEvent):
-        await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
+        await matcher.finish(MessageSegment.image(file=img))
     else:
-        await matcher.finish(QQMessageSegment.file_image(await md_to_pic(msg)))
+        await matcher.finish(QQMessageSegment.file_image(img))
     
 async def remove_ban_user(arg: Message|QQMessage):
     ''''解黑'''
@@ -563,39 +552,38 @@ async def remove_ban_user(arg: Message|QQMessage):
     try:
         del ban_tmp[arg.extract_plain_text()]
         banpath.write_text(json.dumps(ban_tmp))
-    except:
+    except Exception:
         await matcher.finish("失败")
     
     await matcher.finish("成功")
     
-async def add_white_list(arg: Message|QQMessage|str):
-    '''加白 传入消息则消息为目标群号，传str则它为群号'''
+async def add_white_list(arg: Message|QQMessage):
+    '''OneBot适配器加白 传入消息则消息为目标群号，传str则它为群号'''
     matcher: Matcher = current_matcher.get()
     ban_tmp = json.loads(banpath.read_text("utf-8"))
     id = ""
-    this_type = "group"
-    event = current_event.get()
-    if isinstance(event,QQGroupAtMessageCreateEvent):
-        this_type = "qqgroup"
-    elif isinstance(event,QQAtMessageCreateEvent):
-        this_type = "qqguild"
-    if isinstance(arg,str):
-        id = arg
+    if isinstance(arg, QQMessage):
+        id,this_type = await get_id_from_guild_group(event=current_event.get()) # type: ignore
     else:
-        if " " in arg.extract_plain_text():
-            sp = arg.extract_plain_text().split(" ")
-            id = sp[0]
-            this_type = sp[1]
-            if this_type not in ["group","private","群","个人"]:
-                await matcher.finish(f"白名单类型错误了，仅支持 群 / 个人，不输入默认为群")
-            this_type = "group" if this_type == "群" else "private"
-        else:
-            id = arg.extract_plain_text()
-            
-        if id in ban_tmp:
-            await matcher.finish(f"对方在黑名单中哦，真的要继续吗？")
+        this_type = "group"
+    plus = False
+    if arg.extract_plain_text().startswith("plus"):
+        plus = True
+        arg = Message(arg.extract_plain_text()[4:])
+    if " " in arg.extract_plain_text():
+        sp = arg.extract_plain_text().split(" ")
+        id = sp[0]
+        this_type = sp[1]
+        if this_type not in ["group","private","群","个人"]:
+            await matcher.finish("白名单类型错误了，仅支持 群 / 个人，不输入默认为群")
+        this_type = "group" if this_type == "群" else "private"
+    else:
+        id = arg.extract_plain_text()
         
-    await matcher.finish(await add_white(id, this_type))
+    if id in ban_tmp:
+        await matcher.finish("对方在黑名单中哦，真的要继续吗？")
+        
+    await matcher.finish(await add_white(id, this_type, plus))
     
 async def del_white_list(arg: Message|QQMessage|str):
     '''删除白名单'''
@@ -615,7 +603,7 @@ async def del_white_list(arg: Message|QQMessage|str):
             id = sp[0]
             this_type = sp[1]
             if this_type not in ["group","private","群","个人"]:
-                await matcher.finish(f"白名单类型错误了，仅支持 群 / 个人，不输入默认为群")
+                await matcher.finish("白名单类型错误了，仅支持 群 / 个人，不输入默认为群")
             this_type = "group" if this_type == "群" else "private"
         else:
             id = arg.extract_plain_text()
@@ -629,22 +617,29 @@ async def white_list():
     cdk_list = json.loads(cdklistpath.read_text())
     cdk_source = json.loads(cdksource.read_text())
     combined_dict = {cdk_list[key]: cdk_source[key] for key in cdk_list if key in cdk_source}
-    msg = "\n|类型|账号|\n|:------:|:------:|\n"
+    plus_status_tmp = json.loads(plusstatus.read_text())
+    msg = "\n|类型|账号|plus|\n|:------:|:------:|:------:|\n"
     for x in white_tmp:
         for id in white_tmp[x]:
             if id in combined_dict:
-                msg += f"|{x}|{str(id)}({combined_dict[id]})|\n"
+                if id in plus_status_tmp:
+                    msg += f"|{x}|{str(id)}({combined_dict[id]})|plus|\n"
+                else:
+                    msg += f"|{x}|{str(id)}({combined_dict[id]})| |\n"
             else:
-                msg += f"|{x}|{str(id)}|\n"
+                if id in plus_status_tmp:
+                    msg += f"|{x}|{str(id)}|plus|\n"
+                else:
+                    msg += f"|{x}|{str(id)}| |\n"
     event = current_event.get()
-    
+    white_list_img = await md_to_pic(msg, width=650)
     if isinstance(event,QQGroupAtMessageCreateEvent):
-        #qq适配器的QQ群，暂不支持直接发送图片    
-        await matcher.finish(''.join(msg.replace("|:------:|:------:|\n","")))
+        #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
+        await matcher.finish(QQMessageSegment.file_image(b64encode(white_list_img).decode('utf-8'))) # type: ignore
     elif isinstance(event,MessageEvent):
-        await matcher.finish(MessageSegment.image(file=await md_to_pic(msg)))
+        await matcher.finish(MessageSegment.image(file=white_list_img))
     else:
-        await matcher.finish(QQMessageSegment.file_image(await md_to_pic(msg)))
+        await matcher.finish(QQMessageSegment.file_image(white_list_img))
         
 async def md_status(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
     '''md开关'''
@@ -696,7 +691,9 @@ async def random_cdk_api(arg: QQMessage):
         logger.debug("cdk需要申请人信息")
         await matcher.finish("cdk需要申请人信息")
     key = uuid.uuid4().hex
+    # cdk_list 存储cdk对应QQ适配器群聊ID
     cdk_list = json.loads(cdklistpath.read_text())
+    # cdk_source 存储cdk对应申请人信息
     cdk_source = json.loads(cdksource.read_text())
     cdk_list[key] = None
     cdk_source[key] = arg.extract_plain_text()
@@ -722,4 +719,60 @@ async def add_checker_api(event: QQMessageEvent,arg: QQMessage):
     cdklistpath.write_text(json.dumps(cdk_list))
     
     # 再弄白名单列表
-    await add_white_list(id)
+    await add_white_list(QQMessage(id))
+    
+async def add_plus(arg: Message|QQMessage):
+    '''超管添加用户plus'''
+    plus_status_tmp = json.loads(plusstatus.read_text())
+    matcher: Matcher = current_matcher.get()
+    if arg.extract_plain_text() in plus_status_tmp:
+        await matcher.finish(f"{arg.extract_plain_text()} 已经添加过了")
+    plus_status_tmp[arg.extract_plain_text()] = "text-davinci-002-render-sha"
+    plusstatus.write_text(json.dumps(plus_status_tmp))
+    await matcher.finish(f"{arg.extract_plain_text()} plus 添加完成")
+    
+async def del_plus(arg: Message|QQMessage):
+    '''超管删除用户plus'''
+    plus_status_tmp = json.loads(plusstatus.read_text())
+    matcher: Matcher = current_matcher.get()
+    if arg.extract_plain_text() not in plus_status_tmp:
+        await matcher.finish(f"{arg.extract_plain_text()} 并不在plus白名单内")
+    del plus_status_tmp[arg.extract_plain_text()]
+    plusstatus.write_text(json.dumps(plus_status_tmp))
+    await matcher.finish(f"{arg.extract_plain_text()} plus 删除完成")
+    
+async def plus_change(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
+    '''plus用户切换模型'''
+    plus_status_tmp = json.loads(plusstatus.read_text())
+    matcher: Matcher = current_matcher.get()
+    if not plus_status_tmp['status']:
+        await matcher.finish('超管已关闭plus使用')
+    id,value = await get_id_from_all(event)
+    if arg.extract_plain_text() not in ['3.5', '4', '4o']:
+        await matcher.finish("请输入正确的模型名：3.5,4,4o")
+    if arg.extract_plain_text() == '3.5':
+        plus_status_tmp[id] = "text-davinci-002-render-sha"
+    elif arg.extract_plain_text() == '4o':
+        plus_status_tmp[id] = 'gpt-4o'
+    else:
+        plus_status_tmp[id] = 'gpt-4'
+    plusstatus.write_text(json.dumps(plus_status_tmp))
+    await matcher.finish(f"plus状态变更为 {arg.extract_plain_text()}")
+    
+    
+async def plus_all_status(arg: Message|QQMessage):
+    '''超管全局plus状态变更'''
+    plus_status_tmp = json.loads(plusstatus.read_text())
+    matcher: Matcher = current_matcher.get()
+    if arg.extract_plain_text() == '开启':
+        if plus_status_tmp['status'] == True:
+            await matcher.finish("已经开启过了")
+        plus_status_tmp['status'] = True
+    elif arg.extract_plain_text() == '关闭':
+        if plus_status_tmp['status'] == False:
+            await matcher.finish("已经关闭过了")
+        plus_status_tmp['status'] = False
+    else:
+        await matcher.finish(f"仅支持 开启/关闭")
+    plusstatus.write_text(json.dumps(plus_status_tmp))
+    await matcher.finish(f"全局plus状态 {arg.extract_plain_text()} 完成")
