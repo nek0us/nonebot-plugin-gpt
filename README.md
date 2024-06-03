@@ -119,7 +119,8 @@ gpt_session='[
         "email": "bbb@sss.com",
         "password": "xxxx",
         "mode": "microsoft",
-        "help_email": "xxx@xx.com"
+        "help_email": "xxx@xx.com",
+        "gptplus": True,
     },
 ]'
 
