@@ -206,8 +206,8 @@ SUPERUSERS=["qq num"]
 ### 微软辅助邮箱验证
 当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
 
-### 谷歌邮箱验证问题
-下版本修，先用session_token凑合下吧
+### 谷歌登录方式
+请先从你的浏览器手动使用google登录chatgpt一次，然后访问`https://myaccount.google.com/`，使用浏览器插件Cookie-Editor导出该页面的Cookie为json格式。 当"\{email_address\}_google_cookie.txt"文件出现时，将复制的json粘贴进去并保存。
 
 ### markdown发送问题
 协议bot的md似了，QQbot的md模板差不多也似了，如果你是QQBot原生md用户可以催我适配一下，不然这个功能就鸽了
@@ -224,6 +224,12 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
 ### 更新日志
+2024.06.11 0.0.29
+1. 修复openai新cookie跨域问题
+2. 修复google登录问题
+3. 优化了token和状态显示
+
+
 2024.06.04 0.0.28
 1. 添加gptplus账户支持及其gpt4 4o模型使用
 2. 修复windows下数据目录异常问题
