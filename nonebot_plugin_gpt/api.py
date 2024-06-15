@@ -618,6 +618,7 @@ async def white_list():
     cdk_source = json.loads(cdksource.read_text())
     combined_dict = {cdk_list[key]: cdk_source[key] for key in cdk_list if key in cdk_source}
     plus_status_tmp = json.loads(plusstatus.read_text())
+    all_white_ids = {id for ids in white_tmp.values() for id in ids}
     msg = "\n|类型|账号|plus|\n|:------:|:------:|:------:|\n"
     for x in white_tmp:
         for id in white_tmp[x]:
@@ -631,15 +632,19 @@ async def white_list():
                     msg += f"|{x}|{str(id)}|plus|\n"
                 else:
                     msg += f"|{x}|{str(id)}| |\n"
+    for id in plus_status_tmp:
+        if id not in all_white_ids and id != 'status':
+            msg += f"|unknown|{str(id)}|only plus|\n"
     event = current_event.get()
     white_list_img = await md_to_pic(msg, width=650)
+    text = f"当前 3.5 白名单状态：{'开启' if config_gpt.gpt_white_list_mode else '关闭'}\n当前 plus 白名单状态：{'开启' if config_gpt.gptplus_white_list_mode else '关闭'}\n注意：两种白名单模式独立生效"
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
-        await matcher.finish(QQMessageSegment.file_image(b64encode(white_list_img).decode('utf-8'))) # type: ignore
+        await matcher.finish(QQMessageSegment.text(text) + QQMessageSegment.file_image(b64encode(white_list_img).decode('utf-8'))) # type: ignore
     elif isinstance(event,MessageEvent):
-        await matcher.finish(MessageSegment.image(file=white_list_img))
+        await matcher.finish(MessageSegment.text(text) + MessageSegment.image(file=white_list_img))
     else:
-        await matcher.finish(QQMessageSegment.file_image(white_list_img))
+        await matcher.finish(QQMessageSegment.text(text) + QQMessageSegment.file_image(white_list_img))
         
 async def md_status(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
     '''md开关'''

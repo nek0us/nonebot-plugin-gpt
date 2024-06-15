@@ -224,6 +224,11 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
 ### 更新日志
+2024.06.15 0.0.30
+1. 优化google登录缓存
+2. 优化白名单列表，新增部分plus白名单单独显示，提示两种白名单模式独立运作
+
+
 2024.06.11 0.0.29
 1. 修复openai新cookie跨域问题
 2. 修复google登录问题
