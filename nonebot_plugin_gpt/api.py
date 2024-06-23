@@ -1,4 +1,5 @@
 
+
 from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
@@ -10,6 +11,7 @@ from nonebot import require
 from nonebot_plugin_sendmsg_by_bots import tools
 from more_itertools import chunked
 from base64 import b64encode
+from typing import Literal
 import json
 import re
 import uuid
@@ -79,8 +81,11 @@ def replace_name(data: MsgData) -> MsgData:
         data.msg_recv = data.msg_recv.replace(f"{name}：","").replace(f"{name}:","")
     return data
 
-def get_c_id(id:str, data: MsgData) -> MsgData:
-    tmp = json.loads(grouppath.read_text("utf-8"))
+def get_c_id(id:str, data: MsgData,c_type: Literal['group','private'] = 'group') -> MsgData:
+    if c_type == 'group':
+        tmp = json.loads(grouppath.read_text("utf-8"))
+    else:
+        tmp = json.loads(privatepath.read_text("utf-8"))
     if data.gpt_model == "gpt-4":
         if id + '-gpt-4' in tmp:
             data.conversation_id = tmp[id + '-gpt-4']
@@ -92,15 +97,21 @@ def get_c_id(id:str, data: MsgData) -> MsgData:
             data.conversation_id = tmp[id]
     return data
 
-def set_c_id(id:str, data: MsgData):
-    tmp = json.loads(grouppath.read_text("utf-8"))
+def set_c_id(id:str, data: MsgData,c_type: Literal['group','private'] = 'group'):
+    if c_type == 'group':
+        tmp = json.loads(grouppath.read_text("utf-8"))
+    else:
+        tmp = json.loads(privatepath.read_text("utf-8"))
     if data.gpt_model == "gpt-4":
         tmp[id + '-gpt-4'] = data.conversation_id
     elif data.gpt_model == "gpt-4o":
         tmp[id + '-gpt-4o'] = data.conversation_id
     else:
         tmp[id] = data.conversation_id
-    grouppath.write_text(json.dumps(tmp)) 
+    if c_type == 'group':
+        grouppath.write_text(json.dumps(tmp)) 
+    else:
+        privatepath.write_text(json.dumps(tmp)) 
     
     
 async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
@@ -142,8 +153,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
     if isinstance(event,GroupMessageEvent):
-        data = get_c_id(str(event.group_id),data)
-        tmp = json.loads(grouppath.read_text("utf-8"))
+        data = get_c_id(str(event.group_id),data,'group')
         if config_gpt.group_chat:
             data.msg_send = f'{event.get_user_id()}对你说：{text_handle}'
         else:
@@ -152,38 +162,38 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         data.msg_send=data.msg_send.replace("CQ:at,qq=","")
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            set_c_id(str(event.group_id),data)
+            set_c_id(str(event.group_id),data,'group')
             data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
         
     elif isinstance(event,PrivateMessageEvent):
-        data = get_c_id(event.get_user_id(),data)
+        data = get_c_id(event.get_user_id(),data,'private')
         data.msg_send=event.raw_message
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            set_c_id(event.get_user_id(),data)
+            set_c_id(event.get_user_id(),data,'private')
     elif isinstance(event,QQMessageEvent):
         id,value = await get_id_from_guild_group(event)
-        data = get_c_id(id,data)
+        data = get_c_id(id,data,'group')
         data.msg_send=text_handle
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
-            set_c_id(id,data)
+            set_c_id(id,data,'group')
         
     if data.error_info and not data.msg_recv:
         data.msg_recv = data.error_info
     
     await ban_check(event,matcher,Message(data.msg_recv))
     
-    send_md_status = False
+    send_md_status = True
     if config_gpt.gpt_lgr_markdown and isinstance(event,MessageEvent):
         md_status_tmp = json.loads(mdstatus.read_text())
         if isinstance(event,PrivateMessageEvent):
             if event.get_user_id() not in md_status_tmp['private']:
-                send_md_status = True
+                send_md_status = False
         else:
             id,value = await get_id_from_all(event)
             if id not in md_status_tmp['group']:
-                send_md_status = True
+                send_md_status = False
     if send_md_status and isinstance(event,MessageEvent):
         await tools.send_text2md(replace_name(data).msg_recv,str(event.self_id))
         await matcher.finish()
@@ -204,7 +214,10 @@ async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
-    data = get_c_id(id,data)  
+    if isinstance(event,PrivateMessageEvent):
+        data = get_c_id(id,data,'private')
+    else:  
+        data = get_c_id(id,data,'group')  
     data = await chatbot.back_init_personality(data)  
     if isinstance(event,GroupMessageEvent):
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
@@ -220,7 +233,10 @@ async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Mes
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
-    data = get_c_id(id,data)  
+    if isinstance(event,PrivateMessageEvent):
+        data = get_c_id(id,data,'private')
+    else:  
+        data = get_c_id(id,data,'group')  
     data.msg_send = "-1"
     data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
@@ -237,7 +253,10 @@ async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: 
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
-    data = get_c_id(id,data)  
+    if isinstance(event,PrivateMessageEvent):
+        data = get_c_id(id,data,'private')
+    else:  
+        data = get_c_id(id,data,'group')  
     data.msg_send = arg.extract_plain_text()
     data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
@@ -265,7 +284,10 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
                 await matcher.finish("别人的私有人设不可以用哦")
         
         if arg.extract_plain_text().split(" ")[1] == "继续":
-            data = get_c_id(id,data)  
+            if isinstance(event,PrivateMessageEvent):
+                data = get_c_id(id,data,'private')
+            else:  
+                data = get_c_id(id,data,'group')  
     else:
         data.msg_send = arg.extract_plain_text()
         if person_type[data.msg_send]['open'] != '':
@@ -280,7 +302,10 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     
     if not data.msg_recv:
         await matcher.finish( f"初始化失败，错误为：\n{data.error_info}")
-    set_c_id(id,data)    
+    if isinstance(event,PrivateMessageEvent):
+        set_c_id(id,data,'private')
+    else: 
+        set_c_id(id,data,'group')    
     if isinstance(event,GroupMessageEvent):
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
     await ban_check(event,matcher,Message(data.msg_recv))
@@ -316,9 +341,9 @@ async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
             
     if isinstance(event,MessageEvent):        
         if isinstance(event,GroupMessageEvent):
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list) # type: ignore
+            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=person_list,bot_id=str(event.self_id)) # type: ignore
         else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list) # type: ignore
+            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=person_list,bot_id=str(event.self_id)) # type: ignore
     else:
         if isinstance(event,QQGroupAtMessageCreateEvent):
             await matcher.finish(person_list.replace("|:----:|:------:|:------:|:------:|\n","")) # type: ignore
@@ -345,9 +370,9 @@ async def cat_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg: Messag
         if isinstance(event,MessageEvent):    
             msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(value)))
             if isinstance(event,GroupMessageEvent):
-                await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg)
+                await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg,bot_id=str(event.self_id))
             else:
-                await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=msg)
+                await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=msg,bot_id=str(event.self_id))
         else:
             await matcher.finish(value)
     else:
@@ -474,7 +499,10 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
-    data = get_c_id(id,data)
+    if isinstance(event,PrivateMessageEvent):
+        data = get_c_id(id,data,'private')
+    else:  
+        data = get_c_id(id,data,'group')  
     matcher: Matcher = current_matcher.get()
     if not data.conversation_id:
         await matcher.finish("还没有聊天记录")  
@@ -484,9 +512,9 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
         if len(chat_his) > 100:
             chunks = list(chunked(chat_his,100))
             for list_value in chunks: 
-                await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=list_value)
+                await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=list_value,bot_id=str(event.self_id))
         else:
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his)
+            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his,bot_id=str(event.self_id))
         
     elif isinstance(event,PrivateMessageEvent): 
         chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
@@ -494,9 +522,9 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
         if len(chat_his) > 200:
             chunks = list(chunked(chat_his,200))
             for list_value in chunks: 
-                await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=list_value) 
+                await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=list_value,bot_id=str(event.self_id)) 
         else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his)
+            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his,bot_id=str(event.self_id))
     elif isinstance(event,QQMessageEvent):
         res = await chatbot.show_chat_history(data)
         await matcher.finish('\n'.join(res))
@@ -778,6 +806,6 @@ async def plus_all_status(arg: Message|QQMessage):
             await matcher.finish("已经关闭过了")
         plus_status_tmp['status'] = False
     else:
-        await matcher.finish(f"仅支持 开启/关闭")
+        await matcher.finish("仅支持 开启/关闭")
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"全局plus状态 {arg.extract_plain_text()} 完成")
