@@ -194,6 +194,8 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
             id,value = await get_id_from_all(event)
             if id not in md_status_tmp['group']:
                 send_md_status = False
+    else:
+        send_md_status = False
     if send_md_status and isinstance(event,MessageEvent):
         await tools.send_text2md(replace_name(data).msg_recv,str(event.self_id))
         await matcher.finish()
@@ -681,15 +683,15 @@ async def md_status(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
     if isinstance(event,PrivateMessageEvent):
         # 私聊协议bot
         if arg.extract_plain_text().strip() == "开启":
-            if event.get_user_id() not in md_status_tmp["private"]:
+            if event.get_user_id() in md_status_tmp["private"]:
                 await matcher.finish("已经开启过了")
             else:
-                md_status_tmp["private"].remove(event.get_user_id())
+                md_status_tmp["private"].append(event.get_user_id())
         elif arg.extract_plain_text().strip() == "关闭":
-            if event.get_user_id() in md_status_tmp["private"]:
+            if event.get_user_id() not in md_status_tmp["private"]:
                 await matcher.finish("已经关闭过了")
             else:
-                md_status_tmp["private"].append(event.get_user_id())
+                md_status_tmp["private"].remove(event.get_user_id())
         else:
             await matcher.finish("指令不正确，请输入 md状态开启 或 md状态关闭")
             
@@ -700,15 +702,15 @@ async def md_status(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
                 await matcher.finish("在群内仅群管理员可修改md状态")
         id,value = await get_id_from_all(event)
         if arg.extract_plain_text().strip() == "开启":
-            if id not in md_status_tmp["group"]:
+            if id in md_status_tmp["group"]:
                 await matcher.finish("已经开启过了")
             else:
-                md_status_tmp["group"].remove(id)
+                md_status_tmp["group"].append(id)
         elif arg.extract_plain_text().strip() == "关闭":
-            if id in md_status_tmp["group"]:
+            if id not in md_status_tmp["group"]:
                 await matcher.finish("已经关闭过了")
             else:
-                md_status_tmp["group"].append(id)
+                md_status_tmp["group"].remove(id)
         else:
             await matcher.finish("指令不正确，输入 md状态开启 或 md状态关闭")
 
