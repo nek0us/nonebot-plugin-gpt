@@ -101,6 +101,7 @@ _✨ NoneBot GPT ✨_
 | gpt_manage_ids | 否 | 无 | List[str] | 超管群/频道id，通过日志等方式获得 |
 | gpt_lgr_markdown| 否 | false | bool | 以拉格兰md消息回复 |
 | gpt_httpx| 否 | false | bool | 使用httpx |
+| gpt_url_replace| 否 | false | bool | QQ适配器url输出时替换 |
 
 ```bash
 # gpt配置示例
@@ -126,6 +127,7 @@ gpt_session='[
 ]'
 
 gpt_proxy='http://127.0.0.1:8080'
+# gpt_proxy='http://username:password@127.0.0.1:8080'
 
 arkose_status=false
 
@@ -153,8 +155,10 @@ gpt_ban_str='[
 gpt_manage_ids=['qq group id......']
 # onebot适配器 拉格兰md消息兼容
 gpt_lgr_markdown=false
-# 使用httpx（暂不完善）
+# 使用httpx（暂不完善，请关闭）
 gpt_httpx=false
+# 开启QQ适配器url替换
+gpt_url_replace=true
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
@@ -224,6 +228,12 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
 ### 更新日志
+2024.07.11 0.0.33
+1. 添加QQ适配器 Url 输出替换
+2. 优化登录流程
+3. 优化消息超时问题
+
+
 2024.06.23 0.0.32
 1. 修复多账户下相关命令换号发送的情况
 2. 优化了登录部分

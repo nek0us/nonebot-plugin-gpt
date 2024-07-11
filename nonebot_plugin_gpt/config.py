@@ -22,6 +22,7 @@ class Config(BaseModel):
     gpt_manage_ids: list = []
     gpt_lgr_markdown: bool = False
     gpt_httpx: bool = False
+    gpt_url_replace: bool = False
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
@@ -171,7 +172,16 @@ class Config(BaseModel):
                 logger.success("已开启 gpt_httpx httpx使用")
             else:
                 logger.success("已关闭 gpt_httpx httpx使用")
-            return v    
-                         
+            return v
+            
+    @validator("gpt_url_replace", always=True, pre=True)
+    def check_gpt_url_replace(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_url_replace QQ适配器url输出检测替换")
+            else:
+                logger.success("已关闭 gpt_url_replace QQ适配器url输出检测替换")
+            return v     
+                              
 config_gpt = get_plugin_config(Config)
 config_nb = get_driver().config

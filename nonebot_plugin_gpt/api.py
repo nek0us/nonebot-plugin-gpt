@@ -202,7 +202,9 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     elif send_md_status and isinstance(event,QQMessageEvent):
         #TODO QQ适配器 md模板等兼容发送，待续
         pass
-
+    if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
+        data.msg_recv = replace_dot_in_domain(data.msg_recv)
+    
     await matcher.finish(replace_name(data).msg_recv)
     
 
@@ -223,6 +225,8 @@ async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text
     data = await chatbot.back_init_personality(data)  
     if isinstance(event,GroupMessageEvent):
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
+    if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
+        data.msg_recv = replace_dot_in_domain(data.msg_recv)
     await matcher.finish(replace_name(data).msg_recv)
 
 async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
@@ -243,6 +247,8 @@ async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Mes
     data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
+    if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
+        data.msg_recv = replace_dot_in_domain(data.msg_recv)
     await matcher.finish(replace_name(data).msg_recv)
     
 async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: Message|QQMessage):
@@ -263,6 +269,8 @@ async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: 
     data = await chatbot.back_chat_from_input(data)
     if isinstance(event,GroupMessageEvent):
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
+    if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
+        data.msg_recv = replace_dot_in_domain(data.msg_recv)
     await matcher.finish(replace_name(data).msg_recv)
     
 async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Message|QQMessage):
@@ -313,6 +321,8 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     await ban_check(event,matcher,Message(data.msg_recv))
     
     if isinstance(event,QQMessageEvent):
+        if config_gpt.gpt_url_replace:
+            data.msg_recv = replace_dot_in_domain(data.msg_recv)
         await matcher.finish(replace_name(data).msg_recv)
     else:
         msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(replace_name(data).msg_recv)))
@@ -529,7 +539,11 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
             await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his,bot_id=str(event.self_id))
     elif isinstance(event,QQMessageEvent):
         res = await chatbot.show_chat_history(data)
-        await matcher.finish('\n'.join(res))
+        if config_gpt.gpt_url_replace:
+            send_msg = replace_dot_in_domain('\n'.join(res))
+        else:
+            send_msg = '\n'.join(res)
+        await matcher.finish(send_msg)
         
     await matcher.finish()
     
@@ -811,3 +825,62 @@ async def plus_all_status(arg: Message|QQMessage):
         await matcher.finish("仅支持 开启/关闭")
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"全局plus状态 {arg.extract_plain_text()} 完成")
+    
+    
+def replace_dot_in_domain(text: str):
+    '''替换url过检测'''
+    # 较为完整的顶级域名列表（截至目前）
+    tlds = [
+        "com", "org", "net", "edu", "gov", "mil", "int", "info", "biz", "name", "museum", "coop", "aero", "pro", "jobs", "mobi",
+        "travel", "xxx", "asia", "cat", "tel", "post", "ac", "ad", "ae", "af", "ag", "ai", "al", "am", "an", "ao", "aq", "ar",
+        "as", "at", "au", "aw", "ax", "az", "ba", "bb", "bd", "be", "bf", "bg", "bh", "bi", "bj", "bm", "bn", "bo", "br", "bs",
+        "bt", "bv", "bw", "by", "bz", "ca", "cc", "cd", "cf", "cg", "ch", "ci", "ck", "cl", "cm", "cn", "co", "cr", "cu", "cv",
+        "cw", "cx", "cy", "cz", "de", "dj", "dk", "dm", "do", "dz", "ec", "ee", "eg", "er", "es", "et", "eu", "fi", "fj", "fk",
+        "fm", "fo", "fr", "ga", "gb", "gd", "ge", "gf", "gg", "gh", "gi", "gl", "gm", "gn", "gp", "gq", "gr", "gs", "gt", "gu",
+        "gw", "gy", "hk", "hm", "hn", "hr", "ht", "hu", "id", "ie", "il", "im", "in", "io", "iq", "ir", "is", "it", "je", "jm",
+        "jo", "jp", "ke", "kg", "kh", "ki", "km", "kn", "kp", "kr", "kw", "ky", "kz", "la", "lb", "lc", "li", "lk", "lr", "ls",
+        "lt", "lu", "lv", "ly", "ma", "mc", "md", "me", "mg", "mh", "mk", "ml", "mm", "mn", "mo", "mp", "mq", "mr", "ms", "mt",
+        "mu", "mv", "mw", "mx", "my", "mz", "na", "nc", "ne", "nf", "ng", "ni", "nl", "no", "np", "nr", "nu", "nz", "om", "pa",
+        "pe", "pf", "pg", "ph", "pk", "pl", "pm", "pn", "pr", "ps", "pt", "pw", "py", "qa", "re", "ro", "rs", "ru", "rw", "sa",
+        "sb", "sc", "sd", "se", "sg", "sh", "si", "sj", "sk", "sl", "sm", "sn", "so", "sr", "ss", "st", "su", "sv", "sx", "sy",
+        "sz", "tc", "td", "tf", "tg", "th", "tj", "tk", "tl", "tm", "tn", "to", "tp", "tr", "tt", "tv", "tw", "tz", "ua", "ug",
+        "uk", "us", "uy", "uz", "va", "vc", "ve", "vg", "vi", "vn", "vu", "wf", "ws", "ye", "yt", "za", "zm", "zw", "academy",
+        "accountants", "actor", "adult", "aero", "agency", "airforce", "apartments", "app", "army", "associates", "attorney",
+        "auction", "audio", "autos", "band", "bar", "bargains", "beer", "best", "bet", "bid", "bike", "bingo", "bio", "biz",
+        "black", "blog", "blue", "bot", "boutique", "build", "builders", "business", "buzz", "cab", "cafe", "camera", "camp", "capital",
+        "cards", "care", "career", "careers", "cash", "casino", "catering", "center", "charity", "chat", "cheap", "christmas",
+        "church", "city", "claims", "cleaning", "clinic", "clothing", "cloud", "club", "coach", "codes", "coffee", "college",
+        "community", "company", "computer", "condos", "construction", "consulting", "contractors", "cooking", "cool", "coop",
+        "country", "coupons", "credit", "creditcard", "cricket", "cruises", "dance", "dating", "day", "deals", "degree",
+        "delivery", "democrat", "dental", "dentist", "desi", "design", "diamonds", "digital", "direct", "directory", "discount",
+        "dog", "domains", "education", "email", "energy", "engineer", "engineering", "enterprises", "equipment", "estate",
+        "events", "exchange", "expert", "exposed", "express", "fail", "faith", "family", "fans", "farm", "fashion", "film",
+        "finance", "financial", "fish", "fishing", "fitness", "flights", "florist", "flowers", "football", "forsale", "foundation",
+        "fun", "fund", "furniture", "futbol", "fyi", "gallery", "games", "gifts", "gives", "glass", "gmbh", "gold", "golf",
+        "graphics", "gratis", "green", "gripe", "group", "guide", "guru", "health", "healthcare", "help", "here", "hiphop",
+        "hockey", "holdings", "holiday", "home", "homes", "horse", "hospital", "host", "house", "how", "industries", "ink",
+        "institute", "insure", "international", "investments", "jewelry", "jobs", "kitchen", "land", "lawyer", "lease",
+        "legal", "life", "lighting", "limited", "limo", "link", "live", "loan", "loans", "lol", "love", "ltd", "luxe", "luxury",
+        "management", "market", "marketing", "mba", "media", "memorial", "moda", "money", "mortgage", "movie", "museum",
+        "name", "navy", "network", "news", "ninja", "now", "online", "ooo", "page", "partners", "parts", "party", "pet",
+        "photo", "photography", "photos", "pics", "pictures", "pink", "pizza", "place", "plumbing", "plus", "poker", "press",
+        "productions", "properties", "property", "pub", "recipes", "red", "rehab", "reise", "reviews", "rip", "rocks", "run",
+        "sale", "salon", "school", "schule", "services", "shoes", "show", "singles", "site", "soccer", "social", "software",
+        "solar", "solutions", "space", "studio", "style", "sucks", "supplies", "supply", "support", "surgery", "systems",
+        "tattoo", "tax", "taxi", "team", "tech", "technology", "tennis", "theater", "tips", "tires", "today", "tools", "top",
+        "tours", "town", "toys", "trade", "training", "travel", "university", "vacations", "vet", "viajes", "video", "villas",
+        "vin", "vision", "vodka", "voyage", "watch", "webcam", "website", "wedding", "wiki", "win", "wine", "work", "works",
+        "world", "wtf", "zone"
+    ]
+
+    # 将顶级域名列表转换为正则表达式
+    tlds_pattern = '|'.join(tlds)
+    # 正则表达式匹配网址，包括不含 http/https 前缀的情况
+    url_pattern = re.compile(
+        fr'\b((?:https?://)?(?:[a-zA-Z0-9-]+\.)+(?:{tlds_pattern})(?:/[^\s]*)?)\b'
+    )
+
+    def replace_dot(match):
+        return match.group(0).replace('.', '。')
+    # 使用正则表达式进行替换
+    return url_pattern.sub(replace_dot, text)
