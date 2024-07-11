@@ -232,6 +232,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 1. 添加QQ适配器 Url 输出替换
 2. 优化登录流程
 3. 优化消息超时问题
+4. 添加代理用的用户名密码
 
 
 2024.06.23 0.0.32
