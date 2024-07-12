@@ -228,6 +228,10 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
 ### 更新日志
+2024.07.12 0.0.34
+1. 修复部分消息接收失败问题
+
+
 2024.07.11 0.0.33
 1. 添加QQ适配器 Url 输出替换
 2. 优化登录流程
