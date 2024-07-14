@@ -102,6 +102,10 @@ _✨ NoneBot GPT ✨_
 | gpt_lgr_markdown| 否 | false | bool | 以拉格兰md消息回复 |
 | gpt_httpx| 否 | false | bool | 使用httpx |
 | gpt_url_replace| 否 | false | bool | QQ适配器url输出时替换 |
+| gpt_auto_init_group| 否 | false | bool | 入群自动初始化人设 |
+| gpt_auto_init_friend| 否 | false | bool | 加好友后自动初始化人设 |
+| gpt_init_group_pernal_name| 否 | false | bool | 入群自动初始化的人设名 |
+| gpt_init_friend_pernal_name| 否 | false | bool | 加好友自动初始化的人设名 |
 
 ```bash
 # gpt配置示例
@@ -159,6 +163,13 @@ gpt_lgr_markdown=false
 gpt_httpx=false
 # 开启QQ适配器url替换
 gpt_url_replace=true
+
+# 入群是否自动初始化人设
+gpt_auto_init_group=false
+gpt_init_group_pernal_name="猪" # 仅当上一条为true时生效
+# 加好友是否自动初始化人设
+gpt_auto_init_friend=false
+gpt_init_friend_pernal_name="私人猪" # 仅当上一条为true时生效
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
@@ -227,7 +238,18 @@ SUPERUSERS=["qq num"]
 C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 ```
 
+### 自动初始化人设
+> 由于时间关系，仅测试了onebot适配器的群聊效果，onebot适配器私聊和QQ适配器群私聊理论上也支持，若有bug可发issue通知我改下；
+
+> 还是由于时间关系，暂时没写与白名单相关适配，自动初始化人设若开启，优先级会比白名单高，例如非白名单群，入群也会在gpt账户上创建一个会话（3.5的会话），当然没白名单该群后续触发不了这个会话
+
 ### 更新日志
+2024.07.15 0.0.35
+1. 修复0.0.34造成的gpt plus账户会话失败的问题
+2. 优化添加人设名称识别
+3. 添加新功能，入群/加好友后，自动初始化人设，让bot一个人出门在外也更加顺畅
+
+
 2024.07.12 0.0.34
 1. 修复部分消息接收失败问题
 

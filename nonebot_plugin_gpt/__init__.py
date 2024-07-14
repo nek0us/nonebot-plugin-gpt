@@ -1,9 +1,9 @@
 from ChatGPTWeb import chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
-from nonebot import on_command,on_message
-from nonebot.adapters.onebot.v11 import Message,MessageEvent
-from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent
+from nonebot import on_command,on_message,on_notice
+from nonebot.adapters.onebot.v11 import Message,MessageEvent,GroupIncreaseNoticeEvent,FriendAddNoticeEvent
+from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent,GroupAddRobotEvent,FriendAddEvent
 from nonebot.adapters.qq.message import Message as QQMessage
 from nonebot.matcher import Matcher
 from nonebot.params import Arg, CommandArg,EventMessage
@@ -47,7 +47,8 @@ from .api import (
     add_plus,
     del_plus,
     plus_change,
-    plus_all_status
+    plus_all_status,
+    init_personal_api,
     
 )
 
@@ -278,6 +279,44 @@ if isinstance(config_gpt.gpt_session,list):
     async def del_checker_handle(event: QQMessageEvent):
         id,value = await get_id_from_guild_group(event)
         await del_white_list(id)
+        
+    init_personal = on_notice(block=False,priority=config_gpt.gpt_chat_priority)
+    @init_personal.handle()
+    async def init_personal_handle(event: GroupAddRobotEvent|FriendAddNoticeEvent|GroupIncreaseNoticeEvent|FriendAddEvent):
+        if isinstance(event,GroupAddRobotEvent):
+            # QQ群
+            if config_gpt.gpt_auto_init_group:
+                if not config_gpt.gpt_init_group_pernal_name:
+                    logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupAddRobotEvent, id: {event.group_openid} 入群初始化人设失败")
+                else:
+                    logger.info(f"检测到已开启入群初始化人设，类型 GroupAddRobotEvent, id: {event.group_openid} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
+                    await init_personal_api(chatbot,id=event.group_openid,personal_name=config_gpt.gpt_init_group_pernal_name,type_from='QQgroup')
+        elif isinstance(event,FriendAddNoticeEvent):
+            # onebot 好友
+            if config_gpt.gpt_auto_init_friend:
+                if not config_gpt.gpt_init_friend_pernal_name:
+                    logger.warning(f"检测到已开启好友初始化人设，但未配置具体人设名，类型 FriendAddNoticeEvent, id: {event.get_user_id()} 好友初始化人设失败")
+                else:
+                    logger.info(f"检测到已开启好友初始化人设，类型 FriendAddNoticeEvent, id: {event.get_user_id()} 即将好友初始化人设 {config_gpt.gpt_init_friend_pernal_name}")
+                    await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='private')
+        elif isinstance(event,GroupIncreaseNoticeEvent):
+            # onebot 群
+            if config_gpt.gpt_auto_init_group:
+                if not config_gpt.gpt_init_group_pernal_name:
+                    logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 入群初始化人设失败")
+                else:
+                    logger.info(f"检测到已开启入群初始化人设，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
+                    await init_personal_api(chatbot,id=str(event.group_id),personal_name=config_gpt.gpt_init_group_pernal_name,type_from='group')
+        elif isinstance(event,FriendAddEvent):
+            # QQ好友
+            if config_gpt.gpt_auto_init_friend:
+                if not config_gpt.gpt_init_friend_pernal_name:
+                    logger.warning(f"检测到已开启好友初始化人设，但未配置具体人设名，类型 FriendAddEvent, id: {event.get_user_id()} 好友初始化人设失败")
+                else:
+                    logger.info(f"检测到已开启好友初始化人设，类型 FriendAddEvent, id: {event.get_user_id()} 即将好友初始化人设 {config_gpt.gpt_init_friend_pernal_name}")
+                    await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='QQprivate')
+        
+            
 
 else:
     logger.warning("未检测到gpt账号信息，插件未成功加载")

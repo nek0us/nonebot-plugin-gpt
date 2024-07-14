@@ -23,6 +23,10 @@ class Config(BaseModel):
     gpt_lgr_markdown: bool = False
     gpt_httpx: bool = False
     gpt_url_replace: bool = False
+    gpt_auto_init_group: bool = False
+    gpt_auto_init_friend: bool = False
+    gpt_init_group_pernal_name: Optional[str] = None
+    gpt_init_friend_pernal_name: Optional[str] = None
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
@@ -182,6 +186,36 @@ class Config(BaseModel):
             else:
                 logger.success("已关闭 gpt_url_replace QQ适配器url输出检测替换")
             return v     
-                              
+            
+    @validator("gpt_auto_init_group", always=True, pre=True)
+    def check_gpt_auto_init_group(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_auto_init_group 入群默认初始化人设")
+            else:
+                logger.success("已关闭 gpt_auto_init_group 入群默认初始化人设")
+            return v  
+            
+    @validator("gpt_auto_init_friend", always=True, pre=True)
+    def check_gpt_auto_init_friend(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_auto_init_friend 好友默认初始化人设")
+            else:
+                logger.success("已关闭 gpt_auto_init_friend 好友默认初始化人设")
+            return v  
+        
+    @validator("gpt_init_group_pernal_name")
+    def check_gpt_init_group_pernal_name(cls,v):
+        if isinstance(v,str):
+            logger.success(f"已应用 gpt_init_group_pernal_name 入群初始化默认人设名：{v}")
+            return v
+        
+    @validator("gpt_init_friend_pernal_name")
+    def check_gpt_init_friend_pernal_name(cls,v):
+        if isinstance(v,str):
+            logger.success(f"已应用 gpt_init_friend_pernal_name 好友初始化默认人设名：{v}")
+            return v 
+                                                     
 config_gpt = get_plugin_config(Config)
 config_nb = get_driver().config

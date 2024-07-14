@@ -1,6 +1,8 @@
 
 
 from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import GroupIncreaseNoticeEvent,FriendAddNoticeEvent
+from nonebot.adapters.qq.event import GroupAddRobotEvent,FriendAddEvent
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
@@ -417,10 +419,31 @@ async def add_ps1(event: MessageEvent|QQMessageEvent,status: T_State,arg :Messag
         
 async def add_ps2(status: T_State,name: Message|QQMessage):
     '''添加人设，步骤2'''
+    event = current_event.get()
+    matcher: Matcher = current_matcher.get()
     if name:
-        status["name"] = name
+        if type(name) == str:
+            pass
+        else:
+            
+            if name.extract_plain_text():
+                status["name"] = name.extract_plain_text()
+                
+                ban_str_tmp = ban_str_path.read_text("utf-8").splitlines()
+                if str(status["name"]) in  ban_str_tmp:
+                    # 触发屏蔽词
+                    await add_ban(event.get_user_id(),str(status["name"]))   
+                    await matcher.finish("检测到屏蔽词，已屏蔽")
+                if len(status["name"]) > 15:
+                    await matcher.finish("名字不可以超过15字")
+                elif len(status["name"]) == 0:
+                    await matcher.finish("名字不可以为空")
+                if status["name"] in json.loads(personpath.read_text("utf8")):
+                    await matcher.finish("这个人设名已存在哦，换一个吧")
+                status["name"] = name.extract_plain_text()
+            else:
+                await matcher.finish("名字不可以为空（也许是与bot同名了）")  
     else:
-        matcher: Matcher = current_matcher.get()
         await matcher.finish("输入错误了，添加结束。")   
         
 async def add_ps3(status: T_State,r18: Message|QQMessage):
@@ -884,3 +907,24 @@ def replace_dot_in_domain(text: str):
         return match.group(0).replace('.', '。')
     # 使用正则表达式进行替换
     return url_pattern.sub(replace_dot, text)
+
+
+async def init_personal_api(chatbot: chatgpt,id: str,personal_name: str,type_from: str):
+    person_type = json.loads(personpath.read_text("utf8"))
+    if personal_name not in person_type:
+        logger.warning(f"默认初始化人格名: {personal_name} 不存在")
+        return
+    data = MsgData()
+    data = get_c_id(id=id,data=data,c_type='group' if 'group' in type_from else 'private')
+    if data.conversation_id:
+        logger.info(f"默认人设初始化类型：{type_from},id：{id},存在默认会话id：{data.conversation_id},不进行新的初始化")
+        return
+    data.msg_send = personal_name
+    data = await chatbot.init_personality(data)
+    
+    if not data.msg_recv:
+        logger.warning( f"默认人设初始化失败，类型：{type_from},id：{id},错误为：\n{data.error_info}")
+    if 'group' in type_from:
+        set_c_id(id,data,'group')
+    else: 
+        set_c_id(id,data,'private')
