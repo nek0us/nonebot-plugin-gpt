@@ -1,8 +1,6 @@
 
 
 from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
-from nonebot.adapters.onebot.v11 import GroupIncreaseNoticeEvent,FriendAddNoticeEvent
-from nonebot.adapters.qq.event import GroupAddRobotEvent,FriendAddEvent
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
@@ -915,7 +913,15 @@ async def init_personal_api(chatbot: chatgpt,id: str,personal_name: str,type_fro
         logger.warning(f"默认初始化人格名: {personal_name} 不存在")
         return
     data = MsgData()
-    data = get_c_id(id=id,data=data,c_type='group' if 'group' in type_from else 'private')
+    if type_from == "QQguild":
+        data = get_c_id(id=id,data=data,c_type='group')
+        if data.conversation_id == 'pass':
+            logger.info(f"默认人设初始化类型：{type_from},id：{id},检测到疑似重复提示消息，不进行初始化")
+            return
+        data_tmp = MsgData(conversation_id='pass')
+        set_c_id(id,data_tmp,'group')
+    else:
+        data = get_c_id(id=id,data=data,c_type='group' if 'group' in type_from else 'private')
     if data.conversation_id:
         logger.info(f"默认人设初始化类型：{type_from},id：{id},存在默认会话id：{data.conversation_id},不进行新的初始化")
         return
@@ -924,7 +930,7 @@ async def init_personal_api(chatbot: chatgpt,id: str,personal_name: str,type_fro
     
     if not data.msg_recv:
         logger.warning( f"默认人设初始化失败，类型：{type_from},id：{id},错误为：\n{data.error_info}")
-    if 'group' in type_from:
+    if 'group' in type_from or 'guild' in type_from:
         set_c_id(id,data,'group')
     else: 
         set_c_id(id,data,'private')

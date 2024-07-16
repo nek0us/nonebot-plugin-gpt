@@ -3,9 +3,10 @@ from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_command,on_message,on_notice
 from nonebot.adapters.onebot.v11 import Message,MessageEvent,GroupIncreaseNoticeEvent,FriendAddNoticeEvent
-from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent,GroupAddRobotEvent,FriendAddEvent
+from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent,GroupAddRobotEvent,FriendAddEvent,GuildMemberUpdateEvent
 from nonebot.adapters.qq.message import Message as QQMessage
-from nonebot.matcher import Matcher
+from nonebot.adapters.qq import Bot
+from nonebot.matcher import Matcher,current_bot
 from nonebot.params import Arg, CommandArg,EventMessage
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
@@ -282,7 +283,7 @@ if isinstance(config_gpt.gpt_session,list):
         
     init_personal = on_notice(block=False,priority=config_gpt.gpt_chat_priority)
     @init_personal.handle()
-    async def init_personal_handle(event: GroupAddRobotEvent|FriendAddNoticeEvent|GroupIncreaseNoticeEvent|FriendAddEvent):
+    async def init_personal_handle(event: GroupAddRobotEvent|FriendAddNoticeEvent|GroupIncreaseNoticeEvent|FriendAddEvent|GuildMemberUpdateEvent):
         if isinstance(event,GroupAddRobotEvent):
             # QQ群
             if config_gpt.gpt_auto_init_group:
@@ -301,12 +302,13 @@ if isinstance(config_gpt.gpt_session,list):
                     await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='private')
         elif isinstance(event,GroupIncreaseNoticeEvent):
             # onebot 群
-            if config_gpt.gpt_auto_init_group:
-                if not config_gpt.gpt_init_group_pernal_name:
-                    logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 入群初始化人设失败")
-                else:
-                    logger.info(f"检测到已开启入群初始化人设，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
-                    await init_personal_api(chatbot,id=str(event.group_id),personal_name=config_gpt.gpt_init_group_pernal_name,type_from='group')
+            if event.get_user_id() == str(event.self_id):
+                if config_gpt.gpt_auto_init_group:
+                    if not config_gpt.gpt_init_group_pernal_name:
+                        logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 入群初始化人设失败")
+                    else:
+                        logger.info(f"检测到已开启入群初始化人设，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
+                        await init_personal_api(chatbot,id=str(event.group_id),personal_name=config_gpt.gpt_init_group_pernal_name,type_from='group')
         elif isinstance(event,FriendAddEvent):
             # QQ好友
             if config_gpt.gpt_auto_init_friend:
@@ -315,7 +317,16 @@ if isinstance(config_gpt.gpt_session,list):
                 else:
                     logger.info(f"检测到已开启好友初始化人设，类型 FriendAddEvent, id: {event.get_user_id()} 即将好友初始化人设 {config_gpt.gpt_init_friend_pernal_name}")
                     await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='QQprivate')
-        
+        elif isinstance(event,GuildMemberUpdateEvent):
+            # QQ频道
+            bot: Bot = current_bot.get() # type: ignore
+            if bot.self_info.id == event.op_user_id:
+                if config_gpt.gpt_auto_init_group:
+                    if not config_gpt.gpt_init_group_pernal_name:
+                        logger.warning(f"检测到已开启频道初始化人设，但未配置具体人设名，类型 GuildMemberUpdateEvent, id: {event.guild_id} 频道初始化人设失败")
+                    else:
+                        logger.info(f"检测到已开启频道初始化人设，类型 GuildMemberUpdateEvent, id: {event.guild_id} 即将频道初始化人设 {config_gpt.gpt_init_group_pernal_name}")
+                        await init_personal_api(chatbot,id=event.guild_id,personal_name=config_gpt.gpt_init_group_pernal_name,type_from='QQguild')
             
 
 else:
