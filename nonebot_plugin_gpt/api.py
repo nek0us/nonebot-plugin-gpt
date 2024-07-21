@@ -797,7 +797,7 @@ async def add_plus(arg: Message|QQMessage):
     matcher: Matcher = current_matcher.get()
     if arg.extract_plain_text() in plus_status_tmp:
         await matcher.finish(f"{arg.extract_plain_text()} 已经添加过了")
-    plus_status_tmp[arg.extract_plain_text()] = "text-davinci-002-render-sha"
+    plus_status_tmp[arg.extract_plain_text()] = "gpt-4o-mini"
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"{arg.extract_plain_text()} plus 添加完成")
     
@@ -818,10 +818,12 @@ async def plus_change(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage)
     if not plus_status_tmp['status']:
         await matcher.finish('超管已关闭plus使用')
     id,value = await get_id_from_all(event)
-    if arg.extract_plain_text() not in ['3.5', '4', '4o']:
+    if arg.extract_plain_text() not in ['3.5', '4', '4o', '4om']:
         await matcher.finish("请输入正确的模型名：3.5,4,4o")
     if arg.extract_plain_text() == '3.5':
         plus_status_tmp[id] = "text-davinci-002-render-sha"
+    elif arg.extract_plain_text() == '4om':
+        plus_status_tmp[id] = 'gpt-4o-mini'
     elif arg.extract_plain_text() == '4o':
         plus_status_tmp[id] = 'gpt-4o'
     else:
