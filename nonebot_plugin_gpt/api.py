@@ -4,11 +4,12 @@ from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,Grou
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
-from ChatGPTWeb.config import MsgData
+from ChatGPTWeb.config import MsgData,IOFile
 from nonebot.log import logger
 from nonebot.typing import T_State
 from nonebot import require
 from nonebot_plugin_sendmsg_by_bots import tools
+from httpx import AsyncClient
 from more_itertools import chunked
 from base64 import b64encode
 from typing import Literal
@@ -152,6 +153,15 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
+    
+    if data.gpt_model == "gpt-4" or data.gpt_model == "gpt-4o":
+        msgs = event.get_message()
+        imgs = [msg for msg in msgs if msg.type == "image"]
+        if imgs:
+            for img_msg in imgs:
+                async with AsyncClient() as client:
+                    res = await client.get(img_msg.data['url'])
+                    data.upload_file.append(IOFile(content=res.content,name=img_msg.data['url']))
     if isinstance(event,GroupMessageEvent):
         data = get_c_id(str(event.group_id),data,'group')
         if config_gpt.group_chat:
