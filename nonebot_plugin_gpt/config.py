@@ -27,6 +27,7 @@ class Config(BaseModel):
     gpt_auto_init_friend: bool = False
     gpt_init_group_pernal_name: Optional[str] = None
     gpt_init_friend_pernal_name: Optional[str] = None
+    gpt_save_screen: bool = False
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
@@ -216,6 +217,15 @@ class Config(BaseModel):
         if isinstance(v,str):
             logger.success(f"已应用 gpt_init_friend_pernal_name 好友初始化默认人设名：{v}")
             return v 
+        
+    @validator("gpt_save_screen", always=True, pre=True)
+    def check_gpt_save_screen(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_save_screen 消息与刷新错误截图保存")
+            else:
+                logger.success("已关闭 gpt_save_screen 消息与刷新错误截图保存")
+            return v  
                                                      
 config_gpt = get_plugin_config(Config)
 config_nb = get_driver().config

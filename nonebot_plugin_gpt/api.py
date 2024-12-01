@@ -588,7 +588,13 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     except Exception as e:
         logger.debug(e)
         await matcher.finish()
-    msg = "\n|序号|存活|工作状态|历史会话|plus|账户|\n|:----:|:------:|:------:|:------:|:------:|:------:|\n"
+    msg = f"""白名单模式：{'已开启' if config_gpt.gpt_white_list_mode else '已关闭'}
+
+plus白名单模式：{'已开启' if config_gpt.gptplus_white_list_mode else '已关闭'}
+
+多人识别：{'已开启' if config_gpt.group_chat else '已关闭'}
+"""
+    msg += "\n|序号|存活|工作状态|历史会话|plus|账户|\n|:----:|:------:|:------:|:------:|:------:|:------:|\n"
     for index,x in enumerate(tmp["token"]):
         if len(tmp['cid_num']) < len(tmp["token"]):
             for num in range(0,len(tmp["token"])-len(tmp['cid_num'])):
@@ -604,21 +610,39 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     else:
         await matcher.finish(QQMessageSegment.file_image(img))
     
-async def black_list(event: MessageEvent|QQMessageEvent):
+async def black_list(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage):
     '''黑名单列表'''
     matcher: Matcher = current_matcher.get()
     ban_tmp = json.loads(banpath.read_text("utf-8"))
-    msg = "\n|账户|内容|\n|:------:|:------:|\n"
-    for x in ban_tmp:
-        msg += f"|{x}|{ban_tmp[x][0]}|\n"
-    img = await md_to_pic(msg, width=650)
+    msgs_head = ["\n|账户|内容|","|:------:|:------:|"]
+    msgs = []
+    if arg.extract_plain_text():
+        if arg.extract_plain_text() in ban_tmp:
+            f_tmp = ban_tmp[arg.extract_plain_text()][0].replace('"',r'\"')
+            msgs.append(f"|{arg.extract_plain_text()}|{f_tmp}|")
+    else:
+        for x in ban_tmp:
+            f_tmp = ban_tmp[x][0].replace('"',r'\"')
+            msgs.append(f"|{x}|{f_tmp}|")
+    imgs = []
+    if len(msgs) > 50:
+        chunks = list(chunked(msgs,50))
+        for chunk in chunks:
+            tmp = msgs_head.copy()
+            tmp.extend(chunk)
+            imgs.append(await md_to_pic('\n'.join(tmp), width=650))
+    else:
+        imgs.append(await md_to_pic('\n'.join(msgs_head + msgs), width=650))
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
-        await matcher.finish(QQMessageSegment.file_image(b64encode(img).decode('utf-8'))) # type: ignore
+        msg = QQMessage([QQMessageSegment.file_image(b64encode(img).decode('utf-8')) for img in imgs]) # type: ignore
+        await matcher.finish(msg) # type: ignore
     elif isinstance(event,MessageEvent):
-        await matcher.finish(MessageSegment.image(file=img))
+        msg = Message([MessageSegment.image(file=img) for img in imgs])
+        await matcher.finish(msg)
     else:
-        await matcher.finish(QQMessageSegment.file_image(img))
+        msg = QQMessage([QQMessageSegment.file_image(img) for img in imgs])
+        await matcher.finish(msg)
     
 async def remove_ban_user(arg: Message|QQMessage):
     ''''解黑'''

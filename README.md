@@ -171,6 +171,9 @@ gpt_init_group_pernal_name="猪" # 仅当上一条为true时生效
 gpt_auto_init_friend=false
 gpt_init_friend_pernal_name="私人猪" # 仅当上一条为true时生效
 
+# 发送消息异常和刷新cookie异常截图保存（登录失败截图固定开启，截图保存在bot目录screen下）
+gpt_save_screen=false
+
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
 nickname=["bot name"]
@@ -218,6 +221,56 @@ SUPERUSERS=["qq num"]
 
 
 ## 常见问题
+### cloudflare验证
+请先更换更干净的代理。cf验证问题，在无cfcookie的第一次登陆时一般会出现，可以在有窗口桌面的操作系统上，填写并运行以下脚本，手动过一次cf，
+等待 data/chat_history/conversation/sessions 目录下有对应的session文件生成，将sessions文件夹复制到下方 `数据缓存` 里介绍的数据目录下
+```python
+import asyncio
+import aioconsole
+from ChatGPTWeb import chatgpt
+from ChatGPTWeb.config import Personality, MsgData,IOFile
+
+# 此处填写要使用的账号信息
+session_token = [
+    {
+        "email": "xxxx@hotmail.com",
+        "password": "xxxx",
+        "session_token": "ey....", 
+    },
+    {
+        "email": "aaaa@gmail.com",
+        "password": "xxxx",
+        "mode": "google",
+    },
+    {
+        "email": "bbb@sss.com",
+        "password": "xxxx",
+        "mode": "microsoft",
+        "help_email": "xxx@xx.com",
+        "gptplus": True,
+    },
+]
+personality_definition = Personality(
+    [
+        {
+            "name": "Programmer",
+            'value': 'You are python Programmer'
+        },
+    ]
+)
+
+chat = chatgpt(sessions=session_token, begin_sleep_time=False, headless=False,httpx_status=False,logger_level="DEBUG",stdout_flush=True,local_js=True)
+# 此处headless=False，通过关闭无头模式，来手动点击获取cf cookie
+
+async def main():
+    await asyncio.sleep(1000)
+
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())      
+
+```
+
+
 ### 微软辅助邮箱验证
 当触发验证后，会在启动目录生成带有启动账号名称的文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
 
@@ -244,6 +297,13 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 > 还是由于时间关系，暂时没写与白名单相关适配，自动初始化人设若开启，优先级会比白名单高，例如非白名单群，入群也会在gpt账户上创建一个会话（3.5的会话），当然没白名单该群后续触发不了这个会话
 
 ### 更新日志
+2024.12.01 0.0.40
+1. 修复插件无法使用的问题
+2. 优化工作状态查看，增加白名单状态
+3. 添加发送消息异常和刷新cookie异常截图保存（登录失败截图固定开启，截图保存在bot目录screen下）
+4. readme添加cf验证操作步骤说明
+
+
 2024.07.28 0.0.39
 1. 添加使用plus模型时，可上传文件（目前只支持图片）
 2. 继续尝试修复长时间运行时，access_token过期未自动刷新的问题

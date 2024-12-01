@@ -44,6 +44,8 @@ banpath = data_dir / "ban"
 banpath.mkdir(parents=True, exist_ok=True)
 ban_str_path = data_dir / "ban" / "ban_str.ini"
 ban_str_path.touch()
+if not ban_str_path.stat().st_size:
+    ban_str_path.write_text("",encoding='utf-8')
 
 # 屏蔽用户    
 banpath = data_dir / "ban" / "ban_user.json"

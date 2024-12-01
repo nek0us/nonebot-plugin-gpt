@@ -114,7 +114,8 @@ if isinstance(config_gpt.gpt_session,list):
         proxy = config_gpt.gpt_proxy,
         begin_sleep_time = config_gpt.begin_sleep_time,
         personality=personality,
-        httpx_status=config_gpt.gpt_httpx
+        httpx_status=config_gpt.gpt_httpx,
+        save_screen=config_gpt.gpt_save_screen,
         )
     
     driver = get_driver()
@@ -207,8 +208,8 @@ if isinstance(config_gpt.gpt_session,list):
         
     ban_list = on_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()
-    async def ban_list_handle(event: MessageEvent|QQMessageEvent):
-        await black_list(event)
+    async def ban_list_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
+        await black_list(event,arg)
         
     ban_del = on_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
