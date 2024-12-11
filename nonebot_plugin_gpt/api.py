@@ -618,15 +618,15 @@ async def black_list(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage):
     msgs = []
     if arg.extract_plain_text():
         if arg.extract_plain_text() in ban_tmp:
-            f_tmp = ban_tmp[arg.extract_plain_text()][0].replace('"',r'\"')
+            f_tmp = ban_tmp[arg.extract_plain_text()][0].replace('"',r'\"').replace("\n","  ")
             msgs.append(f"|{arg.extract_plain_text()}|{f_tmp}|")
     else:
         for x in ban_tmp:
-            f_tmp = ban_tmp[x][0].replace('"',r'\"')
+            f_tmp = ban_tmp[x][0].replace('"',r'\"').replace("\n","  ")
             msgs.append(f"|{x}|{f_tmp}|")
     imgs = []
-    if len(msgs) > 50:
-        chunks = list(chunked(msgs,50))
+    if len(msgs) > 100:
+        chunks = list(chunked(msgs,100))
         for chunk in chunks:
             tmp = msgs_head.copy()
             tmp.extend(chunk)

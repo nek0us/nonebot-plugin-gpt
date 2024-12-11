@@ -7,7 +7,7 @@ from nonebot.adapters.qq.message import MessageSegment as QQMessageSegment
 from nonebot.matcher import Matcher,current_matcher
 from nonebot.log import logger
 from datetime import datetime
-from typing import List, Literal,Dict
+from typing import List, Literal,Dict,Tuple
 import json
 
 from .source import banpath,ban_str_path,whitepath,plusstatus
@@ -25,7 +25,7 @@ async def get_id_from_guild_group(event: QQMessageEvent):
     return id,value 
 
 # 返回类型
-async def get_id_from_all(event: MessageEvent|QQMessageEvent):
+async def get_id_from_all(event: MessageEvent|QQMessageEvent) -> Tuple:
     '''return id,value'''
     if isinstance(event,GroupMessageEvent):
         id = str(event.group_id)
