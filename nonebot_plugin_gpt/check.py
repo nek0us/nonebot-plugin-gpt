@@ -135,7 +135,7 @@ async def ban_check(event: MessageEvent|QQMessageEvent,matcher: Matcher,text: Me
                 # 触发屏蔽词
                 current_time = datetime.now()
                 id,value = await get_id_from_all(event)
-                tmp = f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} 在 {value} {id} 中： {text.extract_plain_text()}"
-                logger.info(f"屏蔽词黑名单添加：{event.get_user_id()} {tmp}")
+                tmp = f"{current_time.strftime('%Y-%m-%d %H:%M:%S')} 在 {value} {id} 中触发屏蔽词 {ban_str}\n {text.extract_plain_text()}"
+                logger.info(f"屏蔽词黑名单触发，屏蔽词：{ban_str}\n触发人：{event.get_user_id()}\n原语句：{tmp}")
                 await add_ban(event.get_user_id(),tmp)   
                 await matcher.finish()
