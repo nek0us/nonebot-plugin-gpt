@@ -32,6 +32,13 @@ grouppath = data_dir / "group" / "group.json"
 grouppath.touch()
 if not grouppath.stat().st_size:
     grouppath.write_text("{}") 
+# 群聊历史会话
+group_conversations_path = data_dir / "group" / "group_conversations_path.json"
+group_conversations_path.touch()
+if not group_conversations_path.stat().st_size:
+    group_conversations_path.write_text("{}")
+
+
 # 私聊会话    
 privatepath = data_dir / "private"
 privatepath.mkdir(parents=True, exist_ok=True)
@@ -39,6 +46,13 @@ privatepath = data_dir / "private" / "private.json"
 privatepath.touch()
 if not privatepath.stat().st_size:
     privatepath.write_text("{}")
+# 私聊历史会话
+private_conversations_path = data_dir / "private" / "private_conversations_path.json"
+private_conversations_path.touch()
+if not private_conversations_path.stat().st_size:
+    private_conversations_path.write_text("{}")
+
+
 # 屏蔽词汇        
 banpath = data_dir / "ban"
 banpath.mkdir(parents=True, exist_ok=True)

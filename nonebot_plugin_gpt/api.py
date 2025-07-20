@@ -4,7 +4,7 @@ from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,Grou
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
-from ChatGPTWeb.config import MsgData,IOFile
+from ChatGPTWeb.config import MsgData,IOFile,get_model_by_key,all_models_keys,all_models_values,all_free_models_values
 from nonebot.log import logger
 from nonebot.typing import T_State
 from nonebot import require
@@ -13,14 +13,19 @@ from httpx import AsyncClient
 from more_itertools import chunked
 from base64 import b64encode
 from typing import Literal
+from filetype import guess
 import json
 import re
 import uuid
+from datetime import datetime
+
 
 from .config import config_gpt,config_nb
 from .source import (
     grouppath,
+    group_conversations_path,
     privatepath,
+    private_conversations_path,
     mdstatus,
     personpath,
     whitepath,
@@ -43,7 +48,6 @@ from .check import (
     add_ban,
     add_white,
     del_white,
-    
     
     
 )
@@ -83,36 +87,80 @@ def replace_name(data: MsgData) -> MsgData:
     return data
 
 def get_c_id(id:str, data: MsgData,c_type: Literal['group','private'] = 'group') -> MsgData:
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
+
     if c_type == 'group':
         tmp = json.loads(grouppath.read_text("utf-8"))
+        if id in group_conversations:
+            for c in group_conversations[id]:
+                if tmp[id] == c["conversation_id"]:
+                    data.title = c["conversation_name"]
     else:
         tmp = json.loads(privatepath.read_text("utf-8"))
-    if data.gpt_model == "gpt-4":
-        if id + '-gpt-4' in tmp:
-            data.conversation_id = tmp[id + '-gpt-4']
-    elif data.gpt_model == "gpt-4o":
-        if id + '-gpt-4o' in tmp:
-            data.conversation_id = tmp[id + '-gpt-4o']
-    else:
-        if id in tmp:
-            data.conversation_id = tmp[id]
+        if id in private_conversations:
+            for c in private_conversations[id]:
+                if tmp[id] == c["conversation_id"]:
+                    data.title = c["conversation_name"]
+
+
+    # if data.gpt_model == "gpt-4":
+    #     if id + '-gpt-4' in tmp:
+    #         data.conversation_id = tmp[id + '-gpt-4']
+    # elif data.gpt_model == "gpt-4o":
+    #     if id + '-gpt-4o' in tmp:
+    #         data.conversation_id = tmp[id + '-gpt-4o']
+    # else:
+    #     if id in tmp:
+    #         data.conversation_id = tmp[id]
+    
+    # 不再根据模型隔离会话，同一个会话内也可以切换模型，兼容官网改动
+    if id in tmp:
+        data.conversation_id = tmp[id]
+
     return data
 
 def set_c_id(id:str, data: MsgData,c_type: Literal['group','private'] = 'group'):
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
     if c_type == 'group':
         tmp = json.loads(grouppath.read_text("utf-8"))
+        if id in group_conversations:
+            for c in group_conversations[id]:
+                if data.conversation_id == c["conversation_id"]:
+                    if data.title:
+                        c["conversation_name"] = data.title
+        
     else:
         tmp = json.loads(privatepath.read_text("utf-8"))
-    if data.gpt_model == "gpt-4":
-        tmp[id + '-gpt-4'] = data.conversation_id
-    elif data.gpt_model == "gpt-4o":
-        tmp[id + '-gpt-4o'] = data.conversation_id
-    else:
-        tmp[id] = data.conversation_id
+        if id in private_conversations:
+            for c in private_conversations[id]:
+                if data.conversation_id == c["conversation_id"]:
+                    if data.title:
+                        c["conversation_name"] = data.title
+
+    # if data.gpt_model == "gpt-4":
+    #     tmp[id + '-gpt-4'] = data.conversation_id
+    # elif data.gpt_model == "gpt-4o":
+    #     tmp[id + '-gpt-4o'] = data.conversation_id
+    # # pass switch 4.1?
+    # else:
+    #     tmp[id] = data.conversation_id
+
+    # 不再根据模型隔离会话，同一个会话内也可以切换模型，兼容官网改动
+    tmp[id] = data.conversation_id
+
     if c_type == 'group':
         grouppath.write_text(json.dumps(tmp)) 
+        group_conversations_path.write_text(json.dumps(group_conversations))
     else:
         privatepath.write_text(json.dumps(tmp)) 
+        private_conversations_path.write_text(json.dumps(private_conversations))
+
+def upgrade_model(model: str) -> str:
+    if model in all_free_models_values() and model in all_models_values() and model != all_free_models_values()[0]:
+        return all_free_models_values()[0]
+    return model
     
     
 async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
@@ -120,6 +168,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher,text)
     data = MsgData()
+    data.web_search = True
     if config_gpt.gpt_chat_start and not config_gpt.gpt_chat_start_in_msg:
         chat_start = [gpt_start for gpt_start in config_gpt.gpt_chat_start if event.get_plaintext().startswith(gpt_start)]
         if chat_start:
@@ -153,8 +202,11 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
-    
-    if data.gpt_model == "gpt-4" or data.gpt_model == "gpt-4o":
+        if config_gpt.gpt_force_upgrade_model:
+            data.gpt_model = upgrade_model(data.gpt_model)
+
+    # 图片附加消息检测，free账户也可用但额度很低
+    if config_gpt.gpt_free_image or id in plus_tmp:
         msgs = event.get_message()
         imgs = [msg for msg in msgs if msg.type == "image"]
         if imgs:
@@ -162,6 +214,7 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
                 async with AsyncClient() as client:
                     res = await client.get(img_msg.data['url'])
                     data.upload_file.append(IOFile(content=res.content,name=img_msg.data['url']))
+
     if isinstance(event,GroupMessageEvent):
         data = get_c_id(str(event.group_id),data,'group')
         if config_gpt.group_chat:
@@ -193,7 +246,21 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         data.msg_recv = data.error_info
     
     await ban_check(event,matcher,Message(data.msg_recv))
-    
+
+    imgs = []
+    if data.img_list:
+        logger.debug(f"检测到gpt消息存在图片链接\n {''.join(data.img_list)}")
+        async with AsyncClient(proxy=config_gpt.gpt_proxy) as client:
+            for img_url in data.img_list:
+                try:
+                    res = await client.get(img_url)
+                    if res.status_code == 200:
+                        mime = guess(res.content)
+                        if"image" in mime.mime:
+                            logger.debug(f"链接{img_url}为图片，准备装填")
+                            imgs.append(res.content)
+                except Exception as e:
+                    logger.warning(f"获取图片 {img_url} 出现异常：{e}")
     send_md_status = True
     if config_gpt.gpt_lgr_markdown and isinstance(event,MessageEvent):
         md_status_tmp = json.loads(mdstatus.read_text())
@@ -206,16 +273,29 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
                 send_md_status = False
     else:
         send_md_status = False
+    msg = replace_name(data).msg_recv
+
     if send_md_status and isinstance(event,MessageEvent):
-        await tools.send_text2md(replace_name(data).msg_recv,str(event.self_id))
+        await tools.send_text2md(msg,str(event.self_id))
+        if imgs:
+            await matcher.send(Message([MessageSegment.image(file=img) for img in imgs]))
         await matcher.finish()
     elif send_md_status and isinstance(event,QQMessageEvent):
         #TODO QQ适配器 md模板等兼容发送，待续
         pass
+    elif not send_md_status and isinstance(event,QQMessageEvent):
+        # QQ适配器正常消息
+        msg_img = Message([QQMessageSegment.file_image(b64encode(img).decode('utf-8')) for img in imgs])
+    elif not send_md_status and isinstance(event,MessageEvent):
+        # onebot适配器正常消息
+        msg_img = [MessageSegment.image(file=img) for img in imgs]
     if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
-        data.msg_recv = replace_dot_in_domain(data.msg_recv)
-    
-    await matcher.finish(replace_name(data).msg_recv)
+        msg = replace_dot_in_domain(msg)
+    if imgs:
+        all_msg = Message(msg)+Message(msg_img)
+    else:
+        all_msg = Message(msg)
+    await matcher.finish(all_msg)
     
 
 async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
@@ -228,6 +308,8 @@ async def reset_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
+        if config_gpt.gpt_force_upgrade_model:
+            data.gpt_model = upgrade_model(data.gpt_model)
     if isinstance(event,PrivateMessageEvent):
         data = get_c_id(id,data,'private')
     else:  
@@ -249,6 +331,8 @@ async def back_last(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Mes
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
+        if config_gpt.gpt_force_upgrade_model:
+            data.gpt_model = upgrade_model(data.gpt_model)
     if isinstance(event,PrivateMessageEvent):
         data = get_c_id(id,data,'private')
     else:  
@@ -271,6 +355,8 @@ async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: 
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
+        if config_gpt.gpt_force_upgrade_model:
+            data.gpt_model = upgrade_model(data.gpt_model)
     if isinstance(event,PrivateMessageEvent):
         data = get_c_id(id,data,'private')
     else:  
@@ -283,11 +369,14 @@ async def back_anywhere(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg: 
         data.msg_recv = replace_dot_in_domain(data.msg_recv)
     await matcher.finish(replace_name(data).msg_recv)
     
-async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Message|QQMessage):
+async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Message|QQMessage,plus: bool = False):
     '''初始化'''
     matcher: Matcher = current_matcher.get()
     await ban_check(event,matcher)
     data = MsgData()
+    if plus:
+        data.gpt_plus = True
+        logger.info(f"当前为plus初始化")
     if arg.extract_plain_text() == '':
         arg = Message("默认")
     # 检测plus模型状态
@@ -295,6 +384,8 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
     id,value = await get_id_from_all(event)
     if id in plus_tmp and plus_tmp['status']:
         data.gpt_model = plus_tmp[id]
+        if config_gpt.gpt_force_upgrade_model:
+            data.gpt_model = upgrade_model(data.gpt_model)
     person_type = json.loads(personpath.read_text("utf8"))
     if " " in arg.extract_plain_text():
         data.msg_send = arg.extract_plain_text().split(" ")[0]
@@ -330,15 +421,50 @@ async def init_gpt(event: MessageEvent|QQMessageEvent,chatbot:chatgpt,arg :Messa
         data = await group_handle(data,await tools.get_group_member_list(event.group_id))
     await ban_check(event,matcher,Message(data.msg_recv))
     
+    # 保存会话标题 来源信息
+    current_time = datetime.now()
+
+    conversation_info = {
+        "init_time": current_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "conversation_name": data.title,
+        "conversation_id": data.conversation_id,
+        "from_email": data.from_email,
+    }
+
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
+
     if isinstance(event,QQMessageEvent):
+        if id not in group_conversations:
+            group_conversations[id] = [conversation_info]
+        else:
+            group_conversations[id].insert(0,conversation_info)
+            if len(group_conversations[id]) > 30:
+                group_conversations[id].pop()
+        group_conversations_path.write_text(json.dumps(group_conversations))
+
         if config_gpt.gpt_url_replace:
             data.msg_recv = replace_dot_in_domain(data.msg_recv)
         await matcher.finish(replace_name(data).msg_recv)
     else:
         msg = Message(MessageSegment.node_custom(user_id=event.self_id,nickname=arg.extract_plain_text(),content=Message(replace_name(data).msg_recv)))
         if isinstance(event,GroupMessageEvent):
+            if id not in group_conversations:
+                group_conversations[id] = [conversation_info]
+            else:
+                group_conversations[id].insert(0,conversation_info)
+                if len(group_conversations[id]) > 30:
+                    group_conversations[id].pop()
+            group_conversations_path.write_text(json.dumps(group_conversations))
             await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=msg,bot_id=str(event.self_id))
         else:
+            if id not in private_conversations:
+                private_conversations[id] = [conversation_info]
+            else:
+                private_conversations[id].insert(0,conversation_info)
+                if len(private_conversations[id]) > 30:
+                    private_conversations[id].pop()
+            private_conversations_path.write_text(json.dumps(private_conversations))
             await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=msg,bot_id=str(event.self_id))
     await matcher.finish()
     
@@ -538,10 +664,10 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
     '''历史记录'''
     data = MsgData()
     # 检测plus模型状态
-    plus_tmp = json.loads(plusstatus.read_text())
+    # plus_tmp = json.loads(plusstatus.read_text())
     id,value = await get_id_from_all(event)
-    if id in plus_tmp and plus_tmp['status']:
-        data.gpt_model = plus_tmp[id]
+    # if id in plus_tmp and plus_tmp['status']:
+    #     data.gpt_model = plus_tmp[id]
     if isinstance(event,PrivateMessageEvent):
         data = get_c_id(id,data,'private')
     else:  
@@ -549,25 +675,44 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
     matcher: Matcher = current_matcher.get()
     if not data.conversation_id:
         await matcher.finish("还没有聊天记录")  
+
+    def to_num(snum: str) -> int:
+        num = 0
+        try:
+            num = int(snum)
+        except:
+            logger.debug(f"{snum} not int")
+        return num
+    left_num = 1
+    right_num = None
+    if "-" in text.extract_plain_text() and text.extract_plain_text().count("-") == 1:
+        if text.extract_plain_text().split("-")[0]:
+            num = to_num(text.extract_plain_text().split("-")[0])
+            left_num = num if num != 0 else 1
+        if text.extract_plain_text().split("-")[1]:
+            num = to_num(text.extract_plain_text().split("-")[1])
+            right_num = num if num != 0 else 1
+    elif ":" in text.extract_plain_text() and text.extract_plain_text().count(":") == 1:
+        if text.extract_plain_text().split(":")[0]:
+            num = to_num(text.extract_plain_text().split(":")[0])
+            left_num = num if num != 0 else 1
+        if text.extract_plain_text().split(":")[1]:
+            num = to_num(text.extract_plain_text().split(":")[1])
+            right_num = num if num != 0 else 1
+    else:
+        if text.extract_plain_text:
+            num = to_num(text.extract_plain_text())
+            left_num = num if num!= 0 else 1
+            right_num = num+1 if num!=0 else None
+
+    chat_his = [MessageSegment.node_custom(user_id=event.self_id,nickname=str(index),content=Message(f"### index `{history['index']}`\n---\n```next_msg_id\n{history['next_msg_id']}\n---\n```Q\n{history['Q']}\n---\n```A\n{history['A']}```"))  for index,history in enumerate(await chatbot.show_chat_history(data))][left_num:right_num]
+    if chat_his == []:
+        await matcher.finish("还没有开始聊天")
     if isinstance(event,GroupMessageEvent):
-        chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
-        # chat_his = await node_msg(10000,await chatbot.show_chat_history(data))
-        if len(chat_his) > 100:
-            chunks = list(chunked(chat_his,100))
-            for list_value in chunks: 
-                await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=list_value,bot_id=str(event.self_id))
-        else:
-            await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his,bot_id=str(event.self_id))
-        
+        await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his,bot_id=str(event.self_id))
     elif isinstance(event,PrivateMessageEvent): 
-        chat_his = [MessageSegment.node_custom(user_id=10000,nickname=str(index + 1),content=Message(history) )  for index,history in enumerate(await chatbot.show_chat_history(data))]
-        
-        if len(chat_his) > 200:
-            chunks = list(chunked(chat_his,200))
-            for list_value in chunks: 
-                await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=list_value,bot_id=str(event.self_id)) 
-        else:
-            await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his,bot_id=str(event.self_id))
+        await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his,bot_id=str(event.self_id))
+
     elif isinstance(event,QQMessageEvent):
         res = await chatbot.show_chat_history(data)
         if config_gpt.gpt_url_replace:
@@ -578,6 +723,20 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
         
     await matcher.finish()
     
+async def chatmsg_history_tree(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
+    '''历史记录树'''
+    data = MsgData()
+    id,value = await get_id_from_all(event)
+    if isinstance(event,PrivateMessageEvent):
+        data = get_c_id(id,data,'private')
+    else:  
+        data = get_c_id(id,data,'group')  
+    matcher: Matcher = current_matcher.get()
+    if not data.conversation_id:
+        await matcher.finish("还没有聊天记录")  
+    tree = await chatbot.show_history_tree_md(msg_data=data)
+    pic = await md_to_pic(tree)
+    await matcher.finish(MessageSegment.image(file=pic))
     
 async def status_pic(matcher: Matcher,chatbot: chatgpt):
     '''工作状态'''
@@ -588,11 +747,12 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     except Exception as e:
         logger.debug(e)
         await matcher.finish()
-    msg = f"""白名单模式：{'已开启' if config_gpt.gpt_white_list_mode else '已关闭'}
-
-plus白名单模式：{'已开启' if config_gpt.gptplus_white_list_mode else '已关闭'}
-
-多人识别：{'已开启' if config_gpt.group_chat else '已关闭'}
+    msg = f"""### 白名单模式：`{'已开启' if config_gpt.gpt_white_list_mode else '已关闭'}`
+---
+### plus白名单模式：`{'已开启' if config_gpt.gptplus_white_list_mode else '已关闭'}`
+---
+### 多人识别：`{'已开启' if config_gpt.group_chat else '已关闭'}`
+---
 """
     msg += "\n|序号|存活|工作状态|历史会话|plus|账户|\n|:----:|:------:|:------:|:------:|:------:|:------:|\n"
     for index,x in enumerate(tmp["token"]):
@@ -831,7 +991,7 @@ async def add_plus(arg: Message|QQMessage):
     matcher: Matcher = current_matcher.get()
     if arg.extract_plain_text() in plus_status_tmp:
         await matcher.finish(f"{arg.extract_plain_text()} 已经添加过了")
-    plus_status_tmp[arg.extract_plain_text()] = "gpt-4o-mini"
+    plus_status_tmp[arg.extract_plain_text()] = all_models_values()[0]
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"{arg.extract_plain_text()} plus 添加完成")
     
@@ -852,20 +1012,98 @@ async def plus_change(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage)
     if not plus_status_tmp['status']:
         await matcher.finish('超管已关闭plus使用')
     id,value = await get_id_from_all(event)
-    if arg.extract_plain_text() not in ['3.5', '4', '4o', '4om']:
-        await matcher.finish("请输入正确的模型名：3.5,4,4o")
-    if arg.extract_plain_text() == '3.5':
-        plus_status_tmp[id] = "text-davinci-002-render-sha"
-    elif arg.extract_plain_text() == '4om':
-        plus_status_tmp[id] = 'gpt-4o-mini'
-    elif arg.extract_plain_text() == '4o':
-        plus_status_tmp[id] = 'gpt-4o'
+    data = MsgData()
+    data = get_c_id(id,data,value)
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
+
+    if isinstance(event, PrivateMessageEvent):
+        if id not in private_conversations:
+            await matcher.finish("当前会话未记录plus账号信息，请重新 plus初始化 后再试")
+        for session in config_gpt.gpt_session:
+            for conversation in private_conversations[id]:
+                if conversation["conversation_id"] == data.conversation_id:
+                    if session["email"] == conversation['from_email']:
+                        if not session["gptplus"]:
+                            await matcher.finish(f"当前会话所属账号信息{session["email"]} 不是标注的plus账号，请重新 plus初始化 切换账号后再试")
     else:
-        plus_status_tmp[id] = 'gpt-4'
+        if id not in group_conversations:
+            await matcher.finish("当前会话未记录plus账号信息，请重新 plus初始化 后再试")
+        for session in config_gpt.gpt_session:
+            for conversation in group_conversations[id]:
+                if conversation["conversation_id"] == data.conversation_id:
+                    if session["email"] == conversation['from_email']:
+                        if not session["gptplus"]:
+                            await matcher.finish(f"当前会话所属账号信息{session["email"]} 不是标注的plus账号，请重新 plus初始化 切换账号后再试")
+
+    if arg.extract_plain_text() in all_models_keys(True):
+        plus_status_tmp[id] = get_model_by_key(arg.extract_plain_text(), True)
+    else:
+        await matcher.finish(f"请输入正确的模型名：{' '.join(all_models_keys(True))}")
+
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"plus状态变更为 {arg.extract_plain_text()}")
+
+async def conversations_list(event: MessageEvent|QQMessageEvent):
+    matcher: Matcher = current_matcher.get()
+    id,value = await get_id_from_all(event)
+
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
+
+    if isinstance(event, PrivateMessageEvent):
+        if id not in private_conversations:
+            await matcher.finish("当前会话未记录，将在下一次初始化后才开始记录")
+        c_list = private_conversations[id]
+    else:
+        if id not in group_conversations:
+            await matcher.finish("当前会话未记录，将在下一次初始化后才开始记录")
+        c_list = group_conversations[id]
+    all_list = "\n|序号|账号|标题|id|\n|:------:|:------:|:------:|:------:|\n"
     
-    
+    all_list += ''.join([f"|{str(i+1)}|{x['from_email']}|{x['conversation_name']}|{x['conversation_id']}|\n" for i,x in enumerate(c_list)])
+    pic = await md_to_pic(all_list)
+    if isinstance(event,QQGroupAtMessageCreateEvent):
+        #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
+        await matcher.finish(QQMessageSegment.file_image(b64encode(pic).decode('utf-8'))) # type: ignore
+    else:
+        await matcher.finish(MessageSegment.image(file=pic))
+
+async def conversation_change(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage):
+    matcher: Matcher = current_matcher.get()
+    try:
+        num = int(arg.extract_plain_text())
+        if num > 30 or num < 0:
+            raise IndexError
+    except ValueError:
+        await matcher.finish("切换会话请输入对应序号(1-30)")
+    except IndexError:
+        await matcher.finish("切换会话请输入对应序号,仅支持 1-30")
+    except Exception as e:
+        await matcher.finish(f"切换会话 参数错误：{e}，仅支持 1-30")
+
+    id,value = await get_id_from_all(event)
+
+    group_conversations = json.loads(group_conversations_path.read_text())
+    private_conversations = json.loads(private_conversations_path.read_text())
+
+    data = MsgData()
+    if isinstance(event, PrivateMessageEvent):
+        if id not in private_conversations:
+            await matcher.finish("当前会话未记录，将在下一次初始化后才开始记录")
+        data.conversation_id = private_conversations[id][num-1]["conversation_id"]
+        data.title = private_conversations[id][num-1]["conversation_name"]
+    else:
+        if id not in group_conversations:
+            await matcher.finish("当前会话未记录，将在下一次初始化后才开始记录")
+        data.conversation_id = group_conversations[id][num-1]["conversation_id"]
+        data.title = group_conversations[id][num-1]["conversation_name"]
+
+    set_c_id(id,data,value)
+    logger.info(f"id:{id} 切换会话为 {data.title} {data.conversation_id}")
+    await matcher.finish(f"切换会话 {data.title} {data.conversation_id} 完成")
+        
+
 async def plus_all_status(arg: Message|QQMessage):
     '''超管全局plus状态变更'''
     plus_status_tmp = json.loads(plusstatus.read_text())

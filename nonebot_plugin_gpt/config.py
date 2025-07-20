@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator,model_validator
 from typing import List, Optional
 from nonebot.log import logger
 from nonebot import get_driver,get_plugin_config
@@ -28,6 +28,10 @@ class Config(BaseModel):
     gpt_init_group_pernal_name: Optional[str] = None
     gpt_init_friend_pernal_name: Optional[str] = None
     gpt_save_screen: bool = False
+    gpt_headless: bool = True
+    gpt_local_js: bool = False
+    gpt_free_image: bool = False
+    gpt_force_upgrade_model: bool = True
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
@@ -117,6 +121,16 @@ class Config(BaseModel):
                 return v 
         except Exception:
             logger.warning("未检测到符合条件的账号信息")
+
+    @model_validator(mode="after")
+    def validate_plus(self) -> "Config":
+        sessions = []
+        for session in self.gpt_session:
+            if "gptplus" not in session:
+                session["gptplus"] = False
+            sessions.append(session)
+        self.gpt_session = sessions
+        return self
 
     @validator("gpt_white_list_mode", always=True, pre=True)
     def check_gpt_white_list_mode(cls,v):
@@ -225,6 +239,45 @@ class Config(BaseModel):
                 logger.success("已开启 gpt_save_screen 消息与刷新错误截图保存")
             else:
                 logger.success("已关闭 gpt_save_screen 消息与刷新错误截图保存")
+            return v  
+        
+    @validator("gpt_headless", always=True, pre=True)
+    def check_gpt_headless(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_headless 模式")
+            else:
+                logger.success("已关闭 gpt_headless 模式")
+            return v  
+        
+    
+    @validator("gpt_local_js", always=True, pre=True)
+    def check_gpt_local_js(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_local_js 加载本地js")
+            else:
+                logger.success("已开启 gpt_local_js 联网获取js")
+            return v  
+        
+    
+    @validator("gpt_free_image", always=True, pre=True)
+    def check_gpt_free_image(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_free_image 免费账户上传图片，额度很低请注意")
+            else:
+                logger.success("已关闭 gpt_free_image 免费账户上传图片")
+            return v  
+        
+    
+    @validator("gpt_force_upgrade_model", always=True, pre=True)
+    def check_force_upgrade_model(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_force_upgrade_model 强制会话升级基础模型")
+            else:
+                logger.success("已关闭 gpt_force_upgrade_model 强制会话升级基础模型")
             return v  
                                                      
 config_gpt = get_plugin_config(Config)

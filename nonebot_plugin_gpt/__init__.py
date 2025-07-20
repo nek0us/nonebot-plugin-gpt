@@ -50,6 +50,9 @@ from .api import (
     plus_change,
     plus_all_status,
     init_personal_api,
+    chatmsg_history_tree,
+    conversation_change,
+    conversations_list
     
 )
 
@@ -116,6 +119,8 @@ if isinstance(config_gpt.gpt_session,list):
         personality=personality,
         httpx_status=config_gpt.gpt_httpx,
         save_screen=config_gpt.gpt_save_screen,
+        headless=config_gpt.gpt_headless,
+        local_js=config_gpt.gpt_local_js,
         )
     
     driver = get_driver()
@@ -155,6 +160,10 @@ if isinstance(config_gpt.gpt_session,list):
     async def init_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
         await init_gpt(event,chatbot,arg)
         
+    plus_init = on_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @plus_init.handle()
+    async def plus_init_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
+        await init_gpt(event,chatbot,arg,True)
 
     personality_list = on_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @personality_list.handle()
@@ -197,10 +206,24 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat_history = on_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
+    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
         await chatmsg_history(event,chatbot,text)
 
-            
+    chat_history = on_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @chat_history.handle()
+    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
+        await chatmsg_history_tree(event,chatbot,text)
+
+    chat_conversations = on_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @chat_conversations.handle()
+    async def chat_conversations_handle(event: MessageEvent|QQMessageEvent):
+        await conversations_list(event)
+
+    change_conversation = on_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    @change_conversation.handle()
+    async def change_conversation_handle(event: MessageEvent|QQMessageEvent,arg:Message|QQMessage = CommandArg()):
+        await conversation_change(event,arg)
+
     status = on_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
     async def status_handle(matcher: Matcher):

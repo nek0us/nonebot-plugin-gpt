@@ -13,6 +13,7 @@ import json
 from .source import banpath,ban_str_path,whitepath,plusstatus
 from .config import config_gpt,config_nb
 
+
 # 获取id    
 async def get_id_from_guild_group(event: QQMessageEvent):
     '''QQ适配器获取id（群号频道号）'''
