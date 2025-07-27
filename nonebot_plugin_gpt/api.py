@@ -1,6 +1,6 @@
 
 
-from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent,Bot
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
@@ -18,7 +18,6 @@ import json
 import re
 import uuid
 from datetime import datetime
-
 
 from .config import config_gpt,config_nb
 from .source import (
@@ -75,14 +74,20 @@ async def group_handle(data: MsgData,group_member: list) -> MsgData:
             for y in qq_num_list:
                 if x["user_id"] == int(y):
                     if x["card"]:
+                        if data.msg_raw:
+                            data.msg_raw = [msg.replace(y,x["card"]) for msg in data.msg_raw]
                         data.msg_recv = data.msg_recv.replace(y,x["card"])
                     else:
+                        if data.msg_raw:
+                            data.msg_raw = [x.replace(y,x["nickname"]) for x in data.msg_raw]
                         data.msg_recv = data.msg_recv.replace(y,x["nickname"])
     data.msg_recv = data.msg_recv.replace("编号","")
     return data
            
 def replace_name(data: MsgData) -> MsgData:
     for name in bot_name:
+        if data.msg_raw:
+            data.msg_raw = [x.replace(f"{name}：","").replace(f"{name}:","") for x in data.msg_raw]
         data.msg_recv = data.msg_recv.replace(f"{name}：","").replace(f"{name}:","")
     return data
 
@@ -161,11 +166,19 @@ def upgrade_model(model: str) -> str:
     if model in all_free_models_values() and model in all_models_values() and model != all_free_models_values()[0]:
         return all_free_models_values()[0]
     return model
+
+
     
     
-async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
+async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
     '''聊天处理'''
     matcher: Matcher = current_matcher.get()
+
+    # bot1 = current_bot
+    # # bots = bot1.name 
+    # b = bot1.get()
+    # bots = get_bots()
+    # bbb = T_BotConnectionHook
     await ban_check(event,matcher,text)
     data = MsgData()
     data.web_search = True
@@ -226,6 +239,8 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         data = await chatbot.continue_chat(data)
         if not data.error_info or data.status:
             set_c_id(str(event.group_id),data,'group')
+            # group_member = await bot.call_api('get_group_member_list',**{"group_id":event.group_id})
+            # data = await group_handle(data,group_member)
             data = await group_handle(data,await tools.get_group_member_list(group_id=event.group_id))
         
     elif isinstance(event,PrivateMessageEvent):
@@ -244,6 +259,8 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         
     if data.error_info and not data.msg_recv:
         data.msg_recv = data.error_info
+
+
     
     await ban_check(event,matcher,Message(data.msg_recv))
 
@@ -273,7 +290,8 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
                 send_md_status = False
     else:
         send_md_status = False
-    msg = replace_name(data).msg_recv
+
+    msg = replace_name(data).msg_raw[0] + replace_name(data).msg_raw[2] if replace_name(data).msg_raw and len(data.msg_raw) > 2 else replace_name(data).msg_recv
 
     if send_md_status and isinstance(event,MessageEvent):
         await tools.send_text2md(msg,str(event.self_id))
@@ -290,11 +308,34 @@ async def chat_msg(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Mes
         # onebot适配器正常消息
         msg_img = [MessageSegment.image(file=img) for img in imgs]
     if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
-        msg = replace_dot_in_domain(msg)
-    if imgs:
-        all_msg = Message(msg)+Message(msg_img)
+        if data.msg_raw and len(data.msg_raw) > 2:
+            data.msg_raw[0] = replace_dot_in_domain(data.msg_raw[0])
+            data.msg_raw[2] = replace_dot_in_domain(data.msg_raw[2])
+        else:
+            msg = replace_dot_in_domain(msg)
+    
+    if data.msg_raw:
+        if len(data.msg_raw)>1:
+            try:
+                # msg_md_pic = await md_to_pic(''.join(data.msg_raw))
+                msg_md_pic = await chatbot.md2img(''.join(data.msg_raw))
+            except Exception as e:
+                logger.warning(f"获取元数据转md图片出错")
+            if not send_md_status and isinstance(event,QQMessageEvent):
+                # QQ适配器正常消息
+                md_img = QQMessageSegment.file_image(b64encode(msg_md_pic).decode('utf-8'))
+            else:
+                md_img = MessageSegment.image(file=msg_md_pic)
+            end_msg = md_img # data.msg_raw[0] + md_img + data.msg_raw[2]
+        else:
+            end_msg = msg
     else:
-        all_msg = Message(msg)
+        end_msg = msg
+        
+    if imgs:
+        all_msg = Message(end_msg)+Message(msg_img)
+    else:
+        all_msg = Message(end_msg)
     await matcher.finish(all_msg)
     
 
@@ -496,6 +537,7 @@ async def ps_list(event: MessageEvent|QQMessageEvent,chatbot: chatgpt):
         if isinstance(event,QQGroupAtMessageCreateEvent):
             await matcher.finish(person_list.replace("|:----:|:------:|:------:|:------:|\n","")) # type: ignore
         img = await md_to_pic(person_list) # type: ignore
+        # img = await chatbot.md2img(person_list)
         await matcher.finish(QQMessageSegment.file_image(img))
     await matcher.finish()
                 
@@ -660,7 +702,7 @@ async def del_ps(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,arg :Messag
         await matcher.finish("没有找到这个人设")
     await matcher.finish(await chatbot.del_personality(arg.extract_plain_text()))
     
-async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
+async def chatmsg_history(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text:Message|QQMessage = EventMessage()):
     '''历史记录'''
     data = MsgData()
     # 检测plus模型状态
@@ -709,8 +751,10 @@ async def chatmsg_history(event: MessageEvent|QQMessageEvent,chatbot: chatgpt,te
     if chat_his == []:
         await matcher.finish("还没有开始聊天")
     if isinstance(event,GroupMessageEvent):
+        # await bot.send_group_forward_msg(group_id=event.group_id, messages=chat_his)
         await tools.send_group_forward_msg_by_bots_once(group_id=event.group_id,node_msg=chat_his,bot_id=str(event.self_id))
     elif isinstance(event,PrivateMessageEvent): 
+        # await bot.send_private_forward_msg(user_id=event.user_id, messages=chat_his)
         await tools.send_private_forward_msg_by_bots_once(user_id=event.user_id,node_msg=chat_his,bot_id=str(event.self_id))
 
     elif isinstance(event,QQMessageEvent):
@@ -735,7 +779,8 @@ async def chatmsg_history_tree(event: MessageEvent|QQMessageEvent,chatbot: chatg
     if not data.conversation_id:
         await matcher.finish("还没有聊天记录")  
     tree = await chatbot.show_history_tree_md(msg_data=data)
-    pic = await md_to_pic(tree)
+    # pic = await md_to_pic(tree)
+    pic = await chatbot.md2img(tree)
     await matcher.finish(MessageSegment.image(file=pic))
     
 async def status_pic(matcher: Matcher,chatbot: chatgpt):
@@ -763,6 +808,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     
     event = current_event.get()
     img = await md_to_pic(msg)
+    # img = await chatbot.md2img(msg)
     if isinstance(event,QQGroupAtMessageCreateEvent):  
         await matcher.finish(QQMessageSegment.file_image(b64encode(img).decode('utf-8'))) # type: ignore
     elif isinstance(event,MessageEvent):
@@ -770,7 +816,7 @@ async def status_pic(matcher: Matcher,chatbot: chatgpt):
     else:
         await matcher.finish(QQMessageSegment.file_image(img))
     
-async def black_list(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage):
+async def black_list(chatbot: chatgpt,event: MessageEvent|QQMessageEvent,arg :Message|QQMessage):
     '''黑名单列表'''
     matcher: Matcher = current_matcher.get()
     ban_tmp = json.loads(banpath.read_text("utf-8"))
@@ -869,7 +915,7 @@ async def del_white_list(arg: Message|QQMessage|str):
         
     await matcher.finish(await del_white(id, this_type))
     
-async def white_list():
+async def white_list(chatbot: chatgpt):
     '''获取白名单列表'''
     matcher: Matcher = current_matcher.get()
     white_tmp = json.loads(whitepath.read_text("utf-8"))
@@ -896,6 +942,7 @@ async def white_list():
             msg += f"|unknown|{str(id)}|only plus|\n"
     event = current_event.get()
     white_list_img = await md_to_pic(msg, width=650)
+    white_list_img = awa
     text = f"当前 3.5 白名单状态：{'开启' if config_gpt.gpt_white_list_mode else '关闭'}\n当前 plus 白名单状态：{'开启' if config_gpt.gptplus_white_list_mode else '关闭'}\n注意：两种白名单模式独立生效"
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
@@ -1044,7 +1091,7 @@ async def plus_change(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage)
     plusstatus.write_text(json.dumps(plus_status_tmp))
     await matcher.finish(f"plus状态变更为 {arg.extract_plain_text()}")
 
-async def conversations_list(event: MessageEvent|QQMessageEvent):
+async def conversations_list(chatbot: chatgpt,event: MessageEvent|QQMessageEvent):
     matcher: Matcher = current_matcher.get()
     id,value = await get_id_from_all(event)
 
@@ -1063,6 +1110,7 @@ async def conversations_list(event: MessageEvent|QQMessageEvent):
     
     all_list += ''.join([f"|{str(i+1)}|{x['from_email']}|{x['conversation_name']}|{x['conversation_id']}|\n" for i,x in enumerate(c_list)])
     pic = await md_to_pic(all_list)
+    # pic = await chatbot.md2img(all_list)
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
         await matcher.finish(QQMessageSegment.file_image(b64encode(pic).decode('utf-8'))) # type: ignore

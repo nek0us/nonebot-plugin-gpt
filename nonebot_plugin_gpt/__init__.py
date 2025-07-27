@@ -2,10 +2,10 @@ from ChatGPTWeb import chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_command,on_message,on_notice
-from nonebot.adapters.onebot.v11 import Message,MessageEvent,GroupIncreaseNoticeEvent,FriendAddNoticeEvent
+from nonebot.adapters.onebot.v11 import Message,MessageEvent,GroupIncreaseNoticeEvent,FriendAddNoticeEvent,Bot
 from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent,GroupAddRobotEvent,FriendAddEvent,GuildMemberUpdateEvent
 from nonebot.adapters.qq.message import Message as QQMessage
-from nonebot.adapters.qq import Bot
+from nonebot.adapters.qq import Bot as QQBot
 from nonebot.matcher import Matcher,current_bot
 from nonebot.params import Arg, CommandArg,EventMessage
 from nonebot.plugin import PluginMetadata
@@ -133,8 +133,8 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
-    async def chat_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
-        await chat_msg(event,chatbot,text)
+    async def chat_handle(bot: Bot,event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
+        await chat_msg(bot,event,chatbot,text)
 
                         
     reset = on_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -206,8 +206,8 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat_history = on_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
-        await chatmsg_history(event,chatbot,text)
+    async def chat_history_handle(bot:Bot,event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
+        await chatmsg_history(bot,event,chatbot,text)
 
     chat_history = on_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
@@ -217,7 +217,7 @@ if isinstance(config_gpt.gpt_session,list):
     chat_conversations = on_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
     async def chat_conversations_handle(event: MessageEvent|QQMessageEvent):
-        await conversations_list(event)
+        await conversations_list(chatbot,event)
 
     change_conversation = on_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
@@ -232,7 +232,7 @@ if isinstance(config_gpt.gpt_session,list):
     ban_list = on_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()
     async def ban_list_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
-        await black_list(event,arg)
+        await black_list(chatbot,event,arg)
         
     ban_del = on_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
@@ -247,7 +247,7 @@ if isinstance(config_gpt.gpt_session,list):
     white_list_cmd = on_command("白名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @white_list_cmd.handle()
     async def white_list_handle():
-        await white_list()
+        await white_list(chatbot)
         
     md_status_cmd = on_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @md_status_cmd.handle()
@@ -343,7 +343,7 @@ if isinstance(config_gpt.gpt_session,list):
                     await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='QQprivate')
         elif isinstance(event,GuildMemberUpdateEvent):
             # QQ频道
-            bot: Bot = current_bot.get() # type: ignore
+            bot: QQBot = current_bot.get() # type: ignore
             if bot.self_info.id == event.op_user_id:
                 if config_gpt.gpt_auto_init_group:
                     if not config_gpt.gpt_init_group_pernal_name:
