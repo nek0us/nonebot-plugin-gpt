@@ -333,6 +333,12 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 > 还是由于时间关系，暂时没写与白名单相关适配，自动初始化人设若开启，优先级会比白名单高，例如非白名单群，入群也会在gpt账户上创建一个会话（3.5的会话），当然没白名单该群后续触发不了这个会话
 
 ### 更新日志
+2025.07.27 1.0.2
+1. 修复windows下无法使用的问题
+2. 修复onebot适配器bug导致发不出合并消息
+3. 优化带有元数据的markdown消息展示
+
+
 2025.07.20 1.0.1
 1. 升级httpx版本至0.28.1，修复其参数
 2. 优化底层，增强可用性，如果有问题请尝试`playwright_firefox install firefox`
