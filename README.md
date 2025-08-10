@@ -337,6 +337,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 1. 修复cf问题
 2. 修复openai和microsoft登录问题
 3. google暂时无法登录，等待后续修复
+4. openai可能也无法登录
 
 
 2025.07.27 1.0.2
