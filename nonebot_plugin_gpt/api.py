@@ -79,7 +79,7 @@ async def group_handle(data: MsgData,group_member: list) -> MsgData:
                         data.msg_recv = data.msg_recv.replace(y,x["card"])
                     else:
                         if data.msg_raw:
-                            data.msg_raw = [x.replace(y,x["nickname"]) for x in data.msg_raw]
+                            data.msg_raw = [msg.replace(y,x["nickname"]) for msg in data.msg_raw]
                         data.msg_recv = data.msg_recv.replace(y,x["nickname"])
     data.msg_recv = data.msg_recv.replace("编号","")
     return data
