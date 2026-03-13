@@ -942,7 +942,6 @@ async def white_list(chatbot: chatgpt):
             msg += f"|unknown|{str(id)}|only plus|\n"
     event = current_event.get()
     white_list_img = await md_to_pic(msg, width=650)
-    white_list_img = awa
     text = f"当前 3.5 白名单状态：{'开启' if config_gpt.gpt_white_list_mode else '关闭'}\n当前 plus 白名单状态：{'开启' if config_gpt.gptplus_white_list_mode else '关闭'}\n注意：两种白名单模式独立生效"
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
