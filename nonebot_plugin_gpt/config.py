@@ -1,4 +1,7 @@
-from pydantic import BaseModel, validator,model_validator
+import ast
+import json
+
+from pydantic import BaseModel, Field, validator,model_validator
 from typing import List, Optional
 from nonebot.log import logger
 from nonebot import get_driver,get_plugin_config
@@ -8,7 +11,7 @@ from .source import ban_str_path
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
     arkose_status: bool = False
-    gpt_session: Optional[List[dict]]|str = []
+    gpt_session: Optional[List[dict]] | str = Field(default_factory=list)
     group_chat: bool = True
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
@@ -109,8 +112,39 @@ class Config(BaseModel):
         
     @validator("gpt_session", always=True, pre=True)
     def check_gpt_session(cls,v):
+        if v is None or v == "" or v == []:
+            logger.warning("gpt_session is missing")
+            return []
+
+        if isinstance(v, list):
+            sessions = v
+        elif isinstance(v, str):
+            try:
+                sessions = json.loads(v)
+            except json.JSONDecodeError:
+                try:
+                    # Compatibility for legacy .env values using Python literals.
+                    sessions = ast.literal_eval(v)
+                except (SyntaxError, ValueError):
+                    logger.warning("gpt_session must be a single-line JSON array")
+                    return []
+        else:
+            logger.warning("gpt_session must be an account list")
+            return []
+
+        if not isinstance(sessions, list) or not all(isinstance(session, dict) for session in sessions):
+            logger.warning("gpt_session must contain account objects")
+            return []
+
+        if sessions:
+            logger.success(f"Configured {len(sessions)} ChatGPT accounts")
+        else:
+            logger.warning("gpt_session is empty")
+        return sessions
+
+        # Kept below temporarily for patch compatibility with older releases.
         try:
-            session_user = eval(v)
+            session_user = ast.literal_eval(v)
             if isinstance(session_user,list):
                 num = len(session_user)
                 v = session_user
@@ -125,7 +159,7 @@ class Config(BaseModel):
     @model_validator(mode="after")
     def validate_plus(self) -> "Config":
         sessions = []
-        for session in self.gpt_session:
+        for session in self.gpt_session or []:
             if "gptplus" not in session:
                 session["gptplus"] = False
             sessions.append(session)
