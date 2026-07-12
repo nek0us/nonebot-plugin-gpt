@@ -1,4 +1,4 @@
-from ChatGPTWeb import chatgpt
+from ChatGPTWeb import ChatService, chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_command,on_message,on_notice
@@ -122,6 +122,7 @@ if isinstance(config_gpt.gpt_session,list):
         headless=config_gpt.gpt_headless,
         local_js=config_gpt.gpt_local_js,
         )
+    chat_service = ChatService(chatbot)
     
     driver = get_driver()
     @driver.on_startup
@@ -134,7 +135,7 @@ if isinstance(config_gpt.gpt_session,list):
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
     async def chat_handle(bot: Bot,event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
-        await chat_msg(bot,event,chatbot,text)
+        await chat_msg(bot,event,chatbot,chat_service,text)
 
                         
     reset = on_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)

@@ -3,7 +3,7 @@
 from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,GroupMessageEvent,PrivateMessageEvent,Bot
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
-from ChatGPTWeb import chatgpt
+from ChatGPTWeb import ChatRequest, ChatResult, ChatService, chatgpt
 from ChatGPTWeb.config import MsgData,IOFile,get_model_by_key,all_models_keys,all_models_values,all_free_models_values,get_first_model
 from nonebot.log import logger
 from nonebot.typing import T_State
@@ -168,9 +168,57 @@ def upgrade_model(model: str) -> str:
     return model
 
 
+def _chat_request_from_data(data: MsgData) -> ChatRequest:
+    """Keep legacy conversation storage while using the public service API."""
+    return ChatRequest(
+        prompt=data.msg_send,
+        conversation_id=data.conversation_id,
+        parent_message_id=data.p_msg_id,
+        model=data.gpt_model,
+        files=data.upload_file.copy(),
+        web_search=data.web_search,
+        deep_research=data.deep_research,
+    )
+
+
+def _apply_chat_result(data: MsgData, result: ChatResult) -> MsgData:
+    """Adapt a transport-neutral result for the plugin's existing session helpers."""
+    data.status = result.ok
+    data.msg_recv = result.content.markdown or result.text
+    data.img_list = result.image_urls.copy()
+    data.conversation_id = result.conversation_id or data.conversation_id
+    data.next_msg_id = result.message_id or data.next_msg_id
+    data.model_requested = result.requested_model or data.gpt_model
+    data.model_used = result.used_model
+    data.usage = result.usage.copy()
+    data.response_metadata = result.metadata.copy()
+    data.from_email = result.account
+    if result.errors:
+        data.error_list = result.errors.copy()
+        data.error_info = "\n".join(
+            str(error.get("message") or error.get("kind") or "Chat request failed")
+            for error in result.errors
+            if isinstance(error, dict)
+        )
+    if not result.ok and not data.msg_recv and not data.error_info:
+        data.error_info = "Chat request did not return a completed response."
+    return data
+
+
+async def _stream_chat(service: ChatService, data: MsgData) -> ChatResult:
+    """Consume the normalized ChatGPT stream before adapter-specific rendering."""
+    return await service.stream_to_callback(_chat_request_from_data(data), lambda _event: None)
+
+
     
     
-async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,text: Message|QQMessage = EventMessage()):
+async def chat_msg(
+    bot: Bot,
+    event: MessageEvent|QQMessageEvent,
+    chatbot: chatgpt,
+    chat_service: ChatService,
+    text: Message|QQMessage = EventMessage(),
+):
     '''聊天处理'''
     matcher: Matcher = current_matcher.get()
 
@@ -236,8 +284,9 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
             data.msg_send=text_handle
         # 替换qq
         data.msg_send=data.msg_send.replace("CQ:at,qq=","")
-        data = await chatbot.continue_chat(data)
-        if not data.error_info or data.status:
+        result = await _stream_chat(chat_service, data)
+        data = _apply_chat_result(data, result)
+        if result.ok:
             set_c_id(str(event.group_id),data,'group')
             # group_member = await bot.call_api('get_group_member_list',**{"group_id":event.group_id})
             # data = await group_handle(data,group_member)
@@ -246,15 +295,17 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
     elif isinstance(event,PrivateMessageEvent):
         data = get_c_id(event.get_user_id(),data,'private')
         data.msg_send=event.raw_message
-        data = await chatbot.continue_chat(data)
-        if not data.error_info or data.status:
+        result = await _stream_chat(chat_service, data)
+        data = _apply_chat_result(data, result)
+        if result.ok:
             set_c_id(event.get_user_id(),data,'private')
     elif isinstance(event,QQMessageEvent):
         id,value = await get_id_from_guild_group(event)
         data = get_c_id(id,data,'group')
         data.msg_send=text_handle
-        data = await chatbot.continue_chat(data)
-        if not data.error_info or data.status:
+        result = await _stream_chat(chat_service, data)
+        data = _apply_chat_result(data, result)
+        if result.ok:
             set_c_id(id,data,'group')
         
     if data.error_info and not data.msg_recv:
@@ -273,7 +324,7 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
                     res = await client.get(img_url)
                     if res.status_code == 200:
                         mime = guess(res.content)
-                        if"image" in mime.mime:
+                        if mime and mime.mime.startswith("image/"):
                             logger.debug(f"链接{img_url}为图片，准备装填")
                             imgs.append(res.content)
                 except Exception as e:
@@ -291,7 +342,10 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
     else:
         send_md_status = False
 
-    msg = replace_name(data).msg_raw[0] + replace_name(data).msg_raw[2] if replace_name(data).msg_raw and len(data.msg_raw) > 2 else replace_name(data).msg_recv
+    content = result.content
+    markdown_message = replace_name(data).msg_recv
+    plain_message = content.plain_text or markdown_message
+    msg = markdown_message if send_md_status else plain_message
 
     if send_md_status and isinstance(event,MessageEvent):
         await tools.send_text2md(msg,str(event.self_id))
@@ -308,29 +362,11 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
         # onebot适配器正常消息
         msg_img = [MessageSegment.image(file=img) for img in imgs]
     if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
-        if data.msg_raw and len(data.msg_raw) > 2:
-            data.msg_raw[0] = replace_dot_in_domain(data.msg_raw[0])
-            data.msg_raw[2] = replace_dot_in_domain(data.msg_raw[2])
-        else:
-            msg = replace_dot_in_domain(msg)
-    
-    if data.msg_raw:
-        if len(data.msg_raw)>1:
-            try:
-                # msg_md_pic = await md_to_pic(''.join(data.msg_raw))
-                msg_md_pic = await chatbot.md2img(''.join(data.msg_raw))
-            except Exception as e:
-                logger.warning(f"获取元数据转md图片出错")
-            if not send_md_status and isinstance(event,QQMessageEvent):
-                # QQ适配器正常消息
-                md_img = QQMessageSegment.file_image(b64encode(msg_md_pic).decode('utf-8'))
-            else:
-                md_img = MessageSegment.image(file=msg_md_pic)
-            end_msg = md_img # data.msg_raw[0] + md_img + data.msg_raw[2]
-        else:
-            end_msg = msg
-    else:
-        end_msg = msg
+        msg = replace_dot_in_domain(msg)
+
+    if content.rich_items:
+        logger.debug("ChatGPT returned structured rich content; sending its text and image projection")
+    end_msg = msg
         
     if imgs:
         all_msg = Message(end_msg)+Message(msg_img)
