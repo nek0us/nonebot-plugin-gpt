@@ -11,6 +11,7 @@ from nonebot.params import Arg, CommandArg,EventMessage
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
+from nonebot_plugin_alconna import Match, on_alconna
 from importlib.metadata import version
 import asyncio
 
@@ -18,6 +19,25 @@ import asyncio
 from .config import config_gpt,Config
 from .source import data_dir
 from .check import gpt_manage_rule,gpt_rule,plus_status
+from .command_compat import build_legacy_command
+
+
+def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
+    """用 Alconna 解析旧指令，保持原有名称、别名和规则不变。"""
+    return on_alconna(
+        build_legacy_command(name, aliases),
+        rule=rule,
+        use_cmd_start=True,
+        use_cmd_sep=True,
+        priority=priority,
+        block=block,
+    )
+
+
+def legacy_argument(event, argument: Match[str]) -> Message | QQMessage:
+    """将 Alconna 的纯文本参数交给尚未迁移的旧业务函数。"""
+    message_type = type(event.get_message())
+    return message_type(argument.result if argument.available else "")
 
 from .api import (
     add_default_ps,
@@ -138,33 +158,33 @@ if isinstance(config_gpt.gpt_session,list):
         await chat_msg(bot,event,chatbot,chat_service,text)
 
                         
-    reset = on_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
-    async def reset_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
-        await reset_history(event,chatbot,text)
+    async def reset_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await reset_history(event,chatbot,legacy_argument(event, argument))
     
             
-    last = on_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()
-    async def last_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = EventMessage()):
-        await back_last(event,chatbot,text)
+    async def last_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await back_last(event,chatbot,legacy_argument(event, argument))
             
             
-    back = on_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    back = legacy_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @back.handle()
-    async def back_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
-        await back_anywhere(event,chatbot,arg)
+    async def back_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await back_anywhere(event,chatbot,legacy_argument(event, argument))
             
 
-    init = on_command("init",aliases={"初始化","初始化人格","加载人格","加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    init = legacy_command("init",aliases={"初始化","初始化人格","加载人格","加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @init.handle()
-    async def init_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
-        await init_gpt(event,chatbot,arg)
+    async def init_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await init_gpt(event,chatbot,legacy_argument(event, argument))
         
-    plus_init = on_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    plus_init = legacy_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @plus_init.handle()
-    async def plus_init_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
-        await init_gpt(event,chatbot,arg,True)
+    async def plus_init_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await init_gpt(event,chatbot,legacy_argument(event, argument),True)
 
     personality_list = on_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @personality_list.handle()
@@ -172,10 +192,10 @@ if isinstance(config_gpt.gpt_session,list):
         await ps_list(event,chatbot)
                 
             
-    cat_personality = on_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @cat_personality.handle()
-    async def cat_personality_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
-        await cat_ps(event,chatbot,arg)
+    async def cat_personality_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await cat_ps(event,chatbot,legacy_argument(event, argument))
                 
                 
     add_personality = on_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -205,25 +225,25 @@ if isinstance(config_gpt.gpt_session,list):
     async def del_personality_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
         await del_ps(event,chatbot,arg)
 
-    chat_history = on_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(bot:Bot,event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
-        await chatmsg_history(bot,event,chatbot,text)
+    async def chat_history_handle(bot:Bot,event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await chatmsg_history(bot,event,chatbot,legacy_argument(event, argument))
 
-    chat_history = on_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(event: MessageEvent|QQMessageEvent,text:Message|QQMessage = CommandArg()):
-        await chatmsg_history_tree(event,chatbot,text)
+    async def chat_history_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await chatmsg_history_tree(event,chatbot,legacy_argument(event, argument))
 
     chat_conversations = on_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
     async def chat_conversations_handle(event: MessageEvent|QQMessageEvent):
         await conversations_list(chatbot,event)
 
-    change_conversation = on_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
-    async def change_conversation_handle(event: MessageEvent|QQMessageEvent,arg:Message|QQMessage = CommandArg()):
-        await conversation_change(event,arg)
+    async def change_conversation_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await conversation_change(event,legacy_argument(event, argument))
 
     status = on_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
