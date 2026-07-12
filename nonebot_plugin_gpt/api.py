@@ -197,13 +197,10 @@ def _apply_chat_result(data: MsgData, result: ChatResult) -> MsgData:
     data.from_email = result.account
     if result.errors:
         data.error_list = result.errors.copy()
-        data.error_info = "\n".join(
-            str(error.get("message") or error.get("kind") or "Chat request failed")
-            for error in result.errors
-            if isinstance(error, dict)
-        )
+        logger.warning(f"ChatGPT 聊天请求失败：{result.errors}")
+        data.error_info = "聊天请求失败，请稍后重试。"
     if not result.ok and not data.msg_recv and not data.error_info:
-        data.error_info = "Chat request did not return a completed response."
+        data.error_info = "聊天请求未返回完整响应。"
     return data
 
 
@@ -371,9 +368,9 @@ async def chat_msg(
         try:
             markdown_image = await md_to_pic(content.markdown, max_width=720)
         except Exception as error:
-            logger.warning(f"Markdown image rendering failed; falling back to plain text: {error}")
+            logger.warning(f"Markdown 图片渲染失败，将回退为纯文本：{error}")
     if content.rich_items:
-        logger.debug("ChatGPT returned structured rich content; sending its text and image projection")
+        logger.debug("ChatGPT 返回了结构化富内容，将发送文本与图片投影")
 
     if markdown_image and isinstance(event, QQMessageEvent):
         end_msg = QQMessageSegment.file_image(b64encode(markdown_image).decode("utf-8"))

@@ -113,7 +113,7 @@ class Config(BaseModel):
     @validator("gpt_session", always=True, pre=True)
     def check_gpt_session(cls,v):
         if v is None or v == "" or v == []:
-            logger.warning("gpt_session is missing")
+            logger.warning("未检测到账户信息，请检查 gpt_session 配置")
             return []
 
         if isinstance(v, list):
@@ -123,26 +123,26 @@ class Config(BaseModel):
                 sessions = json.loads(v)
             except json.JSONDecodeError:
                 try:
-                    # Compatibility for legacy .env values using Python literals.
+                    # 兼容使用 Python 字面量的旧版 .env 配置。
                     sessions = ast.literal_eval(v)
                 except (SyntaxError, ValueError):
-                    logger.warning("gpt_session must be a single-line JSON array")
+                    logger.warning("gpt_session 配置格式错误，应为 JSON 账号列表")
                     return []
         else:
-            logger.warning("gpt_session must be an account list")
+            logger.warning("gpt_session 配置格式错误，应为账号列表")
             return []
 
         if not isinstance(sessions, list) or not all(isinstance(session, dict) for session in sessions):
-            logger.warning("gpt_session must contain account objects")
+            logger.warning("gpt_session 配置格式错误，列表成员应为账号对象")
             return []
 
         if sessions:
-            logger.success(f"Configured {len(sessions)} ChatGPT accounts")
+            logger.success(f"已配置 {len(sessions)} 个 ChatGPT 账号")
         else:
-            logger.warning("gpt_session is empty")
+            logger.warning("gpt_session 账号列表为空")
         return sessions
 
-        # Kept below temporarily for patch compatibility with older releases.
+        # 以下旧逻辑保留用于兼容历史版本，正常流程会在上方返回。
         try:
             session_user = ast.literal_eval(v)
             if isinstance(session_user,list):
