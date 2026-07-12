@@ -50,8 +50,10 @@ from .check import (
     
     
 )
-require("nonebot_plugin_htmlrender")
-from nonebot_plugin_htmlrender import md_to_pic  # noqa: E402
+from .rendering import should_render_markdown_image, text_for_platform
+
+require("nonebot_plugin_htmlkit")
+from nonebot_plugin_htmlkit import md_to_pic  # noqa: E402
 
 
 bot_name = list(config_nb.nickname)
@@ -344,8 +346,8 @@ async def chat_msg(
 
     content = result.content
     markdown_message = replace_name(data).msg_recv
-    plain_message = content.plain_text or markdown_message
-    msg = markdown_message if send_md_status else plain_message
+    content.markdown = markdown_message
+    msg = text_for_platform(content, send_md_status)
 
     if send_md_status and isinstance(event,MessageEvent):
         await tools.send_text2md(msg,str(event.self_id))
@@ -364,9 +366,21 @@ async def chat_msg(
     if config_gpt.gpt_url_replace and isinstance(event,QQMessageEvent):
         msg = replace_dot_in_domain(msg)
 
+    markdown_image = None
+    if not send_md_status and should_render_markdown_image(content):
+        try:
+            markdown_image = await md_to_pic(content.markdown, max_width=720)
+        except Exception as error:
+            logger.warning(f"Markdown image rendering failed; falling back to plain text: {error}")
     if content.rich_items:
         logger.debug("ChatGPT returned structured rich content; sending its text and image projection")
-    end_msg = msg
+
+    if markdown_image and isinstance(event, QQMessageEvent):
+        end_msg = QQMessageSegment.file_image(b64encode(markdown_image).decode("utf-8"))
+    elif markdown_image and isinstance(event, MessageEvent):
+        end_msg = MessageSegment.image(file=markdown_image)
+    else:
+        end_msg = msg
         
     if imgs:
         all_msg = Message(end_msg)+Message(msg_img)
@@ -815,8 +829,7 @@ async def chatmsg_history_tree(event: MessageEvent|QQMessageEvent,chatbot: chatg
     if not data.conversation_id:
         await matcher.finish("还没有聊天记录")  
     tree = await chatbot.show_history_tree_md(msg_data=data)
-    # pic = await md_to_pic(tree)
-    pic = await chatbot.md2img(tree)
+    pic = await md_to_pic(tree)
     await matcher.finish(MessageSegment.image(file=pic))
     
 async def status_pic(matcher: Matcher,chatbot: chatgpt):
@@ -872,9 +885,9 @@ async def black_list(chatbot: chatgpt,event: MessageEvent|QQMessageEvent,arg :Me
         for chunk in chunks:
             tmp = msgs_head.copy()
             tmp.extend(chunk)
-            imgs.append(await md_to_pic('\n'.join(tmp), width=650))
+            imgs.append(await md_to_pic('\n'.join(tmp), max_width=650))
     else:
-        imgs.append(await md_to_pic('\n'.join(msgs_head + msgs), width=650))
+        imgs.append(await md_to_pic('\n'.join(msgs_head + msgs), max_width=650))
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   
         msg = QQMessage([QQMessageSegment.file_image(b64encode(img).decode('utf-8')) for img in imgs]) # type: ignore
@@ -977,7 +990,7 @@ async def white_list(chatbot: chatgpt):
         if id not in all_white_ids and id != 'status':
             msg += f"|unknown|{str(id)}|only plus|\n"
     event = current_event.get()
-    white_list_img = await md_to_pic(msg, width=650)
+    white_list_img = await md_to_pic(msg, max_width=650)
     # white_list_img = awa
     text = f"当前 3.5 白名单状态：{'开启' if config_gpt.gpt_white_list_mode else '关闭'}\n当前 plus 白名单状态：{'开启' if config_gpt.gptplus_white_list_mode else '关闭'}\n注意：两种白名单模式独立生效"
     if isinstance(event,QQGroupAtMessageCreateEvent):
