@@ -4,7 +4,7 @@ from nonebot.adapters.onebot.v11 import Message,MessageSegment,MessageEvent,Grou
 from nonebot.matcher import Matcher,current_matcher,current_event
 from nonebot.params import EventMessage
 from ChatGPTWeb import chatgpt
-from ChatGPTWeb.config import MsgData,IOFile,get_model_by_key,all_models_keys,all_models_values,all_free_models_values
+from ChatGPTWeb.config import MsgData,IOFile,get_model_by_key,all_models_keys,all_models_values,all_free_models_values,get_first_model
 from nonebot.log import logger
 from nonebot.typing import T_State
 from nonebot import require
@@ -180,7 +180,7 @@ async def chat_msg(bot: Bot,event: MessageEvent|QQMessageEvent,chatbot: chatgpt,
     # bots = get_bots()
     # bbb = T_BotConnectionHook
     await ban_check(event,matcher,text)
-    data = MsgData()
+    data = MsgData() # MsgData(gpt_model=get_first_model())
     data.web_search = True
     if config_gpt.gpt_chat_start and not config_gpt.gpt_chat_start_in_msg:
         chat_start = [gpt_start for gpt_start in config_gpt.gpt_chat_start if event.get_plaintext().startswith(gpt_start)]
@@ -942,6 +942,7 @@ async def white_list(chatbot: chatgpt):
             msg += f"|unknown|{str(id)}|only plus|\n"
     event = current_event.get()
     white_list_img = await md_to_pic(msg, width=650)
+    # white_list_img = awa
     text = f"当前 3.5 白名单状态：{'开启' if config_gpt.gpt_white_list_mode else '关闭'}\n当前 plus 白名单状态：{'开启' if config_gpt.gptplus_white_list_mode else '关闭'}\n注意：两种白名单模式独立生效"
     if isinstance(event,QQGroupAtMessageCreateEvent):
         #qq适配器的QQ群，暂不支持直接发送图片 (x 现在能发了)   

@@ -291,7 +291,7 @@ if isinstance(config_gpt.gpt_session,list):
         
     random_cdk = on_command("生成cdk",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @random_cdk.handle()
-    async def random_cdk_handle(arg:QQMessage = CommandArg()):
+    async def random_cdk_handle(arg: Message|QQMessage = CommandArg()):
         await random_cdk_api(arg)
         
     add_checker = on_command("出现吧",priority=config_gpt.gpt_command_priority,block=True)
