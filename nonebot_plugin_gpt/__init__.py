@@ -186,7 +186,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def plus_init_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
         await init_gpt(event,chatbot,legacy_argument(event, argument),True)
 
-    personality_list = on_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @personality_list.handle()
     async def personality_list_handle(event: MessageEvent|QQMessageEvent):
         await ps_list(event,chatbot)
@@ -198,10 +198,10 @@ if isinstance(config_gpt.gpt_session,list):
         await cat_ps(event,chatbot,legacy_argument(event, argument))
                 
                 
-    add_personality = on_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_personality.handle()
-    async def add_personality_handle(event: MessageEvent|QQMessageEvent,status: T_State,arg :Message|QQMessage = CommandArg()):
-        await add_ps1(event,status,arg)
+    async def add_personality_handle(event: MessageEvent|QQMessageEvent,status: T_State,argument: Match[str]):
+        await add_ps1(event,status,legacy_argument(event, argument))
         
     @add_personality.got("name",prompt="人设名叫什么？")
     async def add_personality_handle2(status: T_State,name: Message|QQMessage = Arg()):

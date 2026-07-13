@@ -26,3 +26,11 @@ class LegacyCommandTest(unittest.TestCase):
 
         self.assertTrue(result.matched)
         self.assertIsNone(result.main_args.get("argument"))
+
+    def test_canonical_command_accepts_an_argument(self):
+        command = command_compat.build_legacy_command("添加人设", {"添加人格"})
+
+        result = command.parse("添加人设 旅行助手")
+
+        self.assertTrue(result.matched)
+        self.assertEqual(result.main_args["argument"], "旅行助手")
