@@ -74,7 +74,7 @@ whitepath.mkdir(parents=True, exist_ok=True)
 whitepath = whitepath / "white_list.json" 
 whitepath.touch()
 if not whitepath.stat().st_size:
-    tmp = {'group':[],'private':[],'qqgroup':[],'qqguild':[]}
+    tmp = {'group':[],'private':[],'qqgroup':[],'qqguild':[],'session':[]}
     whitepath.write_text(json.dumps(tmp)) 
     
 # plus状态存储表

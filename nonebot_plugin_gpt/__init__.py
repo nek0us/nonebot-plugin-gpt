@@ -8,6 +8,7 @@ from nonebot.adapters.qq.message import Message as QQMessage
 from nonebot.adapters.qq import Bot as QQBot
 from nonebot.matcher import Matcher,current_bot
 from nonebot.params import Arg, CommandArg,EventMessage
+from nonebot.adapters import Event
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
@@ -28,6 +29,7 @@ from .runtime_handlers import chat_reply, persona_reply, restart_persona_reply, 
 from .session_commands import list_sessions, switch_session
 from .model_selection import select_model
 from .attachments import extract_image_files
+from .persona_views import list_personas, show_persona
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -169,7 +171,7 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
-    async def chat_handle(event: MessageEvent|QQMessageEvent, matcher: Matcher, text:Message|QQMessage = EventMessage()):
+    async def chat_handle(event: Event, matcher: Matcher, text = EventMessage()):
         if isinstance(event, MessageEvent) and event.reply and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
         prompt = text.extract_plain_text().strip()
@@ -198,7 +200,7 @@ if isinstance(config_gpt.gpt_session,list):
                         
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
-    async def reset_handle(event: MessageEvent|QQMessageEvent, matcher: Matcher):
+    async def reset_handle(event: Event, matcher: Matcher):
         await matcher.finish(await restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
@@ -207,7 +209,7 @@ if isinstance(config_gpt.gpt_session,list):
             
     last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()
-    async def last_handle(event: MessageEvent|QQMessageEvent, matcher: Matcher):
+    async def last_handle(event: Event, matcher: Matcher):
         await matcher.finish(await rewind_reply(
             chat_runtime,
             ConversationKey.from_event(event),
@@ -217,7 +219,7 @@ if isinstance(config_gpt.gpt_session,list):
             
     back = legacy_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @back.handle()
-    async def back_handle(event: MessageEvent|QQMessageEvent,argument: Match[str], matcher: Matcher):
+    async def back_handle(event: Event,argument: Match[str], matcher: Matcher):
         reference = argument.result if argument.available else ""
         await matcher.finish(await rewind_reply(
             chat_runtime,
@@ -228,16 +230,16 @@ if isinstance(config_gpt.gpt_session,list):
 
     init = legacy_command("init",aliases={"初始化","初始化人格","加载人格","加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @init.handle()
-    async def init_handle(event: MessageEvent|QQMessageEvent,argument: Match[str], matcher: Matcher):
+    async def init_handle(event: Event,argument: Match[str], matcher: Matcher):
         await initialize_persona_handle(event, argument, matcher)
         
     plus_init = legacy_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @plus_init.handle()
-    async def plus_init_handle(event: MessageEvent|QQMessageEvent,argument: Match[str], matcher: Matcher):
+    async def plus_init_handle(event: Event,argument: Match[str], matcher: Matcher):
         await initialize_persona_handle(event, argument, matcher, prefer_paid_account=True)
 
     async def initialize_persona_handle(
-        event: MessageEvent|QQMessageEvent,
+        event: Event,
         argument: Match[str],
         matcher: Matcher,
         prefer_paid_account: bool = False,
@@ -273,14 +275,22 @@ if isinstance(config_gpt.gpt_session,list):
 
     personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @personality_list.handle()
-    async def personality_list_handle(event: MessageEvent|QQMessageEvent):
-        await ps_list(event,chatbot)
+    async def personality_list_handle(event: Event, matcher: Matcher):
+        metadata = json.loads(personpath.read_text(encoding="utf-8"))
+        await matcher.finish(list_personas(chatbot.personality, metadata))
                 
             
     cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @cat_personality.handle()
-    async def cat_personality_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await cat_ps(event,chatbot,legacy_argument(event, argument))
+    async def cat_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
+        metadata = json.loads(personpath.read_text(encoding="utf-8"))
+        name = argument.result if argument.available else ""
+        await matcher.finish(show_persona(
+            chatbot.personality,
+            metadata,
+            name,
+            event.get_user_id(),
+        ))
                 
                 
     add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -322,12 +332,12 @@ if isinstance(config_gpt.gpt_session,list):
 
     chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
-    async def chat_conversations_handle(event: MessageEvent|QQMessageEvent, matcher: Matcher):
+    async def chat_conversations_handle(event: Event, matcher: Matcher):
         await matcher.finish(await list_sessions(chat_runtime, ConversationKey.from_event(event)))
 
     change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
-    async def change_conversation_handle(event: MessageEvent|QQMessageEvent,argument: Match[str], matcher: Matcher):
+    async def change_conversation_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = argument.result if argument.available else ""
         await matcher.finish(await switch_session(chat_runtime, ConversationKey.from_event(event), value))
 
