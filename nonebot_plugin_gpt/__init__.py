@@ -110,7 +110,6 @@ if isinstance(config_gpt.gpt_session,list):
         proxy = config_gpt.gpt_proxy,
         begin_sleep_time = config_gpt.begin_sleep_time,
         personality=personality,
-        httpx_status=config_gpt.gpt_httpx,
         save_screen=config_gpt.gpt_save_screen,
         headless=config_gpt.gpt_headless,
         local_js=config_gpt.gpt_local_js,
@@ -130,15 +129,6 @@ if isinstance(config_gpt.gpt_session,list):
     @driver.on_startup
     async def d():
         logger.info("登录GPT账号中")
-        if config_gpt.gpt_auto_init_group or config_gpt.gpt_auto_init_friend:
-            logger.warning(
-                "自动入群/好友初始化仍基于旧共享会话语义，已在逻辑会话迁移中停用；"
-                "请先让用户使用“初始化 <人设名>”。"
-            )
-        if config_gpt.gpt_lgr_markdown:
-            logger.warning(
-                "gpt_lgr_markdown 已由统一渲染策略取代，当前会按内容与适配器能力自动选择文本或图片输出。"
-            )
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(chatbot.__start__(loop),loop)
         await ensure_default_persona(chatbot)

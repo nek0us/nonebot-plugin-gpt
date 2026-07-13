@@ -23,13 +23,6 @@ class Config(BaseModel):
     gpt_replay_to_replay: bool = False
     gpt_ban_str: Optional[List[str]]|str = []
     gpt_manage_ids: list = []
-    gpt_lgr_markdown: bool = False
-    gpt_httpx: bool = False
-    gpt_url_replace: bool = False
-    gpt_auto_init_group: bool = False
-    gpt_auto_init_friend: bool = False
-    gpt_init_group_pernal_name: Optional[str] = None
-    gpt_init_friend_pernal_name: Optional[str] = None
     gpt_save_screen: bool = False
     gpt_headless: bool = True
     gpt_local_js: bool = False
@@ -212,63 +205,6 @@ class Config(BaseModel):
         except Exception:
             logger.warning("未配置 gpt 屏蔽词")
 
-    @validator("gpt_lgr_markdown", always=True, pre=True)
-    def check_gpt_lgr_markdown(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已开启 gpt_lgr_markdown 拉格兰MarkDown转换")
-            else:
-                logger.success("已关闭 gpt_lgr_markdown 拉格兰MarkDown转换")
-            return v               
-
-    @validator("gpt_httpx", always=True, pre=True)
-    def check_gpt_httpx(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已开启 gpt_httpx httpx使用")
-            else:
-                logger.success("已关闭 gpt_httpx httpx使用")
-            return v
-            
-    @validator("gpt_url_replace", always=True, pre=True)
-    def check_gpt_url_replace(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已开启 gpt_url_replace QQ适配器url输出检测替换")
-            else:
-                logger.success("已关闭 gpt_url_replace QQ适配器url输出检测替换")
-            return v     
-            
-    @validator("gpt_auto_init_group", always=True, pre=True)
-    def check_gpt_auto_init_group(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已开启 gpt_auto_init_group 入群默认初始化人设")
-            else:
-                logger.success("已关闭 gpt_auto_init_group 入群默认初始化人设")
-            return v  
-            
-    @validator("gpt_auto_init_friend", always=True, pre=True)
-    def check_gpt_auto_init_friend(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已开启 gpt_auto_init_friend 好友默认初始化人设")
-            else:
-                logger.success("已关闭 gpt_auto_init_friend 好友默认初始化人设")
-            return v  
-        
-    @validator("gpt_init_group_pernal_name")
-    def check_gpt_init_group_pernal_name(cls,v):
-        if isinstance(v,str):
-            logger.success(f"已应用 gpt_init_group_pernal_name 入群初始化默认人设名：{v}")
-            return v
-        
-    @validator("gpt_init_friend_pernal_name")
-    def check_gpt_init_friend_pernal_name(cls,v):
-        if isinstance(v,str):
-            logger.success(f"已应用 gpt_init_friend_pernal_name 好友初始化默认人设名：{v}")
-            return v 
-        
     @validator("gpt_save_screen", always=True, pre=True)
     def check_gpt_save_screen(cls,v):
         if isinstance(v,bool):

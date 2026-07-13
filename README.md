@@ -100,13 +100,6 @@ _✨ NoneBot GPT ✨_
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
 | gpt_manage_ids | 否 | 无 | List[str] | 管理访问范围标识，可在目标会话执行“会话标识”获取 |
-| gpt_lgr_markdown| 否 | false | bool | 已迁移为自动渲染策略，保留配置但不建议继续设置 |
-| gpt_httpx| 否 | false | bool | 使用httpx |
-| gpt_url_replace| 否 | false | bool | 旧 QQ 专用选项，已停用 |
-| gpt_auto_init_group| 否 | false | bool | 旧共享会话初始化选项，逻辑会话迁移期间停用 |
-| gpt_auto_init_friend| 否 | false | bool | 旧共享会话初始化选项，逻辑会话迁移期间停用 |
-| gpt_init_group_pernal_name| 否 | false | str | 为未来跨平台首轮人设策略预留 |
-| gpt_init_friend_pernal_name| 否 | false | str | 为未来跨平台首轮人设策略预留 |
 | gpt_save_screen| 否 | false | bool | 自动保存非必须的错误截图 |
 | gpt_headless| 否 | true | bool | 使用无头浏览器 |
 | gpt_local_js| 否 | false | bool | 使用本地js不联网获取 |
@@ -163,20 +156,6 @@ gpt_ban_str='[
 ]'
 # 管理访问范围标识，可在目标会话执行“会话标识”获取
 gpt_manage_ids=['adapter:bot:session']
-# 自动渲染策略兼容开关，通常无需设置
-gpt_lgr_markdown=false
-# 使用httpx（暂不完善，请关闭）
-gpt_httpx=false
-# 旧 QQ 专用选项，已停用
-gpt_url_replace=true
-
-# 入群是否自动初始化人设
-gpt_auto_init_group=false
-gpt_init_group_pernal_name="猪" # 仅当上一条为true时生效
-# 加好友是否自动初始化人设
-gpt_auto_init_friend=false
-gpt_init_friend_pernal_name="私人猪" # 仅当上一条为true时生效
-
 # 发送消息异常和刷新cookie异常截图保存（登录失败截图固定开启，截图保存在bot目录screen下）
 gpt_save_screen=false
 
