@@ -15,7 +15,7 @@ class ContextPolicy:
 
     mode: ContextCompactionMode = "summarize_restart"
     utilization_threshold: float = 0.6
-    minimum_estimated_tokens: int = 12_000
+    minimum_estimated_tokens: int = 0
 
 
 @dataclass(frozen=True)

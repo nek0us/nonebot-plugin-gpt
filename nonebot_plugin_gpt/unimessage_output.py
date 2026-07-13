@@ -17,7 +17,7 @@ async def build_unimessage(plan: RenderPlan, render_markdown: MarkdownRenderer |
     message = UniMessage()
     markdown_image = None
     if plan.markdown_image_required and render_markdown:
-        markdown_image = await render_markdown(plan.text)
+        markdown_image = await render_markdown(plan.markdown or plan.text)
     if markdown_image:
         message += UniMessage.image(raw=markdown_image)
     elif plan.text:

@@ -37,7 +37,7 @@ class Config(BaseModel):
     gpt_force_upgrade_model: bool = True
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)
-    gpt_context_compaction_min_tokens: int = Field(default=12_000, ge=0)
+    gpt_context_compaction_min_tokens: int = Field(default=0, ge=0)
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):

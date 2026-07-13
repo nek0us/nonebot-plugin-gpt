@@ -51,6 +51,26 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(plan.model, "gpt-5")
         self.assertEqual(plan.usage["total_tokens"], 42)
         self.assertEqual(plan.image_urls, ["https://example.invalid/image.png"])
+        self.assertEqual(plan.markdown, "# Title")
+
+    def test_markdown_image_plan_keeps_original_markdown(self):
+        content = ChatContent(
+            markdown="| a | b |\n| - | - |\n| 1 | 2 |",
+            plain_text="a b\n1 2",
+        )
+        result = ChatResult(
+            ok=True,
+            text=content.markdown,
+            conversation_id="conversation",
+            message_id="message",
+            content=content,
+        )
+
+        plan = rendering.build_render_plan(result)
+
+        self.assertTrue(plan.markdown_image_required)
+        self.assertEqual(plan.text, "a b\n1 2")
+        self.assertEqual(plan.markdown, content.markdown)
 
 
 if __name__ == "__main__":

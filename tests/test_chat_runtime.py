@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from ChatGPTWeb import ChatResult
+from ChatGPTWeb.config import IOFile
 
 
 PACKAGE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt"
@@ -100,3 +101,52 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(updated.checkpoints), 1)
             self.assertIn("船员已抵达港口", service.requests[-1].prompt)
             self.assertIn("下一站去哪？", service.requests[-1].prompt)
+
+    async def test_restart_persona_creates_a_new_logical_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            original = await store.create(key, "船长")
+            original.persona_name = "船长"
+            original.persona_prompt = "你是一位冷静的船长"
+            original.conversation_id = "conversation-old"
+            await store.save(key, original)
+
+            result = await runtime.restart_persona(key)
+            current = await store.get(key)
+
+            self.assertTrue(result.ok)
+            self.assertNotEqual(current.logical_id, original.logical_id)
+            self.assertEqual(current.persona_name, "船长")
+
+    async def test_rewind_keeps_the_current_logical_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            state = await store.create(key, "船长")
+            state.conversation_id = "conversation-old"
+            state.parent_message_id = "message-old"
+            await store.save(key, state)
+
+            result = await runtime.rewind(key, "-1")
+
+            self.assertTrue(result.ok)
+            self.assertEqual(service.requests[-1].operation.value, "rewind")
+            self.assertEqual(service.requests[-1].reference, "-1")
+
+    async def test_chat_keeps_uploaded_files_on_the_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            image = IOFile(content=b"image", name="image.png")
+
+            result = await runtime.chat(key, "看看图片", files=[image])
+
+            self.assertTrue(result.ok)
+            self.assertEqual(service.requests[-1].files[0].name, "image.png")
