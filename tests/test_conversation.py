@@ -44,3 +44,39 @@ class ConversationStoreTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual((await store.get(first)).conversation_id, "")
             self.assertEqual((await store.get(second)).conversation_id, "conversation-b")
+
+    async def test_logical_sessions_can_be_listed_and_switched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConversationStore(Path(directory) / "sessions.json")
+            key = ConversationKey("satori:channel:7", "alice")
+            first = await store.create(key, "角色扮演")
+            first.conversation_id = "conversation-a"
+            await store.save(key, first)
+            second = await store.create(key, "普通聊天")
+            second.conversation_id = "conversation-b"
+            await store.save(key, second)
+
+            sessions = await store.list(key)
+            active = await store.switch(key, first.logical_id)
+
+            self.assertEqual({state.label for state in sessions}, {"角色扮演", "普通聊天"})
+            self.assertEqual(active.conversation_id, "conversation-a")
+            self.assertEqual((await store.get(key)).logical_id, first.logical_id)
+
+    async def test_checkpoint_keeps_the_same_logical_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConversationStore(Path(directory) / "sessions.json")
+            key = ConversationKey("telegram:group:9", "alice")
+            state = await store.create(key, "长期角色扮演")
+            state = await store.add_checkpoint(
+                key,
+                state,
+                conversation_id="conversation-new",
+                parent_message_id="message-new",
+                model="gpt-5",
+                summary="保留的剧情摘要",
+            )
+
+            self.assertEqual(state.conversation_id, "conversation-new")
+            self.assertEqual(len(state.checkpoints), 1)
+            self.assertEqual((await store.get(key)).logical_id, state.logical_id)
