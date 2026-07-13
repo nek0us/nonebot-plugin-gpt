@@ -25,3 +25,16 @@ class AttachmentTests(unittest.IsolatedAsyncioTestCase):
         ])
 
         self.assertEqual(files, [])
+
+    async def test_unified_image_with_raw_bytes_is_preserved(self):
+        image = attachments.Image(raw=b"image-bytes", name="upload.png")
+        original = attachments.UniMessage.of
+        attachments.UniMessage.of = lambda _message: attachments.UniMessage(image)
+        try:
+            files = await attachments.extract_image_files([])
+        finally:
+            attachments.UniMessage.of = original
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].name, "upload.png")
+        self.assertEqual(files[0].content, b"image-bytes")

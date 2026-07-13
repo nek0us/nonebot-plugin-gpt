@@ -39,6 +39,7 @@ from .management_views import format_account_status
 from .access_views import format_bans, format_whitelist, parse_access_target
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
 from .personality_service import ensure_default_persona
+from .event_scope import resolve_event_scope
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -61,9 +62,8 @@ def _is_reply_event(event: Event) -> bool:
 
 
 def _is_group_context(event: Event) -> bool:
-    """保守识别群组、频道等多人会话。"""
-    session_id = event.get_session_id().lower()
-    return any(marker in session_id for marker in (":group:", ":guild:", ":channel:"))
+    """识别群组、频道等多人会话。"""
+    return resolve_event_scope(event).is_shared
 
 
 def _is_group_admin(event: Event) -> bool:
@@ -88,7 +88,7 @@ __plugin_meta__ = PluginMetadata(
 管理：工作状态、黑名单列表、解黑、白名单列表、添加白名单、删除白名单、会话标识。
 付费模型：添加plus、删除plus、plus切换、全局plus。
 
-白名单、Plus 与管理会话均使用 NoneBot 的精确会话标识；管理员可在目标会话执行“会话标识”后复制使用。
+白名单、Plus 与管理会话均使用插件生成的访问范围标识；管理员可在目标会话执行“会话标识”后复制使用。
     """,
     type="application",
     config=Config,
@@ -500,7 +500,7 @@ if isinstance(config_gpt.gpt_session,list):
     session_id_cmd = legacy_command("session_id", aliases={"会话标识"}, rule=gpt_manage_rule, priority=config_gpt.gpt_command_priority, block=True)
     @session_id_cmd.handle()
     async def session_id_handle(event: Event, matcher: Matcher):
-        await matcher.finish(f"当前会话标识：{get_access_session_id(event)}")
+        await matcher.finish(f"当前访问范围标识：{get_access_session_id(event)}")
 
 else:
     logger.warning("未检测到gpt账号信息，插件未成功加载")

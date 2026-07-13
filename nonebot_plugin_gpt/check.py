@@ -11,12 +11,13 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 
 from .config import config_gpt, config_nb
+from .event_scope import resolve_event_scope
 from .source import ban_str_path, banpath, plusstatus, whitepath
 
 
 def get_access_session_id(event: Event) -> str:
-    """返回适配器命名空间内唯一的会话标识。"""
-    return event.get_session_id()
+    """返回用于访问控制的共享会话范围标识。"""
+    return resolve_event_scope(event).identifier
 
 
 def get_participant_key(event: Event) -> str:
@@ -77,8 +78,8 @@ def _addressed_to_bot(event: Event) -> bool:
 
 
 def _is_private_session(event: Event) -> bool:
-    """识别适配器通常使用的私聊会话标记。"""
-    return ":private:" in get_access_session_id(event).lower()
+    """识别适配器的私聊范围。"""
+    return resolve_event_scope(event).is_private
 
 
 async def plus_status(event: Event) -> bool:

@@ -2,15 +2,40 @@
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from ChatGPTWeb.config import IOFile
 from httpx import AsyncClient
+from nonebot_plugin_alconna.uniseg import Image, UniMessage
 
 
 async def extract_image_files(message, *, proxy: str = "") -> list[IOFile]:
-    """提取带有 HTTP URL 的图片消息段；不支持的段会被安全跳过。"""
-    urls = []
+    """从 UniMessage 或原始消息段提取可上传的图片附件。"""
+    files: list[IOFile] = []
+    urls: list[str] = []
+    seen_urls: set[str] = set()
+
+    try:
+        unified = UniMessage.of(message)
+    except Exception:
+        unified = UniMessage()
+    for segment in unified:
+        if not isinstance(segment, Image):
+            continue
+        if segment.raw:
+            try:
+                files.append(IOFile(content=segment.raw_bytes, name=segment.name))
+            except ValueError:
+                pass
+        elif segment.path:
+            try:
+                path = Path(segment.path)
+                files.append(IOFile(content=path.read_bytes(), name=segment.name or path.name))
+            except OSError:
+                pass
+        elif segment.url:
+            urls.append(segment.url)
+
     for segment in message:
         if getattr(segment, "type", "") != "image":
             continue
@@ -18,10 +43,7 @@ async def extract_image_files(message, *, proxy: str = "") -> list[IOFile]:
         url = data.get("url") if isinstance(data, dict) else None
         if isinstance(url, str) and url.startswith(("http://", "https://")):
             urls.append(url)
-    if not urls:
-        return []
-
-    files = []
+    urls = [url for url in urls if not (url in seen_urls or seen_urls.add(url))]
     async with AsyncClient(proxy=proxy or None) as client:
         for url in urls:
             try:
