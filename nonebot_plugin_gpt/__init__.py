@@ -19,7 +19,7 @@ import json
 
 
 from .config import config_gpt,Config
-from .source import conversation_store_path, data_dir, personpath
+from .source import ban_str_path, conversation_store_path, data_dir, personpath
 from .check import gpt_manage_rule,gpt_rule,plus_status
 from .command_compat import build_legacy_command
 from .chat_runtime import ChatRuntime
@@ -30,6 +30,14 @@ from .session_commands import list_sessions, switch_session
 from .model_selection import select_model
 from .attachments import extract_image_files
 from .persona_views import list_personas, show_persona
+from .persona_editor import (
+    PersonaValidationError,
+    extract_text,
+    parse_r18,
+    parse_visibility,
+    validate_name,
+    validate_value,
+)
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -56,13 +64,6 @@ from .api import (
     back_last,
     back_anywhere,
     init_gpt,
-    ps_list,
-    cat_ps,
-    add_ps1,
-    add_ps2,
-    add_ps3,
-    add_ps4,
-    add_ps5,
     del_ps,
     chatmsg_history,
     status_pic,
@@ -295,26 +296,63 @@ if isinstance(config_gpt.gpt_session,list):
                 
     add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_personality.handle()
-    async def add_personality_handle(event: MessageEvent|QQMessageEvent,status: T_State,argument: Match[str]):
-        await add_ps1(event,status,legacy_argument(event, argument))
+    async def add_personality_handle(event: Event,status: T_State,argument: Match[str], matcher: Matcher):
+        status["creator_id"] = event.get_user_id()
+        if argument.available and argument.result.strip():
+            await set_persona_name(status, argument.result, matcher)
         
     @add_personality.got("name",prompt="人设名叫什么？")
-    async def add_personality_handle2(status: T_State,name: Message|QQMessage = Arg()):
-        await add_ps2(status,name)
+    async def add_personality_handle2(status: T_State, matcher: Matcher, name = Arg()):
+        await set_persona_name(status, extract_text(name), matcher)
                 
                 
     @add_personality.got("r18",prompt="是R18人设吗？（回答 是 / 否)")
-    async def add_personality_handle3(status: T_State,r18: Message|QQMessage = Arg()):
-        await add_ps3(status,r18)
+    async def add_personality_handle3(status: T_State, matcher: Matcher, r18 = Arg()):
+        try:
+            status["r18"] = parse_r18(extract_text(r18))
+        except PersonaValidationError as error:
+            await matcher.finish(str(error))
 
     @add_personality.got("open",prompt="要公开给其他人也可用吗？（回答 公开 / 私有)")
-    async def add_personality_handle4(status: T_State,open: Message|QQMessage = Arg()):
-        await add_ps4(status,open)
+    async def add_personality_handle4(status: T_State, matcher: Matcher, open = Arg()):
+        try:
+            status["open"] = parse_visibility(
+                extract_text(open),
+                str(status["creator_id"]),
+            )
+        except PersonaValidationError as error:
+            await matcher.finish(str(error))
             
     @add_personality.got("value",prompt="请发送人设内容")
-    async def add_personality_handle5(status: T_State,value: Message|QQMessage = Arg()):
-        await add_ps5(status,value,chatbot)
+    async def add_personality_handle5(status: T_State, matcher: Matcher, value = Arg()):
+        banned_words = ban_str_path.read_text(encoding="utf-8").splitlines()
+        try:
+            content = validate_value(extract_text(value), banned_words)
+        except PersonaValidationError as error:
+            await matcher.finish(str(error))
+        personality = {
+            "name": status["name"],
+            "r18": status["r18"],
+            "open": status["open"],
+            "value": content,
+        }
+        await chatbot.add_personality(personality)
+        metadata = json.loads(personpath.read_text(encoding="utf-8"))
+        metadata[personality["name"]] = {
+            "r18": personality["r18"],
+            "open": personality["open"],
+        }
+        personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        await matcher.finish(list_personas(chatbot.personality, metadata))
         
+    async def set_persona_name(status: T_State, value: str, matcher: Matcher):
+        metadata = json.loads(personpath.read_text(encoding="utf-8"))
+        banned_words = ban_str_path.read_text(encoding="utf-8").splitlines()
+        try:
+            status["name"] = validate_name(value, metadata, banned_words)
+        except PersonaValidationError as error:
+            await matcher.finish(str(error))
+
     del_personality = legacy_command("删除人设",aliases={"删除人格","删除人设"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_personality.handle()
     async def del_personality_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
