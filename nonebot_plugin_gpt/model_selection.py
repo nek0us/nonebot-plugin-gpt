@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from ChatGPTWeb.config import all_free_models_values, all_models_values
+from ChatGPTWeb.config import all_free_models_values, all_models_values, get_model_by_key
 from nonebot.adapters import Event
 
 
@@ -17,16 +17,15 @@ def _upgrade_free_model(model: str) -> str:
     return model
 
 
-async def _legacy_identifier(event: Event) -> str:
-    """按旧白名单的兼容规则获取会话范围标识。"""
-    from .check import get_id_from_all
+async def _access_session_id(event: Event) -> str:
+    """读取用于 Plus 偏好的精确会话标识。"""
+    from .check import get_access_session_id
 
-    identifier, _ = await get_id_from_all(event)  # type: ignore[arg-type]
-    return str(identifier)
+    return get_access_session_id(event)
 
 
 def _plusstatus_path():
-    """延迟访问旧本地存储，避免导入逻辑层时初始化 NoneBot。"""
+    """延迟访问本地存储，避免导入逻辑层时初始化 NoneBot。"""
     from .source import plusstatus
 
     return plusstatus
@@ -39,10 +38,20 @@ def _force_upgrade_model() -> bool:
     return config_gpt.gpt_force_upgrade_model
 
 
+def resolve_paid_model(value: str) -> str | None:
+    """接受模型别名或完整模型名，并返回受支持的付费模型名。"""
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    return get_model_by_key(normalized, plus=True) or (
+        normalized if normalized in all_models_values() else None
+    )
+
+
 async def select_model(event: Event, *, prefer_paid_account: bool = False) -> tuple[str, bool]:
-    """从旧 plus 白名单读取模型，同时为新运行时返回账户偏好。"""
+    """读取当前会话的模型偏好，并返回账户偏好。"""
     try:
-        identifier = await _legacy_identifier(event)
+        identifier = await _access_session_id(event)
         configured = json.loads(_plusstatus_path().read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, AttributeError):
         return "auto", prefer_paid_account

@@ -167,3 +167,18 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             history = await runtime.get_history(key)
 
             self.assertEqual(history, [{"Q": "上一句", "A": "上一答"}])
+
+    async def test_model_preference_is_saved_on_the_logical_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            runtime = chat_runtime.ChatRuntime(FakeService(), store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+
+            state = await runtime.set_model_preference(
+                key,
+                "gpt-5",
+                prefer_paid_account=True,
+            )
+
+            self.assertEqual(state.model, "gpt-5")
+            self.assertTrue(state.metadata["prefer_paid_account"])

@@ -13,7 +13,7 @@ plugin_data_dir: Path = store.get_data_dir("nonebot_plugin_gpt")
 data_dir = plugin_data_dir / nb_project
 
 # 需要移动的文件夹列表
-dirs_to_move = ["group", "private", "ban", "white", "person", "cdk", "conversation", "mdstatus.json"]
+dirs_to_move = ["ban", "white", "person", "conversation"]
 
 # 兼容性更新
 if os.name == 'nt':
@@ -24,34 +24,6 @@ if os.name == 'nt':
             dest_dir = data_dir / dir_name
             if src_dir.exists() and src_dir.is_dir():
                 shutil.move(str(src_dir), str(dest_dir))
-
-# 群聊会话
-grouppath = data_dir / "group"
-grouppath.mkdir(parents=True, exist_ok=True)
-grouppath = data_dir / "group" / "group.json"
-grouppath.touch()
-if not grouppath.stat().st_size:
-    grouppath.write_text("{}") 
-# 群聊历史会话
-group_conversations_path = data_dir / "group" / "group_conversations_path.json"
-group_conversations_path.touch()
-if not group_conversations_path.stat().st_size:
-    group_conversations_path.write_text("{}")
-
-
-# 私聊会话    
-privatepath = data_dir / "private"
-privatepath.mkdir(parents=True, exist_ok=True)
-privatepath = data_dir / "private" / "private.json"
-privatepath.touch()
-if not privatepath.stat().st_size:
-    privatepath.write_text("{}")
-# 私聊历史会话
-private_conversations_path = data_dir / "private" / "private_conversations_path.json"
-private_conversations_path.touch()
-if not private_conversations_path.stat().st_size:
-    private_conversations_path.write_text("{}")
-
 
 # 屏蔽词汇        
 banpath = data_dir / "ban"
@@ -74,8 +46,7 @@ whitepath.mkdir(parents=True, exist_ok=True)
 whitepath = whitepath / "white_list.json" 
 whitepath.touch()
 if not whitepath.stat().st_size:
-    tmp = {'group':[],'private':[],'qqgroup':[],'qqguild':[],'session':[]}
-    whitepath.write_text(json.dumps(tmp)) 
+    whitepath.write_text(json.dumps({"version": 2, "sessions": []}))
     
 # plus状态存储表
 plusstatus = data_dir / "white" / "plus_status.json"
@@ -95,23 +66,3 @@ if not personpath.stat().st_size:
 # gpt会话存储
 chatpath = data_dir / "conversation"
 conversation_store_path = chatpath / "sessions.json"
-
-# cdk
-cdkpath = data_dir / "cdk"
-cdkpath.mkdir(parents=True, exist_ok=True)
-cdklistpath = cdkpath / "cdklist.json"
-cdklistpath.touch()
-if not cdklistpath.stat().st_size:
-    cdklistpath.write_text("{}")  
-    
-cdksource = cdkpath / "cdksource.json"
-cdksource.touch()
-if not cdksource.stat().st_size:
-    cdksource.write_text("{}")   
-    
-# md状态存储
-mdstatus = data_dir / "mdstatus.json"
-mdstatus.touch()
-if not mdstatus.stat().st_size:
-    tmp = {"group":[],"private":[]}
-    mdstatus.write_text(json.dumps(tmp))  

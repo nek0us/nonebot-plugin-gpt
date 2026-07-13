@@ -15,6 +15,11 @@ model_selection = importlib.import_module("nonebot_plugin_gpt.model_selection")
 
 
 class ModelSelectionTests(unittest.IsolatedAsyncioTestCase):
+    def test_resolve_paid_model_accepts_alias_and_model_name(self):
+        self.assertEqual(model_selection.resolve_paid_model("5"), "gpt-5")
+        self.assertEqual(model_selection.resolve_paid_model("gpt-5"), "gpt-5")
+        self.assertIsNone(model_selection.resolve_paid_model("not-a-model"))
+
     async def test_whitelisted_model_is_returned_with_paid_preference(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "plus_status.json"
@@ -25,7 +30,7 @@ class ModelSelectionTests(unittest.IsolatedAsyncioTestCase):
 
             with (
                 patch.object(model_selection, "_plusstatus_path", return_value=path),
-                patch.object(model_selection, "_legacy_identifier", get_identifier),
+                patch.object(model_selection, "_access_session_id", get_identifier),
                 patch.object(model_selection, "_force_upgrade_model", return_value=True),
                 patch.object(model_selection, "_upgrade_free_model", side_effect=lambda value: value),
             ):
@@ -44,7 +49,7 @@ class ModelSelectionTests(unittest.IsolatedAsyncioTestCase):
 
             with (
                 patch.object(model_selection, "_plusstatus_path", return_value=path),
-                patch.object(model_selection, "_legacy_identifier", get_identifier),
+                patch.object(model_selection, "_access_session_id", get_identifier),
             ):
                 model, prefer_paid_account = await model_selection.select_model(
                     object(),

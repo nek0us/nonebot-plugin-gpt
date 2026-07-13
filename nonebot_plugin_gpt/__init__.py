@@ -1,13 +1,9 @@
 from ChatGPTWeb import ChatService, chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
-from nonebot import on_command,on_message,on_notice
-from nonebot.adapters.onebot.v11 import Message,MessageEvent,GroupIncreaseNoticeEvent,FriendAddNoticeEvent,Bot,GroupMessageEvent
-from nonebot.adapters.qq.event import MessageEvent as QQMessageEvent,GroupAddRobotEvent,FriendAddEvent,GuildMemberUpdateEvent
-from nonebot.adapters.qq.message import Message as QQMessage
-from nonebot.adapters.qq import Bot as QQBot
-from nonebot.matcher import Matcher,current_bot
-from nonebot.params import Arg, CommandArg,EventMessage
+from nonebot import on_message
+from nonebot.matcher import Matcher
+from nonebot.params import Arg, EventMessage
 from nonebot.adapters import Event
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
@@ -19,15 +15,15 @@ import json
 
 
 from .config import config_gpt,Config
-from .source import ban_str_path, conversation_store_path, data_dir, personpath
-from .check import gpt_manage_rule,gpt_rule,plus_status
+from .source import ban_str_path, banpath, conversation_store_path, data_dir, personpath, plusstatus, whitepath
+from .check import add_white, del_white, get_access_session_id, gpt_command_rule, gpt_manage_rule, gpt_rule, plus_status, read_whitelist
 from .command_compat import build_legacy_command
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationKey, ConversationStore
 from .runtime_handlers import chat_reply, persona_reply, restart_persona_reply, rewind_reply
 from .session_commands import list_sessions, switch_session
-from .model_selection import select_model
+from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_image_files
 from .persona_views import list_personas, show_persona
 from .persona_editor import (
@@ -40,10 +36,15 @@ from .persona_editor import (
 )
 from .history_views import format_history, format_history_tree
 from .management_views import format_account_status
+from .access_views import format_bans, format_whitelist, parse_access_target
+from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
+from .personality_service import ensure_default_persona
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
     """用 Alconna 解析旧指令，保持原有名称、别名和规则不变。"""
+    if rule is gpt_rule:
+        rule = gpt_command_rule
     return on_alconna(
         build_legacy_command(name, aliases),
         rule=rule,
@@ -54,34 +55,22 @@ def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
     )
 
 
-def legacy_argument(event, argument: Match[str]) -> Message | QQMessage:
-    """将 Alconna 的纯文本参数交给尚未迁移的旧业务函数。"""
-    message_type = type(event.get_message())
-    return message_type(argument.result if argument.available else "")
+def _is_reply_event(event: Event) -> bool:
+    """读取适配器可选的回复标记。"""
+    return bool(getattr(event, "reply", None))
 
-from .api import (
-    add_default_ps,
-    chat_msg,
-    reset_history,
-    back_last,
-    back_anywhere,
-    init_gpt,
-    black_list,
-    remove_ban_user,
-    add_white_list,
-    del_white_list,
-    white_list,
-    md_status,
-    get_id_from_guild_group,
-    random_cdk_api,
-    add_checker_api,
-    add_plus,
-    del_plus,
-    plus_change,
-    plus_all_status,
-    init_personal_api,
-    
-)
+
+def _is_group_context(event: Event) -> bool:
+    """保守识别群组、频道等多人会话。"""
+    session_id = event.get_session_id().lower()
+    return any(marker in session_id for marker in (":group:", ":guild:", ":channel:"))
+
+
+def _is_group_admin(event: Event) -> bool:
+    """仅在适配器明确给出 owner/admin 身份时允许 R18 群聊初始化。"""
+    sender = getattr(event, "sender", None)
+    return getattr(sender, "role", "member") in {"owner", "admin"}
+
 
 try:
     __version__ = version("nonebot_plugin_gpt")
@@ -92,41 +81,18 @@ except Exception:
 
 __plugin_meta__ = PluginMetadata(
     name="ChatGPT 聊天",
-    description="通过浏览器使用 ChatGPT,兼容 onebot v11 与 adapter-qq 适配器",
+    description="通过浏览器使用 ChatGPT，基于 Alconna 与 UniMessage 提供跨平台聊天能力",
     usage="""
-| 指令 | 适配器 | 权限 | 需要@ | 范围 |  说明 |
-|:-----:|:----:|:----:|:----:|:----:|:----:|
-| @bot 聊天内容... | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | @或者叫名+内容 开始聊天，随所有者白名单模式设置改变 |
-| 初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 初始化(人设名) |
-| 重置 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到初始化人设后的第二句话时 |
-| 重置上一句 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 刷新上一句的回答 |
-| 回到过去 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到过去 <对话序号/p_id/最后一次出现的关键词> ，回到括号内的对话时间点|
-| 人设列表 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看可用人设列表 |
-| 查看人设 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看人设的具体内容 |
-| 添加人设 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 添加人设 (人设名) |
-| 历史聊天 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看当前人格历史聊天记录 |
-| md状态开启 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自开启markdown输出内容 |
-| md状态关闭 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自关闭markdown输出内容 |
-| 删除人设 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除人设 (人设名) |
-| 黑名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看黑名单列表 |
-| 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
-| 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
-| 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
-| 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus 群号/账号/QQ适配器openid |
-| 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus 群号/账号/QQ适配器openid |
-| plus切换 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | plus切换 <模型名称> ，如 3.5/4/4o，白名单状态开启后，仅支持有plus状态的|
-| 全局plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 全局plus 开启/关闭，关闭后所有人的plus状态不可用，仅能使用3.5模型，超管自己除外 |
-| 删除白名单 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除白名单 <账号/群号> (个人/群) ，删除白名单，最后不写默认为群 |
-| 添加白名单 | OneBot | 超级管理员/超管群 | 是 | 群聊/私聊 | 添加白名单(plus) <账号/群号> (个人/群) ，添加白名单，最后不写默认为群，加了plus字样则默认同时添加进plus状态 |
-| 获取本地id | qq | 无/白名单 | 是 | 群聊/频道 | 群聊内获取id |
-| 生成cdk | qq | 超管群 | 是 | 群聊/频道 | 生成cdk <群号/其他信息>，以绑定信息方式生成白名单cdk |
-| 出现吧 | qq | 无 | 是 | 群聊/频道 | 出现吧 <cdk>，以绑定id形式使用cdk加入白名单 |
-| 结束吧 | qq | 白名单 | 是 | 群聊/频道 | 结束吧 ，用户自主解除白名单 |
+聊天：@机器人或配置的前缀后发送内容。
+会话：初始化、人设列表、历史聊天、历史会话、切换会话、重置、回到过去。
+管理：工作状态、黑名单列表、解黑、白名单列表、添加白名单、删除白名单、会话标识。
+付费模型：添加plus、删除plus、plus切换、全局plus。
+
+白名单、Plus 与管理会话均使用 NoneBot 的精确会话标识；管理员可在目标会话执行“会话标识”后复制使用。
     """,
     type="application",
     config=Config,
     homepage="https://github.com/nek0us/nonebot-plugin-gpt",
-    supported_adapters={"~onebot.v11","~qq"},
     extra={
         "author":"nek0us",
         "version":__version__,
@@ -164,14 +130,23 @@ if isinstance(config_gpt.gpt_session,list):
     @driver.on_startup
     async def d():
         logger.info("登录GPT账号中")
+        if config_gpt.gpt_auto_init_group or config_gpt.gpt_auto_init_friend:
+            logger.warning(
+                "自动入群/好友初始化仍基于旧共享会话语义，已在逻辑会话迁移中停用；"
+                "请先让用户使用“初始化 <人设名>”。"
+            )
+        if config_gpt.gpt_lgr_markdown:
+            logger.warning(
+                "gpt_lgr_markdown 已由统一渲染策略取代，当前会按内容与适配器能力自动选择文本或图片输出。"
+            )
         loop = asyncio.get_event_loop()
         asyncio.run_coroutine_threadsafe(chatbot.__start__(loop),loop)
-        await add_default_ps(chatbot)
+        await ensure_default_persona(chatbot)
 
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
     async def chat_handle(event: Event, matcher: Matcher, text = EventMessage()):
-        if isinstance(event, MessageEvent) and event.reply and not config_gpt.gpt_replay_to_replay:
+        if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
         prompt = text.extract_plain_text().strip()
         if not config_gpt.gpt_chat_start_in_msg:
@@ -181,7 +156,7 @@ if isinstance(config_gpt.gpt_session,list):
                     break
         if not prompt:
             await matcher.finish("请发送想聊天的内容。")
-        if config_gpt.group_chat and isinstance(event, GroupMessageEvent):
+        if config_gpt.group_chat and _is_group_context(event):
             prompt = f"{event.get_user_id()}对你说：{prompt}"
         model, prefer_paid_account = await select_model(event)
         files = []
@@ -255,9 +230,8 @@ if isinstance(config_gpt.gpt_session,list):
         owner = str(persona.get("open", ""))
         if owner and owner != event.get_user_id():
             await matcher.finish("其他用户的私有人设不能使用。")
-        if isinstance(event, GroupMessageEvent) and persona.get("r18"):
-            role = getattr(event.sender, "role", "member")
-            if role not in {"owner", "admin"}:
+        if _is_group_context(event) and persona.get("r18"):
+            if not _is_group_admin(event):
                 await matcher.finish("群聊中仅群主或管理员可以初始化 R18 人设。")
         model, prefer_paid_account = await select_model(
             event,
@@ -396,127 +370,137 @@ if isinstance(config_gpt.gpt_session,list):
         
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()
-    async def ban_list_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await black_list(chatbot,event,legacy_argument(event, argument))
+    async def ban_list_handle(event: Event,argument: Match[str], matcher: Matcher):
+        target = argument.result.strip() if argument.available else ""
+        bans = json.loads(banpath.read_text(encoding="utf-8"))
+        await matcher.finish(format_bans(bans, target))
         
     ban_del = legacy_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
-    async def ban_del_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await remove_ban_user(legacy_argument(event, argument))
+    async def ban_del_handle(event: Event,argument: Match[str], matcher: Matcher):
+        target = argument.result.strip() if argument.available else ""
+        bans = json.loads(banpath.read_text(encoding="utf-8"))
+        if not target or target not in bans:
+            await matcher.finish("没有找到指定黑名单目标。")
+        del bans[target]
+        banpath.write_text(json.dumps(bans, ensure_ascii=False, indent=2), encoding="utf-8")
+        await matcher.finish("已解除黑名单。")
         
     del_white_cmd = legacy_command("删除白名单",aliases={"解除白名单","解白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_white_cmd.handle()
-    async def del_white_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await del_white_list(legacy_argument(event, argument))
+    async def del_white_handle(event: Event,argument: Match[str], matcher: Matcher):
+        try:
+            target, _ = parse_access_target(
+                argument.result if argument.available else "",
+                default_target=get_access_session_id(event),
+            )
+        except ValueError as error:
+            await matcher.finish(str(error))
+        await matcher.finish(await del_white(target))
         
     white_list_cmd = legacy_command("白名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @white_list_cmd.handle()
-    async def white_list_handle():
-        await white_list(chatbot)
+    async def white_list_handle(matcher: Matcher):
+        whitelist = read_whitelist()
+        paid = json.loads(plusstatus.read_text(encoding="utf-8"))
+        await matcher.finish(format_whitelist(whitelist, paid))
         
     md_status_cmd = legacy_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @md_status_cmd.handle()
-    async def md_status_cmd_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await md_status(event,legacy_argument(event, argument))
+    async def md_status_cmd_handle(matcher: Matcher):
+        await matcher.finish("当前版本会按消息内容与适配器能力自动选择文本或图片渲染，md状态不再需要单独设置。")
         
     add_plus_cmd = legacy_command("添加plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_plus_cmd.handle()
-    async def add_plus_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await add_plus(legacy_argument(event, argument))
+    async def add_plus_handle(argument: Match[str], matcher: Matcher):
+        settings = json.loads(plusstatus.read_text(encoding="utf-8"))
+        try:
+            message = grant_paid_access(
+                settings,
+                argument.result if argument.available else "",
+            )
+        except ValueError as error:
+            await matcher.finish(str(error))
+        plusstatus.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await matcher.finish(message)
     
     del_plus_cmd = legacy_command("删除plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_plus_cmd.handle()
-    async def del_plus_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await del_plus(legacy_argument(event, argument))
+    async def del_plus_handle(argument: Match[str], matcher: Matcher):
+        settings = json.loads(plusstatus.read_text(encoding="utf-8"))
+        try:
+            message = revoke_paid_access(
+                settings,
+                argument.result if argument.available else "",
+            )
+        except ValueError as error:
+            await matcher.finish(str(error))
+        plusstatus.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await matcher.finish(message)
     
     plus_change_cmd = legacy_command("plus切换",rule=plus_status,priority=config_gpt.gpt_command_priority,block=True)
     @plus_change_cmd.handle()
-    async def plus_change_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await plus_change(event,legacy_argument(event, argument))
+    async def plus_change_handle(event: Event, argument: Match[str], matcher: Matcher):
+        model = resolve_paid_model(argument.result if argument.available else "")
+        if not model:
+            await matcher.finish("未识别模型，请输入已配置的模型别名或完整模型名。")
+        settings = json.loads(plusstatus.read_text(encoding="utf-8"))
+        if not settings.get("status", True):
+            await matcher.finish("管理员已关闭全局 Plus 使用。")
+        identifier = get_access_session_id(event)
+        settings[identifier] = model
+        plusstatus.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await chat_runtime.set_model_preference(
+            ConversationKey.from_event(event),
+            model,
+            prefer_paid_account=True,
+        )
+        await matcher.finish(f"已将当前逻辑会话切换为 {model}。")
     
     plus_all_status_cmd = legacy_command("全局plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @plus_all_status_cmd.handle()
-    async def plus_all_status_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await plus_all_status(legacy_argument(event, argument))
+    async def plus_all_status_handle(argument: Match[str], matcher: Matcher):
+        settings = json.loads(plusstatus.read_text(encoding="utf-8"))
+        try:
+            message = set_global_paid_enabled(
+                settings,
+                argument.result if argument.available else "",
+            )
+        except ValueError as error:
+            await matcher.finish(str(error))
+        plusstatus.write_text(
+            json.dumps(settings, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        await matcher.finish(message)
     
     
     
-    # ------------------------------ adapter-OneBot        
-    add_white_cmd = on_command("添加白名单",aliases={"加白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    add_white_cmd = legacy_command("添加白名单",aliases={"加白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_white_cmd.handle()
-    async def add_white_handle(arg: Message = CommandArg()):
-        await add_white_list(arg)
-        
-    # ------------------------------ adapter-qq
-    get_local_id = on_command("获取本地id",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
-    @get_local_id.handle()
-    async def get_local_id_handle(event: QQMessageEvent,matcher: Matcher):
-        id,value = await get_id_from_guild_group(event)
-        await matcher.finish(id)  
-        
-    random_cdk = on_command("生成cdk",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
-    @random_cdk.handle()
-    async def random_cdk_handle(arg: Message|QQMessage = CommandArg()):
-        await random_cdk_api(arg)
-        
-    add_checker = on_command("出现吧",priority=config_gpt.gpt_command_priority,block=True)
-    @add_checker.handle()
-    async def add_checker_handle(event: QQMessageEvent,arg: QQMessage = CommandArg()):
-        await add_checker_api(event,arg)
-    
-    del_checker = on_command("结束吧",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
-    @del_checker.handle()
-    async def del_checker_handle(event: QQMessageEvent):
-        id,value = await get_id_from_guild_group(event)
-        await del_white_list(id)
-        
-    init_personal = on_notice(block=False,priority=config_gpt.gpt_chat_priority)
-    @init_personal.handle()
-    async def init_personal_handle(event: GroupAddRobotEvent|FriendAddNoticeEvent|GroupIncreaseNoticeEvent|FriendAddEvent|GuildMemberUpdateEvent):
-        if isinstance(event,GroupAddRobotEvent):
-            # QQ群
-            if config_gpt.gpt_auto_init_group:
-                if not config_gpt.gpt_init_group_pernal_name:
-                    logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupAddRobotEvent, id: {event.group_openid} 入群初始化人设失败")
-                else:
-                    logger.info(f"检测到已开启入群初始化人设，类型 GroupAddRobotEvent, id: {event.group_openid} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
-                    await init_personal_api(chatbot,id=event.group_openid,personal_name=config_gpt.gpt_init_group_pernal_name,type_from='QQgroup')
-        elif isinstance(event,FriendAddNoticeEvent):
-            # onebot 好友
-            if config_gpt.gpt_auto_init_friend:
-                if not config_gpt.gpt_init_friend_pernal_name:
-                    logger.warning(f"检测到已开启好友初始化人设，但未配置具体人设名，类型 FriendAddNoticeEvent, id: {event.get_user_id()} 好友初始化人设失败")
-                else:
-                    logger.info(f"检测到已开启好友初始化人设，类型 FriendAddNoticeEvent, id: {event.get_user_id()} 即将好友初始化人设 {config_gpt.gpt_init_friend_pernal_name}")
-                    await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='private')
-        elif isinstance(event,GroupIncreaseNoticeEvent):
-            # onebot 群
-            if event.get_user_id() == str(event.self_id):
-                if config_gpt.gpt_auto_init_group:
-                    if not config_gpt.gpt_init_group_pernal_name:
-                        logger.warning(f"检测到已开启入群初始化人设，但未配置具体人设名，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 入群初始化人设失败")
-                    else:
-                        logger.info(f"检测到已开启入群初始化人设，类型 GroupIncreaseNoticeEvent, id: {str(event.group_id)} 即将入群初始化人设 {config_gpt.gpt_init_group_pernal_name}")
-                        await init_personal_api(chatbot,id=str(event.group_id),personal_name=config_gpt.gpt_init_group_pernal_name,type_from='group')
-        elif isinstance(event,FriendAddEvent):
-            # QQ好友
-            if config_gpt.gpt_auto_init_friend:
-                if not config_gpt.gpt_init_friend_pernal_name:
-                    logger.warning(f"检测到已开启好友初始化人设，但未配置具体人设名，类型 FriendAddEvent, id: {event.get_user_id()} 好友初始化人设失败")
-                else:
-                    logger.info(f"检测到已开启好友初始化人设，类型 FriendAddEvent, id: {event.get_user_id()} 即将好友初始化人设 {config_gpt.gpt_init_friend_pernal_name}")
-                    await init_personal_api(chatbot,id=event.get_user_id(),personal_name=config_gpt.gpt_init_friend_pernal_name,type_from='QQprivate')
-        elif isinstance(event,GuildMemberUpdateEvent):
-            # QQ频道
-            bot: QQBot = current_bot.get() # type: ignore
-            if bot.self_info.id == event.op_user_id:
-                if config_gpt.gpt_auto_init_group:
-                    if not config_gpt.gpt_init_group_pernal_name:
-                        logger.warning(f"检测到已开启频道初始化人设，但未配置具体人设名，类型 GuildMemberUpdateEvent, id: {event.guild_id} 频道初始化人设失败")
-                    else:
-                        logger.info(f"检测到已开启频道初始化人设，类型 GuildMemberUpdateEvent, id: {event.guild_id} 即将频道初始化人设 {config_gpt.gpt_init_group_pernal_name}")
-                        await init_personal_api(chatbot,id=event.guild_id,personal_name=config_gpt.gpt_init_group_pernal_name,type_from='QQguild')
-            
+    async def add_white_handle(event: Event, argument: Match[str], matcher: Matcher):
+        try:
+            target, paid = parse_access_target(
+                argument.result if argument.available else "",
+                default_target=get_access_session_id(event),
+            )
+        except ValueError as error:
+            await matcher.finish(str(error))
+        await matcher.finish(await add_white(target, paid))
+
+    session_id_cmd = legacy_command("session_id", aliases={"会话标识"}, rule=gpt_manage_rule, priority=config_gpt.gpt_command_priority, block=True)
+    @session_id_cmd.handle()
+    async def session_id_handle(event: Event, matcher: Matcher):
+        await matcher.finish(f"当前会话标识：{get_access_session_id(event)}")
 
 else:
     logger.warning("未检测到gpt账号信息，插件未成功加载")

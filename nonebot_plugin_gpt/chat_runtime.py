@@ -193,6 +193,19 @@ class ChatRuntime:
         """获取当前会话范围绑定的逻辑会话。"""
         return await self._conversations.get(key)
 
+    async def set_model_preference(
+        self,
+        key: ConversationKey,
+        model: str,
+        *,
+        prefer_paid_account: bool,
+    ) -> ConversationState:
+        """更新当前逻辑会话的模型偏好，不改变其已有上下文。"""
+        state = await self._conversations.get(key)
+        state.model = model
+        state.metadata["prefer_paid_account"] = prefer_paid_account
+        return await self._conversations.save(key, state)
+
     async def get_history(self, key: ConversationKey) -> list[dict[str, str]]:
         """获取当前逻辑会话活动检查点的问答历史。"""
         state = await self._conversations.get(key)

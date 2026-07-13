@@ -6,7 +6,7 @@ authors = [
     {name = "nek0us", email = "nekouss@mail.com"},
 ]
 license = {text = "GPL3"}
-dependencies = ["ChatGPTWeb>=0.4.0","nonebot_adapter_onebot>=2.3.1","nonebot-plugin-sendmsg-by-bots>=0.2.0","nonebot_adapter_qq>=1.3.5","nonebot2>=2.0.0","more_itertools","nonebot-plugin-htmlkit","nonebot-plugin-alconna","nonebot_plugin_localstore"]
+dependencies = ["ChatGPTWeb>=0.4.0","nonebot2>=2.0.0","nonebot-plugin-htmlkit","nonebot-plugin-alconna","nonebot_plugin_localstore"]
 requires-python = ">=3.10"
 readme = "README.md"
 

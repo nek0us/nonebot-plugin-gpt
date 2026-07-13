@@ -26,7 +26,7 @@ _✨ NoneBot GPT ✨_
 
 ## 📖 介绍
 
-自用的使用浏览器ChatGPT接入Nonebot2，兼容 onebot v11 与 qq 适配器
+自用的使用浏览器 ChatGPT 接入 NoneBot2 插件。聊天和管理命令基于 Alconna 与 UniMessage，支持接入不同适配器。
 
 ### 使用条件
 
@@ -99,14 +99,14 @@ _✨ NoneBot GPT ✨_
 | gptplus_white_list_mode | 否 | true | bool | gptplus聊天白名单模式 |
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
-| gpt_manage_ids | 否 | 无 | List[str] | 超管群/频道id，通过日志等方式获得 |
-| gpt_lgr_markdown| 否 | false | bool | 以拉格兰md消息回复 |
+| gpt_manage_ids | 否 | 无 | List[str] | 管理会话标识，可在目标会话执行“会话标识”获取 |
+| gpt_lgr_markdown| 否 | false | bool | 已迁移为自动渲染策略，保留配置但不建议继续设置 |
 | gpt_httpx| 否 | false | bool | 使用httpx |
-| gpt_url_replace| 否 | false | bool | QQ适配器url输出时替换 |
-| gpt_auto_init_group| 否 | false | bool | 入群自动初始化人设 |
-| gpt_auto_init_friend| 否 | false | bool | 加好友后自动初始化人设 |
-| gpt_init_group_pernal_name| 否 | false | bool | 入群自动初始化的人设名 |
-| gpt_init_friend_pernal_name| 否 | false | bool | 加好友自动初始化的人设名 |
+| gpt_url_replace| 否 | false | bool | 旧 QQ 专用选项，已停用 |
+| gpt_auto_init_group| 否 | false | bool | 旧共享会话初始化选项，逻辑会话迁移期间停用 |
+| gpt_auto_init_friend| 否 | false | bool | 旧共享会话初始化选项，逻辑会话迁移期间停用 |
+| gpt_init_group_pernal_name| 否 | false | str | 为未来跨平台首轮人设策略预留 |
+| gpt_init_friend_pernal_name| 否 | false | str | 为未来跨平台首轮人设策略预留 |
 | gpt_save_screen| 否 | false | bool | 自动保存非必须的错误截图 |
 | gpt_headless| 否 | true | bool | 使用无头浏览器 |
 | gpt_local_js| 否 | false | bool | 使用本地js不联网获取 |
@@ -161,13 +161,13 @@ gpt_ban_str='[
     "我是猪",
     "你是猪",
 ]'
-# qq适配器使用的超管群id
-gpt_manage_ids=['qq group id......']
-# onebot适配器 拉格兰md消息兼容
+# 管理会话标识，可在目标会话执行“会话标识”获取
+gpt_manage_ids=['adapter:bot:session']
+# 自动渲染策略兼容开关，通常无需设置
 gpt_lgr_markdown=false
 # 使用httpx（暂不完善，请关闭）
 gpt_httpx=false
-# 开启QQ适配器url替换
+# 旧 QQ 专用选项，已停用
 gpt_url_replace=true
 
 # 入群是否自动初始化人设
@@ -196,8 +196,8 @@ gpt_force_upgrade_model=true
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
 nickname=["bot name"]
-# 超管QQ（onebot用）
-SUPERUSERS=["qq num"]
+# 超级管理员用户标识（由所用适配器决定）
+SUPERUSERS=["admin user id"]
 
 ```
 
@@ -218,29 +218,25 @@ SUPERUSERS=["qq num"]
 | 历史聊天树 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看当前人格历史聊天记录树状图|
 | 历史会话 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看当前群聊私聊的会话列表，上限30 |
 | 切换会话 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 切换会话 序列号，根据会话列表序号切换会话 |
-| md状态开启 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自开启markdown输出内容 |
-| md状态关闭 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用户自关闭markdown输出内容 |
+| md状态 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 输出会按内容与适配器能力自动选择文本或图片渲染 |
 | 删除人设 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除人设 (人设名) |
 | 黑名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看黑名单列表 |
 | 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
-| 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus 群号/账号/QQ适配器openid |
-| 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus 群号/账号/QQ适配器openid |
-| plus切换 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | plus切换 <模型名称> ，如 4om/3.5/4/4o，白名单状态开启后，仅支持有plus状态的|
-| 全局plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 全局plus 开启/关闭，关闭后所有人的plus状态不可用，仅能使用3.5模型，超管自己除外 |
-| 删除白名单 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除白名单 <账号/群号> (个人/群) ，删除白名单，最后不写默认为群 |
-| 添加白名单 | OneBot | 超级管理员/超管群 | 是 | 群聊/私聊 | 添加白名单(plus) <账号/群号> (个人/群) ，添加白名单，最后不写默认为群，加了plus字样则默认同时添加进plus状态 |
-| 获取本地id | qq | 无/白名单 | 是 | 群聊/频道 | 群聊内获取id |
-| 生成cdk | qq | 超管群 | 是 | 群聊/频道 | 生成cdk <群号/其他信息>，以绑定信息方式生成白名单cdk |
-| 出现吧 | qq | 无 | 是 | 群聊/频道 | 出现吧 \<cdk\>，以绑定id形式使用cdk加入白名单 |
-| 结束吧 | qq | 白名单 | 是 | 群聊/频道 | 结束吧 ，用户自主解除白名单 |
+| 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus <稳定标识>，授予自动选择付费账户的权限 |
+| 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus <稳定标识>，撤销付费账户权限 |
+| plus切换 | 兼容 | Plus 权限 | 是 | 群聊/私聊/频道 | plus切换 <模型别名或完整模型名>，只更新当前逻辑会话 |
+| 全局plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 全局plus 开启/关闭，关闭时禁止普通用户的付费模型切换 |
+| 会话标识 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 显示当前 NoneBot 会话标识，用于授权与管理配置 |
+| 删除白名单 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 删除白名单 [会话标识]；省略时删除当前会话 |
+| 添加白名单 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 添加白名单 [plus] [会话标识]；省略时添加当前会话 |
 
 > <为必填内容>，(为选填内容)
 
-> QQ适配器若添加plus状态，只能对方使用了cdk后，超管自己查看白名单列表，再手打openid到`添加plus`指令了，稍微有点麻烦，也许未来会优化
+> 逻辑会话由用户可见的会话列表管理。模型切换不会泄露或展示底层 ChatGPT 会话 ID。
 
-> 不同模型的为独立会话，会分开保存，切换plus状态后会自动续接对应的会话
+> 白名单、Plus 与 `gpt_manage_ids` 统一使用 NoneBot 会话标识，旧版 `group/private/qqgroup/qqguild` 白名单文件不会自动转换为有效授权。
 
 
 ## 常见问题
