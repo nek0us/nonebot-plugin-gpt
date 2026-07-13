@@ -105,6 +105,7 @@ _✨ NoneBot GPT ✨_
 | gpt_local_js| 否 | false | bool | 使用本地js不联网获取 |
 | gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
+| gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
 
 ```bash
 # gpt配置示例
@@ -170,6 +171,9 @@ gpt_free_image=false
 
 # 强制升级基础模型，如4o-mini升级到4-1-mini
 gpt_force_upgrade_model=true
+
+# 富文本输出策略：auto、text、image
+gpt_render_mode="auto"
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在

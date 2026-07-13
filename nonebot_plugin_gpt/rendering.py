@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import re
+from typing import Literal
 
 from ChatGPTWeb import ChatContent, ChatResult
 
@@ -37,15 +38,25 @@ def should_render_markdown_image(content: ChatContent) -> bool:
     )
 
 
-def build_render_plan(result: ChatResult, supports_markdown: bool = False) -> RenderPlan:
+def build_render_plan(
+    result: ChatResult,
+    supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
+) -> RenderPlan:
     """让渲染策略与传输实现、适配器消息段类型保持分离。"""
     content = result.content
     markdown = content.markdown or result.text
     text = text_for_platform(content, supports_markdown) or result.text
+    if render_mode == "image":
+        markdown_image_required = bool(markdown) and not supports_markdown
+    elif render_mode == "text":
+        markdown_image_required = False
+    else:
+        markdown_image_required = not supports_markdown and should_render_markdown_image(content)
     return RenderPlan(
         text=text,
         markdown=markdown,
-        markdown_image_required=not supports_markdown and should_render_markdown_image(content),
+        markdown_image_required=markdown_image_required,
         image_urls=(result.image_urls or content.image_urls).copy(),
         model=result.used_model or result.requested_model,
         usage=result.usage.copy(),

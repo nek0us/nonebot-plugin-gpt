@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from ChatGPTWeb import ChatResult
 from ChatGPTWeb.config import IOFile
@@ -35,13 +36,18 @@ async def render_result(
     result: ChatResult,
     *,
     supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
 ) -> UniMessage:
     """把结构化聊天结果转换为可由 Alconna 发送的统一消息。"""
     if not result.ok:
         return _error_message(result)
     return await build_unimessage(
-        build_render_plan(result, supports_markdown=supports_markdown),
+        build_render_plan(
+            result,
+            supports_markdown=supports_markdown,
+            render_mode=render_mode,
+        ),
         render_markdown=render_markdown,
     )
 
@@ -56,6 +62,7 @@ async def chat_reply(
     files: list[IOFile] | None = None,
     web_search: bool = True,
     supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
 ) -> UniMessage:
     """处理一条普通聊天消息并返回跨平台输出。"""
@@ -70,6 +77,7 @@ async def chat_reply(
     return await render_result(
         result,
         supports_markdown=supports_markdown,
+        render_mode=render_mode,
         render_markdown=render_markdown,
     )
 
@@ -83,6 +91,7 @@ async def persona_reply(
     prefer_paid_account: bool = False,
     continue_existing: bool = False,
     supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
 ) -> UniMessage:
     """初始化人设并将结果投影为跨平台输出。"""
@@ -99,6 +108,7 @@ async def persona_reply(
     return await render_result(
         result,
         supports_markdown=supports_markdown,
+        render_mode=render_mode,
         render_markdown=render_markdown,
     )
 
@@ -108,6 +118,7 @@ async def restart_persona_reply(
     key: ConversationKey,
     *,
     supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
 ) -> UniMessage:
     """重置当前人设并创建新的逻辑会话。"""
@@ -118,6 +129,7 @@ async def restart_persona_reply(
     return await render_result(
         result,
         supports_markdown=supports_markdown,
+        render_mode=render_mode,
         render_markdown=render_markdown,
     )
 
@@ -128,6 +140,7 @@ async def rewind_reply(
     reference: str,
     *,
     supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
 ) -> UniMessage:
     """回退当前逻辑会话的物理上下文。"""
@@ -140,5 +153,6 @@ async def rewind_reply(
     return await render_result(
         result,
         supports_markdown=supports_markdown,
+        render_mode=render_mode,
         render_markdown=render_markdown,
     )

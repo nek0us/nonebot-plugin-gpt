@@ -72,6 +72,22 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(plan.text, "a b\n1 2")
         self.assertEqual(plan.markdown, content.markdown)
 
+    def test_render_mode_can_force_text_or_image(self):
+        content = ChatContent(markdown="# Title", plain_text="Title")
+        result = ChatResult(
+            ok=True,
+            text=content.markdown,
+            conversation_id="conversation",
+            message_id="message",
+            content=content,
+        )
+
+        text_plan = rendering.build_render_plan(result, render_mode="text")
+        image_plan = rendering.build_render_plan(result, render_mode="image")
+
+        self.assertFalse(text_plan.markdown_image_required)
+        self.assertTrue(image_plan.markdown_image_required)
+
 
 if __name__ == "__main__":
     unittest.main()

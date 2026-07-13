@@ -159,6 +159,7 @@ if isinstance(config_gpt.gpt_session,list):
             model=model,
             prefer_paid_account=prefer_paid_account,
             files=files,
+            render_mode=config_gpt.gpt_render_mode,
         ))
 
                         
@@ -168,6 +169,7 @@ if isinstance(config_gpt.gpt_session,list):
         await matcher.finish(await restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
+            render_mode=config_gpt.gpt_render_mode,
         ))
     
             
@@ -178,6 +180,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             "-1",
+            render_mode=config_gpt.gpt_render_mode,
         ))
             
             
@@ -189,6 +192,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             reference,
+            render_mode=config_gpt.gpt_render_mode,
         ))
             
 
@@ -234,6 +238,7 @@ if isinstance(config_gpt.gpt_session,list):
             model=model,
             prefer_paid_account=prefer_paid_account,
             continue_existing=continue_existing,
+            render_mode=config_gpt.gpt_render_mode,
         ))
 
     personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)

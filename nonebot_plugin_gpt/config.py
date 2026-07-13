@@ -28,6 +28,7 @@ class Config(BaseModel):
     gpt_local_js: bool = False
     gpt_free_image: bool = False
     gpt_force_upgrade_model: bool = True
+    gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)
     gpt_context_compaction_min_tokens: int = Field(default=0, ge=0)
