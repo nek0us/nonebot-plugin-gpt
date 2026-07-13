@@ -38,6 +38,8 @@ from .persona_editor import (
     validate_name,
     validate_value,
 )
+from .history_views import format_history, format_history_tree
+from .management_views import format_account_status
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -64,9 +66,6 @@ from .api import (
     back_last,
     back_anywhere,
     init_gpt,
-    del_ps,
-    chatmsg_history,
-    status_pic,
     black_list,
     remove_ban_user,
     add_white_list,
@@ -81,7 +80,6 @@ from .api import (
     plus_change,
     plus_all_status,
     init_personal_api,
-    chatmsg_history_tree,
     
 )
 
@@ -355,18 +353,30 @@ if isinstance(config_gpt.gpt_session,list):
 
     del_personality = legacy_command("删除人设",aliases={"删除人格","删除人设"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_personality.handle()
-    async def del_personality_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await del_ps(event,chatbot,legacy_argument(event, argument))
+    async def del_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
+        name = argument.result.strip() if argument.available else ""
+        metadata = json.loads(personpath.read_text(encoding="utf-8"))
+        if not name or name not in metadata:
+            await matcher.finish("没有找到指定人设。")
+        await chatbot.del_personality(name)
+        del metadata[name]
+        personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        await matcher.finish(list_personas(chatbot.personality, metadata))
 
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(bot:Bot,event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await chatmsg_history(bot,event,chatbot,legacy_argument(event, argument))
+    async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
+        value = argument.result if argument.available else ""
+        history = await chat_runtime.get_history(ConversationKey.from_event(event))
+        await matcher.finish(format_history(history, value))
 
     chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
-    async def chat_history_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
-        await chatmsg_history_tree(event,chatbot,legacy_argument(event, argument))
+    async def chat_history_handle(event: Event, matcher: Matcher):
+        key = ConversationKey.from_event(event)
+        state = await chat_runtime.get_active_session(key)
+        history = await chat_runtime.get_history(key)
+        await matcher.finish(format_history_tree(state, len(history)))
 
     chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
@@ -382,7 +392,7 @@ if isinstance(config_gpt.gpt_session,list):
     status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
     async def status_handle(matcher: Matcher):
-        await status_pic(matcher,chatbot)
+        await matcher.finish(format_account_status(await chat_service.get_account_status()))
         
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()

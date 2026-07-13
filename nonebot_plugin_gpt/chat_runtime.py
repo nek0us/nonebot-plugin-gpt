@@ -193,6 +193,13 @@ class ChatRuntime:
         """获取当前会话范围绑定的逻辑会话。"""
         return await self._conversations.get(key)
 
+    async def get_history(self, key: ConversationKey) -> list[dict[str, str]]:
+        """获取当前逻辑会话活动检查点的问答历史。"""
+        state = await self._conversations.get(key)
+        if not state.conversation_id:
+            return []
+        return await self._service.get_history(state.conversation_id)
+
     async def switch_session(self, key: ConversationKey, logical_id: str) -> ConversationState:
         """切换逻辑会话，而不是切到自动压缩产生的检查点。"""
         return await self._conversations.switch(key, logical_id)

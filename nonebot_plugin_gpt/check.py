@@ -112,12 +112,11 @@ async def gpt_rule(event: Event) -> bool:
 
 async def gpt_manage_rule(event: Event) -> bool:
     '''管理事件匹配'''
-    if _addressed_to_bot(event) or _is_private_session(event):
-        if event.get_user_id() in config_nb.superusers:
-            return True
-        id,value = await get_id_from_all(event)
-        if id in config_gpt.gpt_manage_ids or event.get_session_id() in config_gpt.gpt_manage_ids:
-            return True
+    if event.get_user_id() in config_nb.superusers:
+        return True
+    id,value = await get_id_from_all(event)
+    if id in config_gpt.gpt_manage_ids or event.get_session_id() in config_gpt.gpt_manage_ids:
+        return True
     return False
 
 async def add_white(num: str,this_type: Literal["group", "private", "qqgroup", "qqguild", "session"] = "group",plus: bool = False):
