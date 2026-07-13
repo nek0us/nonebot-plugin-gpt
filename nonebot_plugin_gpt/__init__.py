@@ -16,7 +16,8 @@ import json
 
 from .config import config_gpt,Config
 from .source import ban_str_path, banpath, conversation_store_path, data_dir, personpath, plusstatus, whitepath
-from .check import add_white, del_white, get_access_session_id, gpt_command_rule, gpt_manage_rule, gpt_rule, plus_status, read_whitelist
+from .agent_runtime import create_agent_runtime
+from .check import add_white, del_white, get_access_session_id, gpt_command_rule, gpt_manage_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .command_compat import build_legacy_command
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
@@ -115,6 +116,7 @@ if isinstance(config_gpt.gpt_session,list):
         local_js=config_gpt.gpt_local_js,
         )
     chat_service = ChatService(chatbot)
+    agent_runtime = create_agent_runtime(chat_service)
     chat_runtime = ChatRuntime(
         chat_service,
         ConversationStore(conversation_store_path),
@@ -362,6 +364,14 @@ if isinstance(config_gpt.gpt_session,list):
     @status.handle()
     async def status_handle(matcher: Matcher):
         await matcher.finish(format_account_status(await chat_service.get_account_status()))
+
+    agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
+    @agent.handle()
+    async def agent_handle(argument: Match[str], matcher: Matcher):
+        if not config_gpt.gpt_agent_enabled:
+            await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
+        value = argument.result if argument.available else ""
+        await matcher.finish(await agent_runtime.execute(value))
         
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()

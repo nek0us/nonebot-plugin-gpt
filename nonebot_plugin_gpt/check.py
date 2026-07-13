@@ -135,6 +135,11 @@ async def gpt_manage_rule(event: Event) -> bool:
     )
 
 
+async def gpt_superuser_rule(event: Event) -> bool:
+    """仅允许 NoneBot 超级用户执行高风险的本地运维入口。"""
+    return event.get_user_id() in config_nb.superusers
+
+
 async def add_white(session_id: str, plus: bool = False) -> str:
     """添加一个精确会话标识到白名单。"""
     whitelist = read_whitelist()
