@@ -18,3 +18,11 @@ class LegacyCommandTest(unittest.TestCase):
 
         self.assertTrue(result.matched)
         self.assertEqual(result.main_args["argument"], "3")
+
+    def test_alias_without_argument_is_accepted(self):
+        command = command_compat.build_legacy_command("reset", {"重置"})
+
+        result = command.parse("重置")
+
+        self.assertTrue(result.matched)
+        self.assertIsNone(result.main_args.get("argument"))

@@ -220,10 +220,10 @@ if isinstance(config_gpt.gpt_session,list):
     async def add_personality_handle5(status: T_State,value: Message|QQMessage = Arg()):
         await add_ps5(status,value,chatbot)
         
-    del_personality = on_command("删除人设",aliases={"删除人格","删除人设"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    del_personality = legacy_command("删除人设",aliases={"删除人格","删除人设"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_personality.handle()
-    async def del_personality_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
-        await del_ps(event,chatbot,arg)
+    async def del_personality_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await del_ps(event,chatbot,legacy_argument(event, argument))
 
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
@@ -235,7 +235,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def chat_history_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
         await chatmsg_history_tree(event,chatbot,legacy_argument(event, argument))
 
-    chat_conversations = on_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
     async def chat_conversations_handle(event: MessageEvent|QQMessageEvent):
         await conversations_list(chatbot,event)
@@ -245,55 +245,55 @@ if isinstance(config_gpt.gpt_session,list):
     async def change_conversation_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
         await conversation_change(event,legacy_argument(event, argument))
 
-    status = on_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
     async def status_handle(matcher: Matcher):
         await status_pic(matcher,chatbot)
         
-    ban_list = on_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()
-    async def ban_list_handle(event: MessageEvent|QQMessageEvent,arg :Message|QQMessage = CommandArg()):
-        await black_list(chatbot,event,arg)
+    async def ban_list_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await black_list(chatbot,event,legacy_argument(event, argument))
         
-    ban_del = on_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
+    ban_del = legacy_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
-    async def ban_del_handle(arg: Message|QQMessage = CommandArg()):
-        await remove_ban_user(arg)
+    async def ban_del_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await remove_ban_user(legacy_argument(event, argument))
         
-    del_white_cmd = on_command("删除白名单",aliases={"解除白名单","解白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    del_white_cmd = legacy_command("删除白名单",aliases={"解除白名单","解白"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_white_cmd.handle()
-    async def del_white_handle(arg: Message|QQMessage = CommandArg()):
-        await del_white_list(arg)
+    async def del_white_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await del_white_list(legacy_argument(event, argument))
         
-    white_list_cmd = on_command("白名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    white_list_cmd = legacy_command("白名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @white_list_cmd.handle()
     async def white_list_handle():
         await white_list(chatbot)
         
-    md_status_cmd = on_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    md_status_cmd = legacy_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @md_status_cmd.handle()
-    async def md_status_cmd_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
-        await md_status(event,arg)
+    async def md_status_cmd_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await md_status(event,legacy_argument(event, argument))
         
-    add_plus_cmd = on_command("添加plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    add_plus_cmd = legacy_command("添加plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_plus_cmd.handle()
-    async def add_plus_handle(arg: Message|QQMessage = CommandArg()):
-        await add_plus(arg)
+    async def add_plus_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await add_plus(legacy_argument(event, argument))
     
-    del_plus_cmd = on_command("删除plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    del_plus_cmd = legacy_command("删除plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_plus_cmd.handle()
-    async def del_plus_handle(arg: Message|QQMessage = CommandArg()):
-        await del_plus(arg)
+    async def del_plus_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await del_plus(legacy_argument(event, argument))
     
-    plus_change_cmd = on_command("plus切换",rule=plus_status,priority=config_gpt.gpt_command_priority,block=True)
+    plus_change_cmd = legacy_command("plus切换",rule=plus_status,priority=config_gpt.gpt_command_priority,block=True)
     @plus_change_cmd.handle()
-    async def plus_change_handle(event: MessageEvent|QQMessageEvent,arg: Message|QQMessage = CommandArg()):
-        await plus_change(event,arg)
+    async def plus_change_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await plus_change(event,legacy_argument(event, argument))
     
-    plus_all_status_cmd = on_command("全局plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
+    plus_all_status_cmd = legacy_command("全局plus",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @plus_all_status_cmd.handle()
-    async def plus_all_status_handle(arg: Message|QQMessage = CommandArg()):
-        await plus_all_status(arg)
+    async def plus_all_status_handle(event: MessageEvent|QQMessageEvent,argument: Match[str]):
+        await plus_all_status(legacy_argument(event, argument))
     
     
     
