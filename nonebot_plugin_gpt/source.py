@@ -94,6 +94,7 @@ if not personpath.stat().st_size:
 
 # gpt会话存储
 chatpath = data_dir / "conversation"
+conversation_store_path = chatpath / "sessions.json"
 
 # cdk
 cdkpath = data_dir / "cdk"
