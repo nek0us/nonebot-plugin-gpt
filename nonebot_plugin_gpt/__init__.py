@@ -403,7 +403,7 @@ if isinstance(config_gpt.gpt_session,list):
 
     agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()
-    async def agent_handle(argument: Match[str], matcher: Matcher):
+    async def agent_handle(event: Event, argument: Match[str], matcher: Matcher):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         value = argument.result if argument.available else ""
