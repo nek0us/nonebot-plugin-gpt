@@ -91,6 +91,8 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual("已执行", await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"))
         self.assertEqual(calls, ["called"])
+        self.assertIn("计划已执行", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
+        self.assertNotIn("执行测试", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
         self.assertIn(
             "未找到",
             await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"),

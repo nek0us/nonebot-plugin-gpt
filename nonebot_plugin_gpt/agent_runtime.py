@@ -11,6 +11,7 @@ from typing import Any
 
 from ChatGPTWeb import ChatService
 
+from .agent_audit import AgentAuditLog
 from .agent_planner import AgentPlanner
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
 from .management_views import format_account_status
@@ -94,6 +95,7 @@ class AgentRuntime:
         session_approval_ttl_seconds: int = 1800,
         plan_ttl_seconds: int = 300,
         planner: AgentPlanner | None = None,
+        audit_log: AgentAuditLog | None = None,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
     ):
@@ -104,6 +106,7 @@ class AgentRuntime:
         self._clock = clock
         self._token_factory = token_factory
         self._planner = planner
+        self._audit = audit_log or AgentAuditLog()
         self._pending: dict[str, PendingAgentAction] = {}
         self._plans: dict[str, PlannedAgentAction] = {}
         self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
@@ -119,6 +122,7 @@ class AgentRuntime:
             "用法：智能体 工具 / 智能体 状态 / 智能体 模型 / 智能体 环境",
             "模型规划：智能体 计划 <任务>。计划只提出建议，不会执行工具。",
             "执行已校验计划：智能体 执行 <计划编号>。计划仅在原聊天范围内短期有效。",
+            "查看审计：智能体 审计 [数量]。审计仅保留当前运行的无敏感事件。",
             "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
             "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
         ])
@@ -137,11 +141,14 @@ class AgentRuntime:
 
     async def _plan_task(self, task: str, operator_id: str, scope_id: str) -> str:
         if self._planner is None:
+            self._audit.record("计划被拒绝", "模型规划器")
             return "模型规划器尚未配置。"
         plan = await self._planner.plan(task, self._planner_tools())
         if not plan.valid:
+            self._audit.record("计划被拒绝", "模型规划")
             return f"智能体计划未通过校验：{plan.error}"
         if plan.tool_name is None:
+            self._audit.record("计划未调用工具", "模型规划")
             return f"智能体计划（未执行）\n当前不建议调用工具。\n理由：{plan.reason}"
         tool = self._tools[plan.tool_name]
         approval = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
@@ -154,6 +161,7 @@ class AgentRuntime:
             scope_id=scope_id,
             expires_at=self._clock() + self._plan_ttl_seconds,
         )
+        self._audit.record("计划已创建", tool.name, _PERMISSION_NAMES[tool.permission])
         return "\n".join([
             "智能体计划（未执行）",
             f"建议工具：{tool.name}",
@@ -232,10 +240,13 @@ class AgentRuntime:
         if action is None:
             return "未找到待确认操作，可能已取消、已执行或已过期。"
         if action.expires_at <= self._clock():
+            self._audit.record("确认已过期", action.name, _PERMISSION_NAMES[action.permission])
             return "待确认操作已过期，未执行任何操作。"
         if action.operator_id != operator_id or action.scope_id != scope_id:
             self._pending[token] = action
+            self._audit.record("确认被拒绝", action.name, _PERMISSION_NAMES[action.permission])
             return "该待确认操作只能由原操作者在原聊天范围确认。"
+        self._audit.record("确认已完成", action.name, _PERMISSION_NAMES[action.permission])
         return await action.handler()
 
     def _cancel(self, token: str, operator_id: str, scope_id: str) -> str:
@@ -244,10 +255,12 @@ class AgentRuntime:
             return "未找到待确认操作，可能已取消、已执行或已过期。"
         if action.expires_at <= self._clock():
             self._pending.pop(token, None)
+            self._audit.record("确认已过期", action.name, _PERMISSION_NAMES[action.permission])
             return "待确认操作已过期，未执行任何操作。"
         if action.operator_id != operator_id or action.scope_id != scope_id:
             return "该待确认操作只能由原操作者在原聊天范围取消。"
         self._pending.pop(token, None)
+        self._audit.record("确认已取消", action.name, _PERMISSION_NAMES[action.permission])
         return "已取消待确认操作，未执行任何操作。"
 
     def _permission_from_text(self, value: str) -> AgentPermission | None:
@@ -282,6 +295,7 @@ class AgentRuntime:
         for target in targets:
             if self._approvals.pop(self._approval_key(operator_id, scope_id, target), None) is not None:
                 removed += 1
+                self._audit.record("临时授权已撤销", _PERMISSION_NAMES[target], _PERMISSION_NAMES[target])
         return "已撤销当前聊天范围的临时授权。" if removed else "当前聊天范围没有可撤销的临时授权。"
 
     def _request_authorization(self, value: str, operator_id: str, scope_id: str) -> str:
@@ -293,6 +307,7 @@ class AgentRuntime:
             self._approvals[self._approval_key(operator_id, scope_id, permission)] = (
                 self._clock() + self._session_approval_ttl_seconds
             )
+            self._audit.record("临时授权已授予", _PERMISSION_NAMES[permission], _PERMISSION_NAMES[permission])
             return (
                 f"已授予当前聊天范围的“{_PERMISSION_NAMES[permission]}”临时授权，"
                 f"有效约 {self._session_approval_ttl_seconds} 秒；可随时使用“智能体 撤销授权”取消。"
@@ -322,7 +337,9 @@ class AgentRuntime:
                 operator_id=operator_id,
                 scope_id=scope_id,
             )
+            self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
             return self._pending_message(self._pending[token])
+        self._audit.record("工具已执行", tool.name, _PERMISSION_NAMES[tool.permission])
         return await tool.handler()
 
     async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
@@ -330,10 +347,13 @@ class AgentRuntime:
         if plan is None:
             return "未找到可执行计划，可能已执行、已取消或已过期。"
         if plan.expires_at <= self._clock():
+            self._audit.record("计划已过期", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
             return "计划已过期，未执行任何工具。"
         if plan.operator_id != operator_id or plan.scope_id != scope_id:
             self._plans[token] = plan
+            self._audit.record("计划执行被拒绝", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
             return "该计划只能由原操作者在原聊天范围执行。"
+        self._audit.record("计划已执行", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
         return await self._execute_tool(plan.tool, operator_id, scope_id)
 
     async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
@@ -351,6 +371,14 @@ class AgentRuntime:
             return "请提供任务，例如：智能体 计划 检查当前运行环境"
         if normalized.startswith("计划 "):
             return await self._plan_task(normalized.removeprefix("计划 ").strip(), operator_id, scope_id)
+        if normalized == "审计":
+            return self._audit.format()
+        if normalized.startswith("审计 "):
+            try:
+                limit = int(normalized.removeprefix("审计 ").strip())
+            except ValueError:
+                return "审计数量应为 1 到 50 的整数。"
+            return self._audit.format(limit)
         if normalized == "授权列表":
             return self._authorization_list(operator_id, scope_id)
         if normalized == "授权":
