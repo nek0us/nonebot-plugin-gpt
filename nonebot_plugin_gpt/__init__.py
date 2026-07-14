@@ -38,6 +38,7 @@ from .persona_editor import (
 )
 from .history_views import format_history, format_history_tree
 from .management_views import format_account_status
+from .message_output import finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
@@ -176,7 +177,7 @@ if isinstance(config_gpt.gpt_session,list):
         files = []
         if config_gpt.gpt_free_image or prefer_paid_account:
             files = await extract_image_files(text, proxy=config_gpt.gpt_proxy)
-        await matcher.finish(await chat_reply(
+        await finish_message(matcher, event, await chat_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             prompt,
@@ -192,7 +193,7 @@ if isinstance(config_gpt.gpt_session,list):
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
     async def reset_handle(event: Event, matcher: Matcher):
-        await matcher.finish(await restart_persona_reply(
+        await finish_message(matcher, event, await restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             render_mode=config_gpt.gpt_render_mode,
@@ -204,7 +205,7 @@ if isinstance(config_gpt.gpt_session,list):
     last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()
     async def last_handle(event: Event, matcher: Matcher):
-        await matcher.finish(await rewind_reply(
+        await finish_message(matcher, event, await rewind_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             "-1",
@@ -218,7 +219,7 @@ if isinstance(config_gpt.gpt_session,list):
     @back.handle()
     async def back_handle(event: Event,argument: Match[str], matcher: Matcher):
         reference = argument.result if argument.available else ""
-        await matcher.finish(await rewind_reply(
+        await finish_message(matcher, event, await rewind_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             reference,
@@ -263,7 +264,7 @@ if isinstance(config_gpt.gpt_session,list):
             event,
             prefer_paid_account=prefer_paid_account,
         )
-        await matcher.finish(await persona_reply(
+        await finish_message(matcher, event, await persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             persona_name,
@@ -279,7 +280,7 @@ if isinstance(config_gpt.gpt_session,list):
     @personality_list.handle()
     async def personality_list_handle(event: Event, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
-        await matcher.finish(list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
                 
             
     cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -287,7 +288,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def cat_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
         name = argument.result if argument.available else ""
-        await matcher.finish(show_persona(
+        await finish_message(matcher, event, show_persona(
             chatbot.personality,
             metadata,
             name,
@@ -325,7 +326,7 @@ if isinstance(config_gpt.gpt_session,list):
             await matcher.finish(str(error))
             
     @add_personality.got("value",prompt="请发送人设内容")
-    async def add_personality_handle5(status: T_State, matcher: Matcher, value = Arg()):
+    async def add_personality_handle5(event: Event, status: T_State, matcher: Matcher, value = Arg()):
         banned_words = ban_str_path.read_text(encoding="utf-8").splitlines()
         try:
             content = validate_value(extract_text(value), banned_words)
@@ -344,7 +345,7 @@ if isinstance(config_gpt.gpt_session,list):
             "open": personality["open"],
         }
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await matcher.finish(list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
         
     async def set_persona_name(status: T_State, value: str, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
@@ -364,7 +365,7 @@ if isinstance(config_gpt.gpt_session,list):
         await chatbot.del_personality(name)
         del metadata[name]
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await matcher.finish(list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
 
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
