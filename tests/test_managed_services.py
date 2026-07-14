@@ -5,7 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
 
@@ -71,9 +71,14 @@ class ManagedServicesTests(unittest.TestCase):
             calls.append((args, kwargs))
             return _Process()
 
-        with patch.object(services.asyncio, "create_subprocess_exec", side_effect=create_process):
+        with (
+            patch.object(services.asyncio, "create_subprocess_exec", side_effect=create_process),
+            patch.object(services.asyncio, "sleep", new=AsyncMock()),
+            patch.object(registry, "process_status", return_value="服务 bot：运行中（PID 1）。"),
+        ):
             result = asyncio.run(registry.restart("bot"))
 
         self.assertIn("已提交", result)
+        self.assertIn("复检结果：运行中", result)
         self.assertEqual(calls[0][0], ("restart-bot", "--graceful"))
         self.assertNotIn("shell", calls[0][1])

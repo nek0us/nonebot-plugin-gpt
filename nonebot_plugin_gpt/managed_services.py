@@ -16,6 +16,7 @@ class ManagedProcessService:
     name: str
     pid_file: Path
     restart_command: tuple[str, ...] = ()
+    restart_check_seconds: int = 3
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class ManagedTcpService:
     host: str
     port: int
     restart_command: tuple[str, ...] = ()
+    restart_check_seconds: int = 3
 
 
 class ManagedServiceRegistry:
@@ -49,10 +51,14 @@ class ManagedServiceRegistry:
                 if isinstance(command, list) and command and all(isinstance(item, str) and item for item in command)
                 else ()
             )
+            try:
+                restart_check_seconds = max(0, min(30, int(entry.get("restart_check_seconds", 3))))
+            except (TypeError, ValueError):
+                restart_check_seconds = 3
             if not name or name in used_names:
                 continue
             if kind == "pid_file" and isinstance(entry.get("pid_file"), str):
-                process_services.append(ManagedProcessService(name, Path(entry["pid_file"]), restart_command))
+                process_services.append(ManagedProcessService(name, Path(entry["pid_file"]), restart_command, restart_check_seconds))
                 used_names.add(name)
             elif kind == "tcp" and isinstance(entry.get("host"), str):
                 try:
@@ -60,7 +66,7 @@ class ManagedServiceRegistry:
                 except (TypeError, ValueError):
                     continue
                 if 1 <= port <= 65535:
-                    tcp_services.append(ManagedTcpService(name, entry["host"], port, restart_command))
+                    tcp_services.append(ManagedTcpService(name, entry["host"], port, restart_command, restart_check_seconds))
                     used_names.add(name)
         return cls(process_services, tcp_services)
 
@@ -147,4 +153,10 @@ class ManagedServiceRegistry:
             return f"服务 {service.name}：重启请求未成功完成。"
         if process.returncode != 0:
             return f"服务 {service.name}：重启命令返回失败状态。"
-        return f"服务 {service.name}：已提交重启请求。"
+        if service.restart_check_seconds:
+            await asyncio.sleep(service.restart_check_seconds)
+        if isinstance(service, ManagedProcessService):
+            status = self.process_status(name)
+        else:
+            status = await self.tcp_status(name)
+        return f"服务 {service.name}：已提交重启请求；复检结果：{status.removeprefix(f'服务 {service.name}：')}"
