@@ -14,6 +14,7 @@ from nonebot.log import logger
 
 from .agent_audit import AgentAuditLog
 from .agent_planner import AgentPlanner
+from .agent_workspace import AgentWorkspace, WorkspaceError
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
 from .managed_services import ManagedServiceRegistry
 from .management_views import format_account_status
@@ -142,6 +143,7 @@ class AgentRuntime:
             "查看审计：智能体 审计 [数量]。审计仅保留当前运行的无敏感事件。",
             "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
             "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
+            "文件快捷操作：智能体 文件列表 [目录] / 智能体 读取文件 <相对路径> / 智能体 写入文件 <相对路径> <内容>。",
         ])
         return "\n".join(lines)
 
@@ -511,10 +513,48 @@ class AgentRuntime:
             return self._revoke_authorization("", operator_id, scope_id)
         if normalized.startswith("撤销授权 "):
             return self._revoke_authorization(normalized.removeprefix("撤销授权 ").strip(), operator_id, scope_id)
+        workspace_result = await self._execute_workspace_shortcut(normalized, operator_id, scope_id)
+        if workspace_result is not None:
+            return workspace_result
         tool = self._tools.get(normalized)
         if tool is None:
             return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
         return await self._execute_tool(tool, {}, operator_id, scope_id)
+
+    async def _execute_workspace_shortcut(
+        self,
+        value: str,
+        operator_id: str,
+        scope_id: str,
+    ) -> str | None:
+        """为受限文件工具提供不依赖模型 JSON 的确定性入口。"""
+        shortcuts = (
+            ("文件列表", "列出工作区文件", 1),
+            ("读取文件", "读取工作区文件", 1),
+            ("写入文件", "写入工作区文件", 2),
+        )
+        for command, tool_name, argument_count in shortcuts:
+            if value != command and not value.startswith(f"{command} "):
+                continue
+            tool = self._tools.get(tool_name)
+            if tool is None:
+                return "未配置智能体工作目录，无法使用文件工具。"
+            raw_arguments = value.removeprefix(command).strip()
+            if command == "文件列表":
+                return await self._execute_tool(tool, {"路径": raw_arguments} if raw_arguments else {}, operator_id, scope_id)
+            parts = raw_arguments.split(maxsplit=argument_count - 1)
+            if len(parts) != argument_count:
+                usage = (
+                    "智能体 读取文件 <工作目录内的相对路径>"
+                    if command == "读取文件"
+                    else "智能体 写入文件 <工作目录内的相对路径> <内容>"
+                )
+                return f"参数不足。用法：{usage}"
+            arguments = {"路径": parts[0]}
+            if command == "写入文件":
+                arguments["内容"] = parts[1]
+            return await self._execute_tool(tool, arguments, operator_id, scope_id)
+        return None
 
 
 def _format_model_catalog(catalog: dict[str, Any]) -> str:
@@ -542,6 +582,7 @@ def create_agent_runtime(
     confirmation_ttl_seconds: int = 60,
     session_approval_ttl_seconds: int = 1800,
     plan_ttl_seconds: int = 300,
+    workspace: Path | None = None,
     managed_services: ManagedServiceRegistry | None = None,
 ) -> AgentRuntime:
     """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
@@ -568,12 +609,66 @@ def create_agent_runtime(
     async def environment(_: dict[str, str]) -> str:
         return format_environment_diagnostics(collect_environment_diagnostics())
 
+    workspace_tools: list[AgentTool] = []
+    if workspace is not None:
+        agent_workspace = AgentWorkspace(workspace)
+
+        async def list_workspace_files(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.list_files(arguments.get("路径", ""))
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def read_workspace_file(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.read_text(arguments["路径"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def write_workspace_file(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.write_text(arguments["路径"], arguments["内容"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        workspace_tools = [
+            AgentTool(
+                "列出工作区文件",
+                "列出受限智能体工作目录中的文件和目录",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                list_workspace_files,
+                parameters=(AgentToolParameter("路径", "工作目录内的相对目录，可省略", required=False),),
+            ),
+            AgentTool(
+                "读取工作区文件",
+                "读取受限智能体工作目录内的一个 UTF-8 文本文件",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                read_workspace_file,
+                parameters=(AgentToolParameter("路径", "工作目录内的相对文件路径"),),
+                describe_action=lambda arguments: f"读取工作目录文件 {arguments['路径']}",
+            ),
+            AgentTool(
+                "写入工作区文件",
+                "以 UTF-8 文本原子写入受限智能体工作目录内的一个文件",
+                AgentPermission.WRITE_LOCAL,
+                AgentApproval.CONFIRM,
+                write_workspace_file,
+                parameters=(
+                    AgentToolParameter("路径", "工作目录内的相对文件路径"),
+                    AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True),
+                ),
+                describe_action=lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）",
+            ),
+        ]
+
     tools = [
         AgentTool("状态", "查看账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
         AgentTool("模型", "查看本地配置的模型别名", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
         AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
         AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
-    ]
+    ] + workspace_tools
     if registry.process_names or registry.tcp_names:
         async def managed_service_overview(_: dict[str, str]) -> str:
             return await registry.overview()

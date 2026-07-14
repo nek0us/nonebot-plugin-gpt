@@ -1,5 +1,6 @@
 import ast
 import json
+from pathlib import Path
 
 from pydantic import BaseModel, Field, validator,model_validator
 from typing import List, Literal, Optional
@@ -39,6 +40,7 @@ class Config(BaseModel):
     gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
     gpt_agent_plan_timeout: int = Field(default=300, ge=30, le=3600)
+    gpt_agent_workspace: Path | None = None
     gpt_agent_managed_services: list[dict] = Field(default_factory=list)
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)

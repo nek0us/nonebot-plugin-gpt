@@ -19,7 +19,7 @@ from .source import ban_str_path, banpath, conversation_store_path, data_dir, pe
 from .agent_runtime import create_agent_runtime
 from .managed_services import ManagedServiceRegistry
 from .check import add_white, del_white, get_access_session_id, gpt_command_rule, gpt_manage_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
-from .command_compat import build_legacy_command
+from .command_compat import build_legacy_command, command_argument_text
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationKey, ConversationStore
@@ -58,6 +58,13 @@ def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
         priority=priority,
         block=block,
     )
+
+
+def _argument_text(argument: Match[object]) -> str:
+    """将 Alconna 的可选参数统一为旧命令处理器使用的文本。"""
+    if not argument.available:
+        return ""
+    return command_argument_text(argument.result)
 
 
 def _is_reply_event(event: Event) -> bool:
@@ -130,6 +137,7 @@ if isinstance(config_gpt.gpt_session,list):
         confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
         session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
         plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
+        workspace=config_gpt.gpt_agent_workspace,
         managed_services=managed_services,
     )
     chat_runtime = ChatRuntime(
@@ -218,7 +226,7 @@ if isinstance(config_gpt.gpt_session,list):
     back = legacy_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @back.handle()
     async def back_handle(event: Event,argument: Match[str], matcher: Matcher):
-        reference = argument.result if argument.available else ""
+        reference = _argument_text(argument)
         await finish_message(matcher, event, await rewind_reply(
             chat_runtime,
             ConversationKey.from_event(event),
@@ -245,7 +253,7 @@ if isinstance(config_gpt.gpt_session,list):
         matcher: Matcher,
         prefer_paid_account: bool = False,
     ):
-        raw_value = argument.result.strip() if argument.available else ""
+        raw_value = _argument_text(argument).strip()
         parts = raw_value.split(maxsplit=1)
         persona_name = parts[0] if parts else "默认"
         continue_existing = len(parts) > 1 and parts[1] == "继续"
@@ -287,7 +295,7 @@ if isinstance(config_gpt.gpt_session,list):
     @cat_personality.handle()
     async def cat_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
-        name = argument.result if argument.available else ""
+        name = _argument_text(argument)
         await finish_message(matcher, event, show_persona(
             chatbot.personality,
             metadata,
@@ -300,8 +308,8 @@ if isinstance(config_gpt.gpt_session,list):
     @add_personality.handle()
     async def add_personality_handle(event: Event,status: T_State,argument: Match[str], matcher: Matcher):
         status["creator_id"] = event.get_user_id()
-        if argument.available and argument.result.strip():
-            await set_persona_name(status, argument.result, matcher)
+        if _argument_text(argument).strip():
+            await set_persona_name(status, _argument_text(argument), matcher)
         
     @add_personality.got("name",prompt="人设名叫什么？")
     async def add_personality_handle2(status: T_State, matcher: Matcher, name = Arg()):
@@ -358,7 +366,7 @@ if isinstance(config_gpt.gpt_session,list):
     del_personality = legacy_command("删除人设",aliases={"删除人格","删除人设"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @del_personality.handle()
     async def del_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
-        name = argument.result.strip() if argument.available else ""
+        name = _argument_text(argument).strip()
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
         if not name or name not in metadata:
             await matcher.finish("没有找到指定人设。")
@@ -370,7 +378,7 @@ if isinstance(config_gpt.gpt_session,list):
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
-        value = argument.result if argument.available else ""
+        value = _argument_text(argument)
         history = await chat_runtime.get_history(ConversationKey.from_event(event))
         await matcher.finish(format_history(history, value))
 
@@ -390,7 +398,7 @@ if isinstance(config_gpt.gpt_session,list):
     change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
     async def change_conversation_handle(event: Event,argument: Match[str], matcher: Matcher):
-        value = argument.result if argument.available else ""
+        value = _argument_text(argument)
         await matcher.finish(await switch_session(chat_runtime, ConversationKey.from_event(event), value))
 
     status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -406,7 +414,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def agent_handle(event: Event, argument: Match[str], matcher: Matcher):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
-        value = argument.result if argument.available else ""
+        value = _argument_text(argument)
         await matcher.finish(await agent_runtime.execute(
             value,
             operator_id=event.get_user_id(),
@@ -416,14 +424,14 @@ if isinstance(config_gpt.gpt_session,list):
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()
     async def ban_list_handle(event: Event,argument: Match[str], matcher: Matcher):
-        target = argument.result.strip() if argument.available else ""
+        target = _argument_text(argument).strip()
         bans = json.loads(banpath.read_text(encoding="utf-8"))
         await matcher.finish(format_bans(bans, target))
         
     ban_del = legacy_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
     async def ban_del_handle(event: Event,argument: Match[str], matcher: Matcher):
-        target = argument.result.strip() if argument.available else ""
+        target = _argument_text(argument).strip()
         bans = json.loads(banpath.read_text(encoding="utf-8"))
         if not target or target not in bans:
             await matcher.finish("没有找到指定黑名单目标。")
@@ -436,7 +444,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def del_white_handle(event: Event,argument: Match[str], matcher: Matcher):
         try:
             target, _ = parse_access_target(
-                argument.result if argument.available else "",
+                _argument_text(argument),
                 default_target=get_access_session_id(event),
             )
         except ValueError as error:
@@ -462,7 +470,7 @@ if isinstance(config_gpt.gpt_session,list):
         try:
             message = grant_paid_access(
                 settings,
-                argument.result if argument.available else "",
+                _argument_text(argument),
             )
         except ValueError as error:
             await matcher.finish(str(error))
@@ -479,7 +487,7 @@ if isinstance(config_gpt.gpt_session,list):
         try:
             message = revoke_paid_access(
                 settings,
-                argument.result if argument.available else "",
+                _argument_text(argument),
             )
         except ValueError as error:
             await matcher.finish(str(error))
@@ -492,7 +500,7 @@ if isinstance(config_gpt.gpt_session,list):
     plus_change_cmd = legacy_command("plus切换",rule=plus_status,priority=config_gpt.gpt_command_priority,block=True)
     @plus_change_cmd.handle()
     async def plus_change_handle(event: Event, argument: Match[str], matcher: Matcher):
-        model = resolve_paid_model(argument.result if argument.available else "")
+        model = resolve_paid_model(_argument_text(argument))
         if not model:
             await matcher.finish("未识别模型，请输入已配置的模型别名或完整模型名。")
         settings = json.loads(plusstatus.read_text(encoding="utf-8"))
@@ -518,7 +526,7 @@ if isinstance(config_gpt.gpt_session,list):
         try:
             message = set_global_paid_enabled(
                 settings,
-                argument.result if argument.available else "",
+                _argument_text(argument),
             )
         except ValueError as error:
             await matcher.finish(str(error))
@@ -535,7 +543,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def add_white_handle(event: Event, argument: Match[str], matcher: Matcher):
         try:
             target, paid = parse_access_target(
-                argument.result if argument.available else "",
+                _argument_text(argument),
                 default_target=get_access_session_id(event),
             )
         except ValueError as error:

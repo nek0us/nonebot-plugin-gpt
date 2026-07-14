@@ -17,7 +17,7 @@ class LegacyCommandTest(unittest.TestCase):
         result = command.parse("回到过去 3")
 
         self.assertTrue(result.matched)
-        self.assertEqual(result.main_args["argument"], "3")
+        self.assertEqual(command_compat.command_argument_text(result.main_args["argument"]), "3")
 
     def test_alias_without_argument_is_accepted(self):
         command = command_compat.build_legacy_command("reset", {"重置"})
@@ -33,4 +33,15 @@ class LegacyCommandTest(unittest.TestCase):
         result = command.parse("添加人设 旅行助手")
 
         self.assertTrue(result.matched)
-        self.assertEqual(result.main_args["argument"], "旅行助手")
+        self.assertEqual(command_compat.command_argument_text(result.main_args["argument"]), "旅行助手")
+
+    def test_command_argument_keeps_the_remaining_words(self):
+        command = command_compat.build_legacy_command("智能体", set())
+
+        result = command.parse("智能体 计划 检查当前运行环境")
+
+        self.assertTrue(result.matched)
+        self.assertEqual(
+            command_compat.command_argument_text(result.main_args["argument"]),
+            "计划 检查当前运行环境",
+        )

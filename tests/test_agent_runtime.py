@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from ChatGPTWeb import ChatResult
 
@@ -38,6 +39,35 @@ class _Service:
 
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_workspace_shortcuts_require_confirmation_and_use_relative_paths(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = agent_runtime.create_agent_runtime(_Service(), workspace=root)
+
+            pending = await runtime.execute(
+                "写入文件 hello.txt hello from agent",
+                operator_id="admin",
+                scope_id="private:1",
+            )
+
+            self.assertIn("本机写入", pending)
+            self.assertFalse((root / "hello.txt").exists())
+            await runtime.execute(
+                f"确认 {next(iter(runtime._pending))}",
+                operator_id="admin",
+                scope_id="private:1",
+            )
+            self.assertEqual((root / "hello.txt").read_text(encoding="utf-8"), "hello from agent")
+
+            pending = await runtime.execute("读取文件 hello.txt", operator_id="admin", scope_id="private:1")
+            self.assertIn("本机只读", pending)
+            text = await runtime.execute(
+                f"确认 {next(iter(runtime._pending))}",
+                operator_id="admin",
+                scope_id="private:1",
+            )
+            self.assertIn("hello from agent", text)
+
     async def test_default_tools_are_read_only_and_do_not_refresh_remote_catalog(self):
         service = _Service()
         runtime = agent_runtime.create_agent_runtime(service)
