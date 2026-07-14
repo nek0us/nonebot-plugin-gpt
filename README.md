@@ -107,6 +107,7 @@ _✨ NoneBot GPT ✨_
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
 | gpt_agent_enabled | 否 | false | bool | 启用仅超级用户可调用的受控智能体工具 |
+| gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
 
 ```bash
 # gpt配置示例
@@ -178,6 +179,7 @@ gpt_render_mode="auto"
 
 # 启用仅超级用户可调用的智能体只读工具
 gpt_agent_enabled=false
+gpt_agent_confirm_timeout=60
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在

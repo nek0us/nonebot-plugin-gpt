@@ -116,7 +116,10 @@ if isinstance(config_gpt.gpt_session,list):
         local_js=config_gpt.gpt_local_js,
         )
     chat_service = ChatService(chatbot)
-    agent_runtime = create_agent_runtime(chat_service)
+    agent_runtime = create_agent_runtime(
+        chat_service,
+        confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
+    )
     chat_runtime = ChatRuntime(
         chat_service,
         ConversationStore(conversation_store_path),
@@ -371,7 +374,11 @@ if isinstance(config_gpt.gpt_session,list):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         value = argument.result if argument.available else ""
-        await matcher.finish(await agent_runtime.execute(value))
+        await matcher.finish(await agent_runtime.execute(
+            value,
+            operator_id=event.get_user_id(),
+            scope_id=get_access_session_id(event),
+        ))
         
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()

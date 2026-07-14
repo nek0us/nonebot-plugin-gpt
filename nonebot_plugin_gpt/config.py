@@ -30,6 +30,7 @@ class Config(BaseModel):
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_agent_enabled: bool = False
+    gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)
     gpt_context_compaction_min_tokens: int = Field(default=0, ge=0)
