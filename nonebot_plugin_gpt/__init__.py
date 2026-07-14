@@ -103,12 +103,12 @@ __plugin_meta__ = PluginMetadata(
 )
 
 if isinstance(config_gpt.gpt_session,list):
-    personality = Personality([],data_dir)
+    personality = Personality([])
     
     chatbot = chatgpt(
         sessions = config_gpt.gpt_session,
         plugin = True,
-        chat_file = data_dir,
+        storage_dir = data_dir / "chatgptweb",
         proxy = config_gpt.gpt_proxy,
         begin_sleep_time = config_gpt.gpt_begin_sleep_time,
         personality=personality,
