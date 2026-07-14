@@ -4,6 +4,8 @@
   <p><img src="https://github.com/A-kirami/nonebot-plugin-template/blob/resources/NoneBotPlugin.svg" width="240" alt="NoneBotPluginText"></p>
 </div>
 
+> 智能体功能的配置、权限与受管服务示例见 [docs/agent.md](docs/agent.md)。
+
 <div align="center">
 
 # nonebot-plugin-gpt
