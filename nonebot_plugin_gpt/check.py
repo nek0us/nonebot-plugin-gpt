@@ -15,14 +15,31 @@ from .event_scope import resolve_event_scope
 from .source import ban_str_path, banpath, plusstatus, whitepath
 
 
+def get_event_user_id(event: Event) -> str | None:
+    """安全读取事件发送者；无上下文事件不参与聊天或命令匹配。"""
+    try:
+        user_id = event.get_user_id()
+    except (AttributeError, ValueError):
+        return None
+    user_id = str(user_id).strip()
+    return user_id or None
+
+
 def get_access_session_id(event: Event) -> str:
     """返回用于访问控制的共享会话范围标识。"""
-    return resolve_event_scope(event).identifier
+    try:
+        return resolve_event_scope(event).identifier
+    except (AttributeError, ValueError):
+        return ""
 
 
 def get_participant_key(event: Event) -> str:
     """返回会话内唯一的参与者标识，用于局部封禁等安全策略。"""
-    return f"{get_access_session_id(event)}::{event.get_user_id()}"
+    user_id = get_event_user_id(event)
+    if not user_id:
+        return ""
+    session_id = get_access_session_id(event)
+    return f"{session_id}::{user_id}" if session_id else ""
 
 
 def _read_json(path, fallback: dict[str, object]) -> dict[str, object]:
@@ -79,12 +96,18 @@ def _addressed_to_bot(event: Event) -> bool:
 
 def _is_private_session(event: Event) -> bool:
     """识别适配器的私聊范围。"""
-    return resolve_event_scope(event).is_private
+    try:
+        return resolve_event_scope(event).is_private
+    except (AttributeError, ValueError):
+        return False
 
 
 async def plus_status(event: Event) -> bool:
     """判断事件是否允许使用付费模型命令。"""
-    if event.get_user_id() in config_nb.superusers:
+    user_id = get_event_user_id(event)
+    if not user_id:
+        return False
+    if user_id in config_nb.superusers:
         return True
     bans = _read_json(banpath, {})
     if get_participant_key(event) in bans:
@@ -100,6 +123,8 @@ async def plus_status(event: Event) -> bool:
 
 async def gpt_rule(event: Event) -> bool:
     """聊天事件匹配规则。"""
+    if not get_event_user_id(event):
+        return False
     is_prefixed = any(
         _event_plain_text(event).startswith(prefix)
         for prefix in config_gpt.gpt_chat_start
@@ -119,6 +144,8 @@ async def gpt_command_rule(event: Event) -> bool:
 
     命令匹配本身已经完成，因此不能再依赖不同适配器对 ``to_me`` 的实现差异。
     """
+    if not get_event_user_id(event):
+        return False
     bans = _read_json(banpath, {})
     if get_participant_key(event) in bans:
         return False
@@ -129,15 +156,19 @@ async def gpt_command_rule(event: Event) -> bool:
 
 async def gpt_manage_rule(event: Event) -> bool:
     """管理事件匹配。"""
+    user_id = get_event_user_id(event)
+    if not user_id:
+        return False
     return (
-        event.get_user_id() in config_nb.superusers
+        user_id in config_nb.superusers
         or get_access_session_id(event) in config_gpt.gpt_manage_ids
     )
 
 
 async def gpt_superuser_rule(event: Event) -> bool:
     """仅允许 NoneBot 超级用户执行高风险的本地运维入口。"""
-    return event.get_user_id() in config_nb.superusers
+    user_id = get_event_user_id(event)
+    return bool(user_id and user_id in config_nb.superusers)
 
 
 async def add_white(session_id: str, plus: bool = False) -> str:
