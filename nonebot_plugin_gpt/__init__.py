@@ -211,6 +211,7 @@ if isinstance(config_gpt.gpt_session,list):
             files=files,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
         ))
 
@@ -234,6 +235,7 @@ if isinstance(config_gpt.gpt_session,list):
             ConversationKey.from_event(event),
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
         ))
     
@@ -247,6 +249,7 @@ if isinstance(config_gpt.gpt_session,list):
             "-1",
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
         ))
             
@@ -261,6 +264,7 @@ if isinstance(config_gpt.gpt_session,list):
             reference,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
         ))
             
@@ -309,6 +313,7 @@ if isinstance(config_gpt.gpt_session,list):
             continue_existing=continue_existing,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
         ))
 

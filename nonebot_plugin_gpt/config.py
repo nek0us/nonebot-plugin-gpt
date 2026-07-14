@@ -12,6 +12,7 @@ from .source import ban_str_path
 
 
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
+DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
@@ -37,6 +38,7 @@ class Config(BaseModel):
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
+    gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_agent_enabled: bool = False
     gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
@@ -60,6 +62,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_error_message 配置无效，已使用默认失败提示")
         return DEFAULT_ERROR_MESSAGE
+
+    @validator("gpt_conversation_recovery_message", always=True, pre=True)
+    def check_gpt_conversation_recovery_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_conversation_recovery_message 配置无效，已使用默认会话恢复提示")
+        return DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):

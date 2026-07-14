@@ -111,6 +111,7 @@ _✨ NoneBot GPT ✨_
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
+| gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_auto_init_group | 否 | false | bool | 群聊或频道中的用户首次聊天时，自动加载群聊默认人设 |
 | gpt_auto_init_friend | 否 | false | bool | 私聊用户首次聊天时，自动加载私聊默认人设 |
 | gpt_init_group_persona_name | 否 | 无 | str | 群聊自动初始化使用的人设名称 |
@@ -194,6 +195,9 @@ gpt_render_mode="auto"
 
 # 请求失败时的用户提示，可按机器人身份调整
 gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
+
+# 原会话依赖的账号已移除或停用时的提示；不会暴露账号和风控细节
+gpt_conversation_recovery_message="当前对话已无法继续，请重新初始化人设后再试。"
 
 # 首次有效聊天时自动初始化人设。它不会覆盖手动初始化或已有逻辑会话。
 gpt_auto_init_group=true

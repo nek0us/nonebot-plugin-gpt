@@ -106,6 +106,51 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(message.extract_plain_text(), "系统正在整理思绪，请稍后再来。")
 
+    async def test_missing_conversation_account_uses_recovery_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal account detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "conversation_session_missing", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+            error_message="普通失败提示",
+            conversation_recovery_message="请重新加载角色。",
+        )
+
+        self.assertEqual(message.extract_plain_text(), "请重新加载角色。")
+        self.assertNotIn("secret", message.extract_plain_text())
+
+    async def test_temporary_conversation_problem_keeps_normal_error_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="temporary detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "conversation_session_not_ready", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+            error_message="普通失败提示",
+            conversation_recovery_message="请重新加载角色。",
+        )
+
+        self.assertEqual(message.extract_plain_text(), "普通失败提示")
+
     async def test_runtime_exception_returns_safe_message(self):
         class Runtime:
             async def chat(self, *args, **kwargs):
