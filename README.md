@@ -108,6 +108,7 @@ _✨ NoneBot GPT ✨_
 | gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
+| gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_agent_enabled | 否 | false | bool | 启用仅超级用户可调用的受控智能体工具 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 智能体低风险临时授权的有效秒数 |
@@ -181,6 +182,9 @@ gpt_force_upgrade_model=true
 
 # 富文本输出策略：auto、text、image
 gpt_render_mode="auto"
+
+# 请求失败时的用户提示，可按机器人身份调整
+gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 
 # 启用仅超级用户可调用的智能体只读工具
 gpt_agent_enabled=false

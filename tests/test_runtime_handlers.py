@@ -60,3 +60,64 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(message.extract_plain_text(), "未找到指定人设")
+
+    async def test_failed_result_hides_core_error_text(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="send msg retry max: token=internal-secret",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "send_retry_max", "message": "internal-secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+        )
+
+        text = message.extract_plain_text()
+        self.assertIn("没能顺利回应", text)
+        self.assertNotIn("internal-secret", text)
+        self.assertNotIn("retry max", text)
+        self.assertNotIn("账号", text)
+        self.assertNotIn("模型", text)
+
+    async def test_custom_error_message_is_used_for_failed_result(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal error",
+                    conversation_id="",
+                    message_id="",
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+            error_message="系统正在整理思绪，请稍后再来。",
+        )
+
+        self.assertEqual(message.extract_plain_text(), "系统正在整理思绪，请稍后再来。")
+
+    async def test_runtime_exception_returns_safe_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                raise RuntimeError("upstream detail should not reach users")
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+        )
+
+        text = message.extract_plain_text()
+        self.assertIn("没能顺利回应", text)
+        self.assertNotIn("upstream detail", text)

@@ -8,6 +8,9 @@ from nonebot import get_driver,get_plugin_config
 
 from .source import ban_str_path
 
+
+DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
+
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
     arkose_status: bool = False
@@ -29,6 +32,7 @@ class Config(BaseModel):
     gpt_free_image: bool = False
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
+    gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_agent_enabled: bool = False
     gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
@@ -37,6 +41,13 @@ class Config(BaseModel):
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)
     gpt_context_compaction_min_tokens: int = Field(default=0, ge=0)
+
+    @validator("gpt_error_message", always=True, pre=True)
+    def check_gpt_error_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_error_message 配置无效，已使用默认失败提示")
+        return DEFAULT_ERROR_MESSAGE
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):
