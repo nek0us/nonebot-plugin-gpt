@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field, validator,model_validator
@@ -45,6 +46,13 @@ class Config(BaseModel):
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)
     gpt_context_compaction_min_tokens: int = Field(default=0, ge=0)
+    gpt_auto_init_group: bool = False
+    gpt_auto_init_friend: bool = False
+    gpt_init_group_persona_name: str = ""
+    gpt_init_friend_persona_name: str = ""
+    # 保留历史拼写，防止现有部署静默失效。
+    gpt_init_group_pernal_name: str = ""
+    gpt_init_friend_pernal_name: str = ""
 
     @validator("gpt_error_message", always=True, pre=True)
     def check_gpt_error_message(cls, value):
@@ -171,6 +179,29 @@ class Config(BaseModel):
                 session["gptplus"] = False
             sessions.append(session)
         self.gpt_session = sessions
+        if not self.gpt_init_group_persona_name and self.gpt_init_group_pernal_name:
+            self.gpt_init_group_persona_name = self.gpt_init_group_pernal_name
+            logger.warning(
+                "gpt_init_group_pernal_name 为历史拼写，请迁移为 gpt_init_group_persona_name"
+            )
+        if not self.gpt_init_friend_persona_name and self.gpt_init_friend_pernal_name:
+            self.gpt_init_friend_persona_name = self.gpt_init_friend_pernal_name
+            logger.warning(
+                "gpt_init_friend_pernal_name 为历史拼写，请迁移为 gpt_init_friend_persona_name"
+            )
+        if self.gpt_auto_init_group and not self.gpt_init_group_persona_name:
+            logger.warning("已开启 gpt_auto_init_group，但未配置群聊默认人设")
+        if self.gpt_auto_init_friend and not self.gpt_init_friend_persona_name:
+            logger.warning("已开启 gpt_auto_init_friend，但未配置私聊默认人设")
+        deprecated = {
+            "begin_sleep_time": "gpt_begin_sleep_time",
+            "gpt_lgr_markdown": "gpt_render_mode",
+            "gpt_httpx": "已移除，浏览器桥接已替代该实现",
+            "gpt_url_replace": "已移除，统一消息输出已替代该实现",
+        }
+        for old_name, replacement in deprecated.items():
+            if old_name in os.environ:
+                logger.warning(f"检测到已废弃配置 {old_name}，请迁移为 {replacement}")
         return self
 
     @validator("gpt_white_list_mode", always=True, pre=True)

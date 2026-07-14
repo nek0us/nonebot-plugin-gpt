@@ -27,6 +27,7 @@ from .runtime_handlers import chat_reply, persona_reply, restart_persona_reply, 
 from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_image_files
+from .auto_persona import AutoPersonaInitializer
 from .persona_views import list_personas, show_persona
 from .persona_editor import (
     PersonaValidationError,
@@ -150,6 +151,13 @@ if isinstance(config_gpt.gpt_session,list):
             minimum_estimated_tokens=config_gpt.gpt_context_compaction_min_tokens,
         ),
     )
+    auto_persona = AutoPersonaInitializer(
+        chat_runtime,
+        group_enabled=config_gpt.gpt_auto_init_group,
+        friend_enabled=config_gpt.gpt_auto_init_friend,
+        group_persona_name=config_gpt.gpt_init_group_persona_name,
+        friend_persona_name=config_gpt.gpt_init_friend_persona_name,
+    )
     
     driver = get_driver()
     @driver.on_startup
@@ -183,6 +191,14 @@ if isinstance(config_gpt.gpt_session,list):
         if config_gpt.gpt_group_chat and _is_group_context(event):
             prompt = f"{event.get_user_id()}对你说：{prompt}"
         model, prefer_paid_account = await select_model(event)
+        auto_result = await auto_persona.ensure_initialized(
+            ConversationKey.from_event(event),
+            is_shared=_is_group_context(event),
+            model=model,
+            prefer_paid_account=prefer_paid_account,
+        )
+        if auto_result is not None and not auto_result.ok:
+            logger.warning("当前会话的自动人设初始化失败，将继续使用普通聊天")
         files = []
         if config_gpt.gpt_free_image or prefer_paid_account:
             files = await extract_image_files(text, proxy=config_gpt.gpt_proxy)

@@ -111,6 +111,10 @@ _✨ NoneBot GPT ✨_
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
+| gpt_auto_init_group | 否 | false | bool | 群聊或频道中的用户首次聊天时，自动加载群聊默认人设 |
+| gpt_auto_init_friend | 否 | false | bool | 私聊用户首次聊天时，自动加载私聊默认人设 |
+| gpt_init_group_persona_name | 否 | 无 | str | 群聊自动初始化使用的人设名称 |
+| gpt_init_friend_persona_name | 否 | 无 | str | 私聊自动初始化使用的人设名称 |
 | gpt_agent_enabled | 否 | false | bool | 启用仅超级用户可调用的受控智能体工具 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 智能体低风险临时授权的有效秒数 |
@@ -190,6 +194,12 @@ gpt_render_mode="auto"
 
 # 请求失败时的用户提示，可按机器人身份调整
 gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
+
+# 首次有效聊天时自动初始化人设。它不会覆盖手动初始化或已有逻辑会话。
+gpt_auto_init_group=true
+gpt_auto_init_friend=true
+gpt_init_group_persona_name="猪咪多人3"
+gpt_init_friend_persona_name="猪咪"
 
 # 启用仅超级用户可调用的智能体只读工具
 gpt_agent_enabled=false
