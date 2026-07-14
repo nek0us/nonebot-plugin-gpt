@@ -38,3 +38,56 @@ class AttachmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(files), 1)
         self.assertEqual(files[0].name, "upload.png")
         self.assertEqual(files[0].content, b"image-bytes")
+
+    async def test_remote_image_uses_nonebot_driver_http_client(self):
+        class Response:
+            status_code = 200
+            content = b"remote-image"
+
+        class Client:
+            def __init__(self):
+                self.requests = []
+
+            async def request(self, request):
+                self.requests.append(request)
+                return Response()
+
+        class Session:
+            def __init__(self, client):
+                self.client = client
+
+            async def __aenter__(self):
+                return self.client
+
+            async def __aexit__(self, *args):
+                return None
+
+        class Driver:
+            def __init__(self):
+                self.client = Client()
+                self.proxy = None
+
+            def get_session(self, *, proxy=None):
+                self.proxy = proxy
+                return Session(self.client)
+
+        driver = Driver()
+        original_driver = attachments.get_driver
+        original_mixin = attachments.HTTPClientMixin
+        attachments.get_driver = lambda: driver
+        attachments.HTTPClientMixin = Driver
+        try:
+            class Segment:
+                type = "image"
+                data = {"url": "https://example.test/photo.png?size=large"}
+
+            files = await attachments.extract_image_files([Segment()], proxy="http://127.0.0.1:7890")
+        finally:
+            attachments.get_driver = original_driver
+            attachments.HTTPClientMixin = original_mixin
+
+        self.assertEqual(driver.proxy, "http://127.0.0.1:7890")
+        self.assertEqual(driver.client.requests[0].method, "GET")
+        self.assertEqual(str(driver.client.requests[0].url), "https://example.test/photo.png?size=large")
+        self.assertEqual(files[0].name, "photo.png")
+        self.assertEqual(files[0].content, b"remote-image")

@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 
 from ChatGPTWeb.config import IOFile
-from httpx import AsyncClient
+from nonebot import get_driver
+from nonebot.internal.driver import HTTPClientMixin, Request
+from nonebot.log import logger
 from nonebot_plugin_alconna.uniseg import Image, UniMessage
 
 
@@ -44,12 +46,25 @@ async def extract_image_files(message, *, proxy: str = "") -> list[IOFile]:
         if isinstance(url, str) and url.startswith(("http://", "https://")):
             urls.append(url)
     urls = [url for url in urls if not (url in seen_urls or seen_urls.add(url))]
-    async with AsyncClient(proxy=proxy or None) as client:
+    if not urls:
+        return files
+
+    driver = get_driver()
+    if not isinstance(driver, HTTPClientMixin):
+        logger.warning("当前 NoneBot 驱动器不支持 HTTP 客户端，已跳过远程图片下载")
+        return files
+
+    async with driver.get_session(proxy=proxy or None) as client:
         for url in urls:
             try:
-                response = await client.get(url)
-                response.raise_for_status()
+                response = await client.request(Request("GET", url, timeout=30))
             except Exception:
+                logger.debug(f"下载聊天图片失败，已跳过：{url}")
+                continue
+            if response.status_code < 200 or response.status_code >= 300:
+                logger.debug(f"下载聊天图片返回异常状态码，已跳过：{response.status_code}")
+                continue
+            if not isinstance(response.content, bytes):
                 continue
             name = PurePosixPath(url.split("?", maxsplit=1)[0]).name or "image"
             files.append(IOFile(content=response.content, name=name))
