@@ -33,6 +33,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("状态", runtime.help_text())
         self.assertIn("模型", runtime.help_text())
+        self.assertIn("本机只读", runtime.help_text())
         self.assertIn("ChatGPT 运行状态", await runtime.execute("状态", operator_id="admin", scope_id="private:1"))
         self.assertIn("免费模型", await runtime.execute("模型", operator_id="admin", scope_id="private:1"))
         self.assertFalse(service.fetch_remote)
@@ -46,7 +47,13 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         calls = []
         now = [100.0]
         runtime = agent_runtime.AgentRuntime(
-            [agent_runtime.AgentTool("演示", "测试工具", True, lambda: self._record_call(calls))],
+            [agent_runtime.AgentTool(
+                "演示",
+                "测试工具",
+                agent_runtime.AgentPermission.PROCESS_CONTROL,
+                agent_runtime.AgentApproval.CONFIRM,
+                lambda: self._record_call(calls),
+            )],
             confirmation_ttl_seconds=10,
             clock=lambda: now[0],
             token_factory=lambda: "pending",
@@ -54,6 +61,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         requested = await runtime.execute("演示", operator_id="admin", scope_id="group:1")
         self.assertIn("确认 pending", requested)
+        self.assertIn("进程控制", requested)
         self.assertEqual(calls, [])
         self.assertIn(
             "原操作者",

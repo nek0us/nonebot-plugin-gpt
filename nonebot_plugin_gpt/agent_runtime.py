@@ -4,16 +4,44 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from enum import Enum
 from secrets import token_urlsafe
 from time import monotonic
 from typing import Any
 
 from ChatGPTWeb import ChatService
 
+from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
 from .management_views import format_account_status
 
 
 AgentToolHandler = Callable[[], Awaitable[str]]
+
+
+class AgentPermission(str, Enum):
+    """工具实际能力类别；它是代码校验依据，不是提示词约定。"""
+
+    READ_LOCAL = "read_local"
+    READ_NETWORK = "read_network"
+    WRITE_LOCAL = "write_local"
+    PROCESS_CONTROL = "process_control"
+    DESTRUCTIVE = "destructive"
+
+
+class AgentApproval(str, Enum):
+    """单个工具的审批策略。"""
+
+    AUTOMATIC = "automatic"
+    CONFIRM = "confirm"
+
+
+_PERMISSION_NAMES = {
+    AgentPermission.READ_LOCAL: "本机只读",
+    AgentPermission.READ_NETWORK: "网络读取",
+    AgentPermission.WRITE_LOCAL: "本机写入",
+    AgentPermission.PROCESS_CONTROL: "进程控制",
+    AgentPermission.DESTRUCTIVE: "高风险变更",
+}
 
 
 @dataclass(frozen=True)
@@ -22,7 +50,8 @@ class AgentTool:
 
     name: str
     description: str
-    requires_confirmation: bool
+    permission: AgentPermission
+    approval: AgentApproval
     handler: AgentToolHandler
 
 
@@ -57,8 +86,10 @@ class AgentRuntime:
     def help_text(self) -> str:
         lines = ["智能体工具（仅超级用户）"]
         for tool in self._tools.values():
-            confirmation = "需确认" if tool.requires_confirmation else "只读"
-            lines.append(f"- {tool.name}：{tool.description}（{confirmation}）")
+            confirmation = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
+            lines.append(
+                f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{confirmation}）"
+            )
         lines.append("用法：智能体 工具 / 智能体 状态 / 智能体 模型")
         lines.append("需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>")
         return "\n".join(lines)
@@ -120,10 +151,10 @@ class AgentRuntime:
         tool = self._tools.get(normalized)
         if tool is None:
             return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
-        if tool.requires_confirmation:
+        if tool.approval is AgentApproval.CONFIRM:
             token = self._create_pending(tool, operator_id, scope_id)
             return (
-                f"已创建“{tool.name}”待确认操作，"
+                f"已创建“{tool.name}”待确认操作（权限：{_PERMISSION_NAMES[tool.permission]}），"
                 f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {token}”。"
             )
         return await tool.handler()
@@ -160,8 +191,12 @@ def create_agent_runtime(service: ChatService, *, confirmation_ttl_seconds: int 
     async def confirmation_demo() -> str:
         return "确认事务已完成，未执行外部操作。"
 
+    async def environment() -> str:
+        return format_environment_diagnostics(collect_environment_diagnostics())
+
     return AgentRuntime([
-        AgentTool("状态", "查看账户与浏览器运行诊断", False, account_status),
-        AgentTool("模型", "查看本地配置的模型别名", False, model_catalog),
-        AgentTool("确认演示", "验证确认流程，不执行外部操作", True, confirmation_demo),
+        AgentTool("状态", "查看账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
+        AgentTool("模型", "查看本地配置的模型别名", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
+        AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
+        AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
     ], confirmation_ttl_seconds=confirmation_ttl_seconds)
