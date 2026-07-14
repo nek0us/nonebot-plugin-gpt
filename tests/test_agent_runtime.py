@@ -78,6 +78,40 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(calls, ["called"])
 
+    async def test_low_risk_authorization_is_scoped_and_revocable(self):
+        calls = []
+        tokens = iter(("grant", "action"))
+        runtime = agent_runtime.AgentRuntime(
+            [agent_runtime.AgentTool(
+                "演示",
+                "测试工具",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.CONFIRM,
+                lambda: self._record_call(calls),
+            )],
+            confirmation_ttl_seconds=10,
+            session_approval_ttl_seconds=30,
+            token_factory=lambda: next(tokens),
+        )
+
+        requested = await runtime.execute("授权 本机只读", operator_id="admin", scope_id="group:1")
+        self.assertIn("确认 grant", requested)
+        self.assertIn("本机只读", requested)
+        self.assertIn(
+            "原操作者",
+            await runtime.execute("确认 grant", operator_id="other", scope_id="group:1"),
+        )
+        self.assertIn(
+            "已授予",
+            await runtime.execute("确认 grant", operator_id="admin", scope_id="group:1"),
+        )
+        self.assertIn("本机只读", await runtime.execute("授权列表", operator_id="admin", scope_id="group:1"))
+        self.assertEqual("已执行", await runtime.execute("演示", operator_id="admin", scope_id="group:1"))
+        self.assertEqual(calls, ["called"])
+
+        self.assertIn("已撤销", await runtime.execute("撤销授权", operator_id="admin", scope_id="group:1"))
+        self.assertIn("确认 action", await runtime.execute("演示", operator_id="admin", scope_id="group:1"))
+
     async def _record_call(self, calls):
         calls.append("called")
         return "已执行"

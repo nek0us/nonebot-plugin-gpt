@@ -1,4 +1,4 @@
-"""仅供超级用户调用的受控 Agent 工具基础。"""
+"""仅供超级用户调用的受控 Agent 工具与审批基础。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .environment_diagnostics import collect_environment_diagnostics, format_env
 from .management_views import format_account_status
 
 
-AgentToolHandler = Callable[[], Awaitable[str]]
+AgentActionHandler = Callable[[], Awaitable[str]]
 
 
 class AgentPermission(str, Enum):
@@ -42,6 +42,7 @@ _PERMISSION_NAMES = {
     AgentPermission.PROCESS_CONTROL: "进程控制",
     AgentPermission.DESTRUCTIVE: "高风险变更",
 }
+_GRANTABLE_PERMISSIONS = {AgentPermission.READ_LOCAL}
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class AgentTool:
     description: str
     permission: AgentPermission
     approval: AgentApproval
-    handler: AgentToolHandler
+    handler: AgentActionHandler
 
 
 @dataclass(frozen=True)
@@ -60,28 +61,34 @@ class PendingAgentAction:
     """等待同一操作者在同一聊天范围确认的一次性操作。"""
 
     token: str
-    tool: AgentTool
+    name: str
+    description: str
+    permission: AgentPermission
+    handler: AgentActionHandler
     operator_id: str
     scope_id: str
     expires_at: float
 
 
 class AgentRuntime:
-    """管理只读工具，并为后续确认式写操作保留统一入口。"""
+    """管理工具、一次性确认与低风险临时授权。"""
 
     def __init__(
         self,
         tools: list[AgentTool],
         *,
         confirmation_ttl_seconds: int = 60,
+        session_approval_ttl_seconds: int = 1800,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
     ):
         self._tools = {tool.name: tool for tool in tools}
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
+        self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._clock = clock
         self._token_factory = token_factory
         self._pending: dict[str, PendingAgentAction] = {}
+        self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
 
     def help_text(self) -> str:
         lines = ["智能体工具（仅超级用户）"]
@@ -90,8 +97,11 @@ class AgentRuntime:
             lines.append(
                 f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{confirmation}）"
             )
-        lines.append("用法：智能体 工具 / 智能体 状态 / 智能体 模型")
-        lines.append("需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>")
+        lines.extend([
+            "用法：智能体 工具 / 智能体 状态 / 智能体 模型 / 智能体 环境",
+            "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
+            "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
+        ])
         return "\n".join(lines)
 
     def _discard_expired(self) -> None:
@@ -101,20 +111,53 @@ class AgentRuntime:
             for token, action in self._pending.items()
             if action.expires_at > now
         }
+        self._approvals = {
+            key: expires_at
+            for key, expires_at in self._approvals.items()
+            if expires_at > now
+        }
 
-    def _create_pending(self, tool: AgentTool, operator_id: str, scope_id: str) -> str:
+    def _create_pending(
+        self,
+        *,
+        name: str,
+        description: str,
+        permission: AgentPermission,
+        handler: AgentActionHandler,
+        operator_id: str,
+        scope_id: str,
+    ) -> str:
         self._discard_expired()
         token = self._token_factory()
         while token in self._pending:
             token = self._token_factory()
         self._pending[token] = PendingAgentAction(
             token=token,
-            tool=tool,
+            name=name,
+            description=description,
+            permission=permission,
+            handler=handler,
             operator_id=operator_id,
             scope_id=scope_id,
             expires_at=self._clock() + self._confirmation_ttl_seconds,
         )
         return token
+
+    @staticmethod
+    def _approval_key(operator_id: str, scope_id: str, permission: AgentPermission) -> tuple[str, str, AgentPermission]:
+        return operator_id, scope_id, permission
+
+    def _has_session_approval(self, permission: AgentPermission, operator_id: str, scope_id: str) -> bool:
+        expires_at = self._approvals.get(self._approval_key(operator_id, scope_id, permission), 0)
+        return expires_at > self._clock()
+
+    def _pending_message(self, action: PendingAgentAction) -> str:
+        return (
+            f"已创建“{action.name}”待确认操作（权限：{_PERMISSION_NAMES[action.permission]}）。\n"
+            f"原因：{action.description}\n"
+            f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {action.token}”，"
+            f"或发送“智能体 取消 {action.token}”。"
+        )
 
     async def _confirm(self, token: str, operator_id: str, scope_id: str) -> str:
         action = self._pending.pop(token, None)
@@ -125,7 +168,7 @@ class AgentRuntime:
         if action.operator_id != operator_id or action.scope_id != scope_id:
             self._pending[token] = action
             return "该待确认操作只能由原操作者在原聊天范围确认。"
-        return await action.tool.handler()
+        return await action.handler()
 
     def _cancel(self, token: str, operator_id: str, scope_id: str) -> str:
         action = self._pending.get(token)
@@ -139,6 +182,64 @@ class AgentRuntime:
         self._pending.pop(token, None)
         return "已取消待确认操作，未执行任何操作。"
 
+    def _permission_from_text(self, value: str) -> AgentPermission | None:
+        normalized = value.strip().lower()
+        for permission, label in _PERMISSION_NAMES.items():
+            if normalized in {permission.value, label.lower()}:
+                return permission
+        return None
+
+    def _authorization_list(self, operator_id: str, scope_id: str) -> str:
+        self._discard_expired()
+        entries = [
+            (permission, expires_at)
+            for (owner, scope, permission), expires_at in self._approvals.items()
+            if owner == operator_id and scope == scope_id
+        ]
+        if not entries:
+            return "当前聊天范围没有临时智能体授权。"
+        now = self._clock()
+        lines = ["当前聊天范围的临时智能体授权"]
+        for permission, expires_at in sorted(entries, key=lambda item: item[0].value):
+            lines.append(f"- {_PERMISSION_NAMES[permission]}：剩余约 {max(0, int(expires_at - now))} 秒")
+        return "\n".join(lines)
+
+    def _revoke_authorization(self, value: str, operator_id: str, scope_id: str) -> str:
+        self._discard_expired()
+        permission = self._permission_from_text(value) if value.strip() else None
+        if value.strip() and permission is None:
+            return "未识别权限类别。当前仅支持“本机只读”。"
+        targets = [permission] if permission else list(_GRANTABLE_PERMISSIONS)
+        removed = 0
+        for target in targets:
+            if self._approvals.pop(self._approval_key(operator_id, scope_id, target), None) is not None:
+                removed += 1
+        return "已撤销当前聊天范围的临时授权。" if removed else "当前聊天范围没有可撤销的临时授权。"
+
+    def _request_authorization(self, value: str, operator_id: str, scope_id: str) -> str:
+        permission = self._permission_from_text(value)
+        if permission not in _GRANTABLE_PERMISSIONS:
+            return "当前仅允许申请“本机只读”临时授权；网络、写入、进程控制和高风险操作必须逐次确认。"
+
+        async def grant() -> str:
+            self._approvals[self._approval_key(operator_id, scope_id, permission)] = (
+                self._clock() + self._session_approval_ttl_seconds
+            )
+            return (
+                f"已授予当前聊天范围的“{_PERMISSION_NAMES[permission]}”临时授权，"
+                f"有效约 {self._session_approval_ttl_seconds} 秒；可随时使用“智能体 撤销授权”取消。"
+            )
+
+        token = self._create_pending(
+            name=f"临时授权：{_PERMISSION_NAMES[permission]}",
+            description="允许当前聊天范围内的同类低风险操作在有效期内免于重复确认。",
+            permission=permission,
+            handler=grant,
+            operator_id=operator_id,
+            scope_id=scope_id,
+        )
+        return self._pending_message(self._pending[token])
+
     async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
         normalized = name.strip()
         if normalized.startswith("确认 "):
@@ -148,15 +249,33 @@ class AgentRuntime:
         self._discard_expired()
         if normalized in {"", "帮助", "工具"}:
             return self.help_text()
+        if normalized == "授权列表":
+            return self._authorization_list(operator_id, scope_id)
+        if normalized == "授权":
+            return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
+        if normalized.startswith("授权 "):
+            return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
+        if normalized == "撤销授权":
+            return self._revoke_authorization("", operator_id, scope_id)
+        if normalized.startswith("撤销授权 "):
+            return self._revoke_authorization(normalized.removeprefix("撤销授权 ").strip(), operator_id, scope_id)
         tool = self._tools.get(normalized)
         if tool is None:
             return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
-        if tool.approval is AgentApproval.CONFIRM:
-            token = self._create_pending(tool, operator_id, scope_id)
-            return (
-                f"已创建“{tool.name}”待确认操作（权限：{_PERMISSION_NAMES[tool.permission]}），"
-                f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {token}”。"
+        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(
+            tool.permission,
+            operator_id,
+            scope_id,
+        ):
+            token = self._create_pending(
+                name=tool.name,
+                description=tool.description,
+                permission=tool.permission,
+                handler=tool.handler,
+                operator_id=operator_id,
+                scope_id=scope_id,
             )
+            return self._pending_message(self._pending[token])
         return await tool.handler()
 
 
@@ -179,8 +298,13 @@ def _format_model_catalog(catalog: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def create_agent_runtime(service: ChatService, *, confirmation_ttl_seconds: int = 60) -> AgentRuntime:
-    """创建默认只读工具集，不触发远程能力刷新或任何账户操作。"""
+def create_agent_runtime(
+    service: ChatService,
+    *,
+    confirmation_ttl_seconds: int = 60,
+    session_approval_ttl_seconds: int = 1800,
+) -> AgentRuntime:
+    """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
 
     async def account_status() -> str:
         return format_account_status(await service.get_account_status())
@@ -199,4 +323,7 @@ def create_agent_runtime(service: ChatService, *, confirmation_ttl_seconds: int 
         AgentTool("模型", "查看本地配置的模型别名", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
         AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
         AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
-    ], confirmation_ttl_seconds=confirmation_ttl_seconds)
+    ],
+        confirmation_ttl_seconds=confirmation_ttl_seconds,
+        session_approval_ttl_seconds=session_approval_ttl_seconds,
+    )
