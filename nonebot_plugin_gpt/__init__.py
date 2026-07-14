@@ -38,6 +38,7 @@ from .persona_editor import (
 )
 from .history_views import format_history, format_history_tree
 from .management_views import format_account_status
+from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
 from .personality_service import ensure_default_persona
@@ -117,6 +118,7 @@ if isinstance(config_gpt.gpt_session,list):
         local_js=config_gpt.gpt_local_js,
         )
     chat_service = ChatService(chatbot)
+    failure_diagnostics = ChatFailureDiagnostics()
     managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
     for issue in managed_services.configuration_issues:
         logger.warning(f"智能体受管服务配置：{issue}")
@@ -173,6 +175,7 @@ if isinstance(config_gpt.gpt_session,list):
             files=files,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            failure_diagnostics=failure_diagnostics,
         ))
 
                         
@@ -184,6 +187,7 @@ if isinstance(config_gpt.gpt_session,list):
             ConversationKey.from_event(event),
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            failure_diagnostics=failure_diagnostics,
         ))
     
             
@@ -196,6 +200,7 @@ if isinstance(config_gpt.gpt_session,list):
             "-1",
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            failure_diagnostics=failure_diagnostics,
         ))
             
             
@@ -209,6 +214,7 @@ if isinstance(config_gpt.gpt_session,list):
             reference,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            failure_diagnostics=failure_diagnostics,
         ))
             
 
@@ -256,6 +262,7 @@ if isinstance(config_gpt.gpt_session,list):
             continue_existing=continue_existing,
             render_mode=config_gpt.gpt_render_mode,
             error_message=config_gpt.gpt_error_message,
+            failure_diagnostics=failure_diagnostics,
         ))
 
     personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -378,7 +385,10 @@ if isinstance(config_gpt.gpt_session,list):
     status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
     async def status_handle(matcher: Matcher):
-        await matcher.finish(format_account_status(await chat_service.get_account_status()))
+        await matcher.finish(format_account_status(
+            await chat_service.get_account_status(),
+            failure_summary=failure_diagnostics.format(),
+        ))
 
     agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()

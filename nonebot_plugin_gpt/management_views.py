@@ -91,7 +91,7 @@ def _account_available(account: dict[str, Any]) -> bool:
     return bool(account.get("available"))
 
 
-def format_account_status(status: dict[str, Any]) -> str:
+def format_account_status(status: dict[str, Any], *, failure_summary: str = "") -> str:
     """生成不含凭据、验证码和原始登录错误的账户运行摘要。"""
     accounts = status.get("accounts")
     if not isinstance(accounts, list):
@@ -106,6 +106,8 @@ def format_account_status(status: dict[str, Any]) -> str:
         "ChatGPT 运行状态",
         f"账户 {len(normalized)} 个｜可用 {available_count} 个｜需处理 {attention_count} 个",
     ]
+    if failure_summary:
+        lines.append(f"聊天失败汇总：{failure_summary}")
     for index, account in enumerate(normalized, start=1):
         email = str(account.get("email", "未知账户"))
         availability = "可用" if _account_available(account) else "不可用"

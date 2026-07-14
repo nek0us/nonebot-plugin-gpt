@@ -12,6 +12,7 @@ from nonebot_plugin_alconna.uniseg import UniMessage
 
 from .chat_runtime import ChatRuntime
 from .conversation import ConversationKey
+from .failure_diagnostics import ChatFailureDiagnostics
 from .rendering import build_render_plan
 from .unimessage_output import build_unimessage
 
@@ -27,14 +28,26 @@ async def _render_markdown(markdown: str) -> bytes | None:
     return await md_to_pic(markdown, max_width=720)
 
 
-def _error_message(result: ChatResult, error_message: str) -> UniMessage:
+def _error_message(
+    result: ChatResult,
+    error_message: str,
+    failure_diagnostics: ChatFailureDiagnostics | None,
+) -> UniMessage:
     """将核心服务的失败结果收敛为不会泄露内部细节的用户提示。"""
+    if failure_diagnostics:
+        failure_diagnostics.record_result(result)
     return UniMessage.text(error_message)
 
 
-def _unexpected_error_message(operation: str, error_message: str) -> UniMessage:
+def _unexpected_error_message(
+    operation: str,
+    error_message: str,
+    failure_diagnostics: ChatFailureDiagnostics | None,
+) -> UniMessage:
     """记录管理员可见的异常，避免把堆栈或上游报错直接发送到聊天。"""
     logger.exception(f"GPT {operation} 处理异常")
+    if failure_diagnostics:
+        failure_diagnostics.record_exception()
     return UniMessage.text(error_message)
 
 
@@ -45,10 +58,11 @@ async def render_result(
     render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
     error_message: str = DEFAULT_ERROR_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """把结构化聊天结果转换为可由 Alconna 发送的统一消息。"""
     if not result.ok:
-        return _error_message(result, error_message)
+        return _error_message(result, error_message, failure_diagnostics)
     return await build_unimessage(
         build_render_plan(
             result,
@@ -72,6 +86,7 @@ async def chat_reply(
     render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
     error_message: str = DEFAULT_ERROR_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """处理一条普通聊天消息并返回跨平台输出。"""
     try:
@@ -84,13 +99,14 @@ async def chat_reply(
             web_search=web_search,
         )
     except Exception:
-        return _unexpected_error_message("聊天", error_message)
+        return _unexpected_error_message("聊天", error_message, failure_diagnostics)
     return await render_result(
         result,
         supports_markdown=supports_markdown,
         render_mode=render_mode,
         render_markdown=render_markdown,
         error_message=error_message,
+        failure_diagnostics=failure_diagnostics,
     )
 
 
@@ -106,6 +122,7 @@ async def persona_reply(
     render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
     error_message: str = DEFAULT_ERROR_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """初始化人设并将结果投影为跨平台输出。"""
     try:
@@ -119,13 +136,14 @@ async def persona_reply(
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:
-        return _unexpected_error_message("人设初始化", error_message)
+        return _unexpected_error_message("人设初始化", error_message, failure_diagnostics)
     return await render_result(
         result,
         supports_markdown=supports_markdown,
         render_mode=render_mode,
         render_markdown=render_markdown,
         error_message=error_message,
+        failure_diagnostics=failure_diagnostics,
     )
 
 
@@ -137,6 +155,7 @@ async def restart_persona_reply(
     render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
     error_message: str = DEFAULT_ERROR_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """重置当前人设并创建新的逻辑会话。"""
     try:
@@ -144,13 +163,14 @@ async def restart_persona_reply(
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:
-        return _unexpected_error_message("人设重置", error_message)
+        return _unexpected_error_message("人设重置", error_message, failure_diagnostics)
     return await render_result(
         result,
         supports_markdown=supports_markdown,
         render_mode=render_mode,
         render_markdown=render_markdown,
         error_message=error_message,
+        failure_diagnostics=failure_diagnostics,
     )
 
 
@@ -163,6 +183,7 @@ async def rewind_reply(
     render_mode: Literal["auto", "text", "image"] = "auto",
     render_markdown: MarkdownRenderer | None = _render_markdown,
     error_message: str = DEFAULT_ERROR_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """回退当前逻辑会话的物理上下文。"""
     if not reference.strip():
@@ -172,11 +193,12 @@ async def rewind_reply(
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:
-        return _unexpected_error_message("会话回退", error_message)
+        return _unexpected_error_message("会话回退", error_message, failure_diagnostics)
     return await render_result(
         result,
         supports_markdown=supports_markdown,
         render_mode=render_mode,
         render_markdown=render_markdown,
         error_message=error_message,
+        failure_diagnostics=failure_diagnostics,
     )

@@ -60,3 +60,14 @@ class ManagementViewTests(unittest.TestCase):
         self.assertIn("已由管理员停用", text)
         self.assertNotIn("123456", text)
         self.assertNotIn("sensitive browser details", text)
+
+    def test_status_can_include_safe_failure_summary(self):
+        text = management_views.format_account_status({
+            "accounts": [{
+                "email": "account@example.test",
+                "status": "Ready",
+                "available": True,
+            }],
+        }, failure_summary="本次运行聊天失败 2 次（启动或请求超时 2）")
+
+        self.assertIn("聊天失败汇总：本次运行聊天失败 2 次", text)

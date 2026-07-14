@@ -121,3 +121,26 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
         text = message.extract_plain_text()
         self.assertIn("没能顺利回应", text)
         self.assertNotIn("upstream detail", text)
+
+    async def test_failed_result_is_recorded_without_exposing_details(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "no_ready_session", "message": "secret"}],
+                )
+
+        tracker = runtime_handlers.ChatFailureDiagnostics()
+        await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+            failure_diagnostics=tracker,
+        )
+
+        self.assertIn("会话不可用 1", tracker.format())
+        self.assertNotIn("secret", tracker.format())
