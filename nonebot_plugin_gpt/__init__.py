@@ -37,6 +37,7 @@ from .persona_editor import (
     validate_value,
 )
 from .history_views import format_history, format_history_tree
+from .help_views import format_help
 from .management_views import format_account_status
 from .message_output import finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
@@ -196,6 +197,17 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             failure_diagnostics=failure_diagnostics,
         ))
+
+    help_command = legacy_command(
+        "gpt_help",
+        aliases={"GPT帮助", "gpt帮助", "帮助GPT"},
+        rule=gpt_rule,
+        priority=config_gpt.gpt_command_priority,
+        block=True,
+    )
+    @help_command.handle()
+    async def help_handle(event: Event, argument: Match[str], matcher: Matcher):
+        await finish_message(matcher, event, format_help(_argument_text(argument)))
 
                         
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
