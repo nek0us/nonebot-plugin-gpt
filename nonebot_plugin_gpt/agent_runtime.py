@@ -69,6 +69,7 @@ class AgentToolParameter:
     description: str
     required: bool = True
     choices: tuple[str, ...] = ()
+    sensitive: bool = False
 
 
 @dataclass(frozen=True)
@@ -167,7 +168,12 @@ class AgentRuntime:
             return f"智能体计划未通过校验：{plan.error}"
         if plan.tool_name is None:
             self._audit.record("计划未调用工具", "模型规划")
-            return f"智能体计划（未执行）\n当前不建议调用工具。\n理由：{plan.reason}"
+            return "\n".join([
+                "智能体计划（未执行）",
+                f"摘要：{plan.summary or plan.reason}",
+                "建议动作：暂不调用任何工具。",
+                f"判断依据：{plan.reason}",
+            ])
         tool = self._tools[plan.tool_name]
         arguments, error = self._validate_tool_arguments(tool, plan.arguments)
         if error:
@@ -187,11 +193,14 @@ class AgentRuntime:
         self._audit.record("计划已创建", tool.name, _PERMISSION_NAMES[tool.permission])
         return "\n".join([
             "智能体计划（未执行）",
-            f"建议工具：{tool.name}",
+            f"摘要：{plan.summary or plan.reason}",
+            f"建议动作：{tool.description}",
+            f"工具：{tool.name}",
+            f"参数：{self._format_plan_arguments(tool, arguments)}",
             f"权限：{_PERMISSION_NAMES[tool.permission]}｜审批：{approval}",
-            f"理由：{plan.reason}",
+            f"判断依据：{plan.reason}",
             f"计划编号：{token}（{self._plan_ttl_seconds} 秒内有效）",
-            f"如需执行，请发送“智能体 执行 {token}”。",
+            f"下一步：如需执行，请发送“智能体 执行 {token}”。",
         ])
 
     def _discard_expired(self) -> None:
@@ -235,6 +244,16 @@ class AgentRuntime:
                 return {}, f"参数 {name} 仅允许：{'、'.join(parameter.choices)}"
             normalized[name] = value
         return normalized, ""
+
+    @staticmethod
+    def _format_plan_arguments(tool: AgentTool, arguments: dict[str, str]) -> str:
+        if not arguments:
+            return "无"
+        parameters = {parameter.name: parameter for parameter in tool.parameters}
+        return "；".join(
+            f"{name}：{'已提供' if parameters[name].sensitive else value}"
+            for name, value in arguments.items()
+        )
 
     def _create_pending(
         self,
@@ -493,6 +512,19 @@ def create_agent_runtime(
         AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
         AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
     ]
+    if registry.process_names or registry.tcp_names:
+        async def managed_service_overview(_: dict[str, str]) -> str:
+            return await registry.overview()
+
+        overview_permission = AgentPermission.READ_NETWORK if registry.tcp_names else AgentPermission.READ_LOCAL
+        overview_approval = AgentApproval.CONFIRM if registry.tcp_names else AgentApproval.AUTOMATIC
+        tools.append(AgentTool(
+            "受管服务概览",
+            "汇总所有已配置服务的类型、状态与重启权限",
+            overview_permission,
+            overview_approval,
+            managed_service_overview,
+        ))
     if registry.process_names:
         async def process_service_status(arguments: dict[str, str]) -> str:
             return registry.process_status(arguments["服务"])

@@ -54,6 +54,21 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("未找到", await runtime.execute("重启机器", operator_id="admin", scope_id="private:1"))
 
+    async def test_managed_service_overview_requires_confirmation_when_tcp_is_configured(self):
+        registry = agent_runtime.ManagedServiceRegistry.from_config([{
+            "name": "api",
+            "kind": "tcp",
+            "host": "127.0.0.1",
+            "port": 8080,
+        }])
+        runtime = agent_runtime.create_agent_runtime(_Service(), managed_services=registry)
+
+        self.assertIn("受管服务概览", runtime.help_text())
+        result = await runtime.execute("受管服务概览", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("网络读取", result)
+        self.assertIn("智能体 确认", result)
+
     async def test_model_plan_is_validated_but_not_executed(self):
         service = _Service()
         runtime = agent_runtime.create_agent_runtime(service)
@@ -61,8 +76,37 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         text = await runtime.execute("计划 检查系统", operator_id="admin", scope_id="private:1")
 
         self.assertIn("智能体计划（未执行）", text)
-        self.assertIn("建议工具：环境", text)
+        self.assertIn("建议动作：查看跨平台本机基础环境诊断", text)
+        self.assertIn("参数：无", text)
+        self.assertIn("摘要：需要查看当前系统信息。", text)
         self.assertIn("只输出一个 JSON", service.plan_request.prompt)
+
+    async def test_sensitive_plan_parameters_are_redacted_in_display(self):
+        class _Planner:
+            async def plan(self, task, tools):
+                return agent_planner.AgentPlan(
+                    "演示",
+                    "需要使用已验证的参数。",
+                    True,
+                    {"令牌": "private-value"},
+                    summary="验证敏感参数展示。",
+                )
+
+        runtime = agent_runtime.AgentRuntime([
+            agent_runtime.AgentTool(
+                "演示",
+                "执行受控演示",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.AUTOMATIC,
+                lambda _: self._record_call([]),
+                parameters=(agent_runtime.AgentToolParameter("令牌", "访问令牌", sensitive=True),),
+            ),
+        ], planner=_Planner(), token_factory=lambda: "plan")
+
+        text = await runtime.execute("计划 测试", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("参数：令牌：已提供", text)
+        self.assertNotIn("private-value", text)
 
     async def test_plan_execution_is_scoped_and_single_use(self):
         calls = []

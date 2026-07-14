@@ -67,6 +67,21 @@ class ManagedServicesTests(unittest.TestCase):
         self.assertEqual(registry.restart_names, ("bot",))
         self.assertIn("未找到", asyncio.run(registry.restart("unknown")))
 
+    def test_overview_lists_types_status_and_restart_capability(self):
+        registry = services.ManagedServiceRegistry.from_config([
+            {"name": "bot", "kind": "pid_file", "pid_file": "/tmp/bot.pid", "restart_command": ["restart-bot"]},
+            {"name": "api", "kind": "tcp", "host": "127.0.0.1", "port": 8080},
+        ])
+        with (
+            patch.object(registry, "process_status", return_value="服务 bot：运行中（PID 1）。"),
+            patch.object(registry, "tcp_status", new=AsyncMock(return_value="服务 api：可连接。")),
+        ):
+            result = asyncio.run(registry.overview())
+
+        self.assertIn("bot（PID 文件；允许重启）：运行中", result)
+        self.assertIn("api（TCP；仅状态查询）：可连接", result)
+        self.assertNotIn("127.0.0.1", result)
+
     def test_restart_uses_configured_argument_array_without_shell(self):
         registry = services.ManagedServiceRegistry.from_config([{
             "name": "bot",

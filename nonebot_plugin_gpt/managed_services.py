@@ -115,6 +115,19 @@ class ManagedServiceRegistry:
     def restart_names(self) -> tuple[str, ...]:
         return tuple(name for name, service in {**self._process, **self._tcp}.items() if service.restart_command)
 
+    async def overview(self) -> str:
+        """汇总所有已配置服务，不暴露连接地址、PID 文件路径或重启命令。"""
+        if not self._process and not self._tcp:
+            return "未配置受管服务。"
+        lines = ["受管服务概览"]
+        for name in self.process_names:
+            restart = "允许重启" if name in self.restart_names else "仅状态查询"
+            lines.append(f"- {name}（PID 文件；{restart}）：{self.process_status(name).removeprefix(f'服务 {name}：')}")
+        for name in self.tcp_names:
+            restart = "允许重启" if name in self.restart_names else "仅状态查询"
+            lines.append(f"- {name}（TCP；{restart}）：{(await self.tcp_status(name)).removeprefix(f'服务 {name}：')}")
+        return "\n".join(lines)
+
     @staticmethod
     def _process_state(pid: int) -> str:
         """避免在 Windows 上使用 Unix 语义不稳定的 ``os.kill(pid, 0)``。"""

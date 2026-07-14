@@ -64,6 +64,15 @@ class AgentPlannerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.valid)
         self.assertIn("参数", result.error)
 
+    def test_plan_summary_is_optional_and_bounded(self):
+        result = planner.parse_agent_plan(
+            '{"tool":"环境","summary":"' + "甲" * 200 + '","reason":"测试"}',
+            {"环境"},
+        )
+
+        self.assertTrue(result.valid)
+        self.assertEqual(len(result.summary), 160)
+
 
 if __name__ == "__main__":
     unittest.main()
