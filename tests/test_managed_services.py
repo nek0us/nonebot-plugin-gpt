@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -39,3 +40,40 @@ class ManagedServicesTests(unittest.TestCase):
 
         self.assertEqual(registry.process_names, ("one",))
         self.assertEqual(registry.tcp_names, ())
+
+    def test_restart_is_only_available_for_preconfigured_command(self):
+        registry = services.ManagedServiceRegistry.from_config([{
+            "name": "bot",
+            "kind": "pid_file",
+            "pid_file": "/tmp/bot.pid",
+            "restart_command": ["restart-bot"],
+        }])
+
+        self.assertEqual(registry.restart_names, ("bot",))
+        self.assertIn("未找到", asyncio.run(registry.restart("unknown")))
+
+    def test_restart_uses_configured_argument_array_without_shell(self):
+        registry = services.ManagedServiceRegistry.from_config([{
+            "name": "bot",
+            "kind": "pid_file",
+            "pid_file": "/tmp/bot.pid",
+            "restart_command": ["restart-bot", "--graceful"],
+        }])
+        calls = []
+
+        class _Process:
+            returncode = 0
+
+            async def wait(self):
+                return 0
+
+        async def create_process(*args, **kwargs):
+            calls.append((args, kwargs))
+            return _Process()
+
+        with patch.object(services.asyncio, "create_subprocess_exec", side_effect=create_process):
+            result = asyncio.run(registry.restart("bot"))
+
+        self.assertIn("已提交", result)
+        self.assertEqual(calls[0][0], ("restart-bot", "--graceful"))
+        self.assertNotIn("shell", calls[0][1])

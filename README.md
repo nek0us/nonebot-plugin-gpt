@@ -185,7 +185,7 @@ gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
-gpt_agent_managed_services='[{"name":"bot","kind":"pid_file","pid_file":"/run/nonebot.pid"},{"name":"local-api","kind":"tcp","host":"127.0.0.1","port":8080}]'
+gpt_agent_managed_services='[{"name":"bot","kind":"pid_file","pid_file":"/run/nonebot.pid","restart_command":["systemctl","restart","nonebot"]},{"name":"local-api","kind":"tcp","host":"127.0.0.1","port":8080}]'
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在

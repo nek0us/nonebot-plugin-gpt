@@ -15,6 +15,7 @@ from typing import Any
 class ManagedProcessService:
     name: str
     pid_file: Path
+    restart_command: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class ManagedTcpService:
     name: str
     host: str
     port: int
+    restart_command: tuple[str, ...] = ()
 
 
 class ManagedServiceRegistry:
@@ -41,10 +43,16 @@ class ManagedServiceRegistry:
                 continue
             name = str(entry.get("name", "")).strip()
             kind = str(entry.get("kind", "")).strip().lower()
+            command = entry.get("restart_command", [])
+            restart_command = (
+                tuple(command)
+                if isinstance(command, list) and command and all(isinstance(item, str) and item for item in command)
+                else ()
+            )
             if not name or name in used_names:
                 continue
             if kind == "pid_file" and isinstance(entry.get("pid_file"), str):
-                process_services.append(ManagedProcessService(name, Path(entry["pid_file"])))
+                process_services.append(ManagedProcessService(name, Path(entry["pid_file"]), restart_command))
                 used_names.add(name)
             elif kind == "tcp" and isinstance(entry.get("host"), str):
                 try:
@@ -52,7 +60,7 @@ class ManagedServiceRegistry:
                 except (TypeError, ValueError):
                     continue
                 if 1 <= port <= 65535:
-                    tcp_services.append(ManagedTcpService(name, entry["host"], port))
+                    tcp_services.append(ManagedTcpService(name, entry["host"], port, restart_command))
                     used_names.add(name)
         return cls(process_services, tcp_services)
 
@@ -63,6 +71,10 @@ class ManagedServiceRegistry:
     @property
     def tcp_names(self) -> tuple[str, ...]:
         return tuple(self._tcp)
+
+    @property
+    def restart_names(self) -> tuple[str, ...]:
+        return tuple(name for name, service in {**self._process, **self._tcp}.items() if service.restart_command)
 
     @staticmethod
     def _process_state(pid: int) -> str:
@@ -119,3 +131,20 @@ class ManagedServiceRegistry:
         available = await asyncio.to_thread(probe)
         state = "可连接" if available else "不可连接"
         return f"服务 {service.name}：{state}。"
+
+    async def restart(self, name: str) -> str:
+        service = self._process.get(name) or self._tcp.get(name)
+        if service is None or not service.restart_command:
+            return "未找到允许重启的受管服务。"
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *service.restart_command,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(process.wait(), timeout=30)
+        except (OSError, asyncio.TimeoutError):
+            return f"服务 {service.name}：重启请求未成功完成。"
+        if process.returncode != 0:
+            return f"服务 {service.name}：重启命令返回失败状态。"
+        return f"服务 {service.name}：已提交重启请求。"

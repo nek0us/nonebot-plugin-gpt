@@ -58,6 +58,7 @@ class AgentTool:
     approval: AgentApproval
     handler: AgentActionHandler
     parameters: tuple["AgentToolParameter", ...] = ()
+    describe_action: Callable[[dict[str, str]], str] | None = None
 
 
 @dataclass(frozen=True)
@@ -371,7 +372,7 @@ class AgentRuntime:
         ):
             token = self._create_pending(
                 name=tool.name,
-                description=tool.description,
+                description=tool.describe_action(arguments) if tool.describe_action else tool.description,
                 permission=tool.permission,
                 handler=lambda: tool.handler(arguments),
                 operator_id=operator_id,
@@ -506,6 +507,19 @@ def create_agent_runtime(
             AgentApproval.CONFIRM,
             tcp_service_status,
             parameters=(AgentToolParameter("服务", "已配置的服务名称", choices=registry.tcp_names),),
+        ))
+    if registry.restart_names:
+        async def restart_service(arguments: dict[str, str]) -> str:
+            return await registry.restart(arguments["服务"])
+
+        tools.append(AgentTool(
+            "重启受管服务",
+            "使用管理员配置的命令重启指定服务",
+            AgentPermission.PROCESS_CONTROL,
+            AgentApproval.CONFIRM,
+            restart_service,
+            parameters=(AgentToolParameter("服务", "允许重启的服务名称", choices=registry.restart_names),),
+            describe_action=lambda arguments: f"重启受管服务 {arguments['服务']}（使用管理员配置）",
         ))
     return AgentRuntime(tools,
         confirmation_ttl_seconds=confirmation_ttl_seconds,
