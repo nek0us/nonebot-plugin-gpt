@@ -33,6 +33,7 @@ class AgentPlannerTests(unittest.IsolatedAsyncioTestCase):
             "description": "查看环境",
             "permission": "本机只读",
             "approval": "自动允许",
+            "parameters": [],
         }])
 
         self.assertTrue(result.valid)
@@ -53,6 +54,15 @@ class AgentPlannerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.valid)
         self.assertIn("JSON", result.error)
+
+    async def test_plan_arguments_must_be_string_object(self):
+        result = planner.parse_agent_plan(
+            '{"tool":"环境","reason":"测试","arguments":{"limit":1}}',
+            {"环境"},
+        )
+
+        self.assertFalse(result.valid)
+        self.assertIn("参数", result.error)
 
 
 if __name__ == "__main__":

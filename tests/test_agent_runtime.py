@@ -77,7 +77,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "测试只读工具",
                 agent_runtime.AgentPermission.READ_LOCAL,
                 agent_runtime.AgentApproval.AUTOMATIC,
-                lambda: self._record_call(calls),
+                lambda _: self._record_call(calls),
             )],
             planner=_Planner(),
             token_factory=lambda: "plan",
@@ -98,6 +98,34 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"),
         )
 
+    async def test_plan_arguments_are_validated_before_execution(self):
+        calls = []
+
+        class _Planner:
+            async def plan(self, task, tools):
+                return agent_planner.AgentPlan("演示", "测试参数校验。", True, {"level": "危险"})
+
+        runtime = agent_runtime.AgentRuntime(
+            [agent_runtime.AgentTool(
+                "演示",
+                "测试工具",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.AUTOMATIC,
+                lambda _: self._record_call(calls),
+                parameters=(agent_runtime.AgentToolParameter(
+                    "level",
+                    "输出级别",
+                    choices=("摘要", "详细"),
+                ),),
+            )],
+            planner=_Planner(),
+        )
+
+        text = await runtime.execute("计划 测试参数", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("参数校验", text)
+        self.assertEqual(calls, [])
+
     async def test_confirmation_is_bound_to_operator_scope_and_expiry(self):
         calls = []
         now = [100.0]
@@ -107,7 +135,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "测试工具",
                 agent_runtime.AgentPermission.PROCESS_CONTROL,
                 agent_runtime.AgentApproval.CONFIRM,
-                lambda: self._record_call(calls),
+                lambda _: self._record_call(calls),
             )],
             confirmation_ttl_seconds=10,
             clock=lambda: now[0],
@@ -142,7 +170,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "测试工具",
                 agent_runtime.AgentPermission.READ_LOCAL,
                 agent_runtime.AgentApproval.CONFIRM,
-                lambda: self._record_call(calls),
+                lambda _: self._record_call(calls),
             )],
             confirmation_ttl_seconds=10,
             session_approval_ttl_seconds=30,

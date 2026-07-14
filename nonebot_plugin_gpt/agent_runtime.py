@@ -17,7 +17,7 @@ from .environment_diagnostics import collect_environment_diagnostics, format_env
 from .management_views import format_account_status
 
 
-AgentActionHandler = Callable[[], Awaitable[str]]
+AgentActionHandler = Callable[[dict[str, str]], Awaitable[str]]
 
 
 class AgentPermission(str, Enum):
@@ -56,6 +56,17 @@ class AgentTool:
     permission: AgentPermission
     approval: AgentApproval
     handler: AgentActionHandler
+    parameters: tuple["AgentToolParameter", ...] = ()
+
+
+@dataclass(frozen=True)
+class AgentToolParameter:
+    """一个由插件本地校验的工具参数。"""
+
+    name: str
+    description: str
+    required: bool = True
+    choices: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,7 @@ class PlannedAgentAction:
     token: str
     tool: AgentTool
     reason: str
+    arguments: dict[str, str]
     operator_id: str
     scope_id: str
     expires_at: float
@@ -128,13 +140,17 @@ class AgentRuntime:
         ])
         return "\n".join(lines)
 
-    def _planner_tools(self) -> list[dict[str, str]]:
+    def _planner_tools(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": tool.name,
                 "description": tool.description,
                 "permission": _PERMISSION_NAMES[tool.permission],
                 "approval": "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许",
+                "parameters": [
+                    {"name": item.name, "description": item.description, "required": item.required, "choices": list(item.choices)}
+                    for item in tool.parameters
+                ],
             }
             for tool in self._tools.values()
         ]
@@ -151,12 +167,17 @@ class AgentRuntime:
             self._audit.record("计划未调用工具", "模型规划")
             return f"智能体计划（未执行）\n当前不建议调用工具。\n理由：{plan.reason}"
         tool = self._tools[plan.tool_name]
+        arguments, error = self._validate_tool_arguments(tool, plan.arguments)
+        if error:
+            self._audit.record("计划被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
+            return f"智能体计划未通过参数校验：{error}"
         approval = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
         token = self._new_token()
         self._plans[token] = PlannedAgentAction(
             token=token,
             tool=tool,
             reason=plan.reason,
+            arguments=arguments,
             operator_id=operator_id,
             scope_id=scope_id,
             expires_at=self._clock() + self._plan_ttl_seconds,
@@ -194,6 +215,24 @@ class AgentRuntime:
         while token in self._pending or token in self._plans:
             token = self._token_factory()
         return token
+
+    @staticmethod
+    def _validate_tool_arguments(tool: AgentTool, arguments: dict[str, str]) -> tuple[dict[str, str], str]:
+        declared = {item.name: item for item in tool.parameters}
+        unexpected = set(arguments) - set(declared)
+        if unexpected:
+            return {}, f"包含未声明参数：{'、'.join(sorted(unexpected))}"
+        normalized = {}
+        for name, parameter in declared.items():
+            value = arguments.get(name)
+            if value is None:
+                if parameter.required:
+                    return {}, f"缺少必填参数：{name}"
+                continue
+            if parameter.choices and value not in parameter.choices:
+                return {}, f"参数 {name} 仅允许：{'、'.join(parameter.choices)}"
+            normalized[name] = value
+        return normalized, ""
 
     def _create_pending(
         self,
@@ -323,7 +362,7 @@ class AgentRuntime:
         )
         return self._pending_message(self._pending[token])
 
-    async def _execute_tool(self, tool: AgentTool, operator_id: str, scope_id: str) -> str:
+    async def _execute_tool(self, tool: AgentTool, arguments: dict[str, str], operator_id: str, scope_id: str) -> str:
         if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(
             tool.permission,
             operator_id,
@@ -333,14 +372,14 @@ class AgentRuntime:
                 name=tool.name,
                 description=tool.description,
                 permission=tool.permission,
-                handler=tool.handler,
+                handler=lambda: tool.handler(arguments),
                 operator_id=operator_id,
                 scope_id=scope_id,
             )
             self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
             return self._pending_message(self._pending[token])
         self._audit.record("工具已执行", tool.name, _PERMISSION_NAMES[tool.permission])
-        return await tool.handler()
+        return await tool.handler(arguments)
 
     async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
         plan = self._plans.pop(token, None)
@@ -354,7 +393,7 @@ class AgentRuntime:
             self._audit.record("计划执行被拒绝", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
             return "该计划只能由原操作者在原聊天范围执行。"
         self._audit.record("计划已执行", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
-        return await self._execute_tool(plan.tool, operator_id, scope_id)
+        return await self._execute_tool(plan.tool, plan.arguments, operator_id, scope_id)
 
     async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
         normalized = name.strip()
@@ -392,7 +431,7 @@ class AgentRuntime:
         tool = self._tools.get(normalized)
         if tool is None:
             return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
-        return await self._execute_tool(tool, operator_id, scope_id)
+        return await self._execute_tool(tool, {}, operator_id, scope_id)
 
 
 def _format_model_catalog(catalog: dict[str, Any]) -> str:
@@ -423,16 +462,16 @@ def create_agent_runtime(
 ) -> AgentRuntime:
     """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
 
-    async def account_status() -> str:
+    async def account_status(_: dict[str, str]) -> str:
         return format_account_status(await service.get_account_status())
 
-    async def model_catalog() -> str:
+    async def model_catalog(_: dict[str, str]) -> str:
         return _format_model_catalog(await service.get_model_catalog(fetch_remote=False))
 
-    async def confirmation_demo() -> str:
+    async def confirmation_demo(_: dict[str, str]) -> str:
         return "确认事务已完成，未执行外部操作。"
 
-    async def environment() -> str:
+    async def environment(_: dict[str, str]) -> str:
         return format_environment_diagnostics(collect_environment_diagnostics())
 
     return AgentRuntime([
