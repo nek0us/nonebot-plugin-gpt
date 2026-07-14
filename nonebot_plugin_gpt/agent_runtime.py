@@ -465,8 +465,18 @@ def create_agent_runtime(
 ) -> AgentRuntime:
     """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
 
+    registry = managed_services or ManagedServiceRegistry([], [])
+
     async def account_status(_: dict[str, str]) -> str:
-        return format_account_status(await service.get_account_status())
+        result = format_account_status(await service.get_account_status())
+        if registry.configuration_issues:
+            return "\n".join([
+                result,
+                "",
+                "智能体受管服务配置提示：",
+                *(f"- {issue}" for issue in registry.configuration_issues),
+            ])
+        return result
 
     async def model_catalog(_: dict[str, str]) -> str:
         return _format_model_catalog(await service.get_model_catalog(fetch_remote=False))
@@ -483,7 +493,6 @@ def create_agent_runtime(
         AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
         AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
     ]
-    registry = managed_services or ManagedServiceRegistry([], [])
     if registry.process_names:
         async def process_service_status(arguments: dict[str, str]) -> str:
             return registry.process_status(arguments["服务"])

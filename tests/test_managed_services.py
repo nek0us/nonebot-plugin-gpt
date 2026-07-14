@@ -31,7 +31,7 @@ class ManagedServicesTests(unittest.TestCase):
             self.assertIn("运行中", registry.process_status("bot"))
             self.assertIn("未找到", registry.process_status("arbitrary"))
 
-    def test_invalid_or_duplicate_config_entries_are_ignored(self):
+    def test_invalid_or_duplicate_config_entries_are_reported(self):
         registry = services.ManagedServiceRegistry.from_config([
             {"name": "bad", "kind": "tcp", "host": "127.0.0.1", "port": 0},
             {"name": "one", "kind": "pid_file", "pid_file": "/tmp/one.pid"},
@@ -40,6 +40,21 @@ class ManagedServicesTests(unittest.TestCase):
 
         self.assertEqual(registry.process_names, ("one",))
         self.assertEqual(registry.tcp_names, ())
+        self.assertEqual(len(registry.configuration_issues), 2)
+        self.assertIn("1 到 65535", registry.configuration_issues[0])
+        self.assertIn("名称“one”重复", registry.configuration_issues[1])
+
+    def test_invalid_restart_command_keeps_status_tool_without_executing_command(self):
+        registry = services.ManagedServiceRegistry.from_config([{
+            "name": "bot",
+            "kind": "pid_file",
+            "pid_file": "/tmp/bot.pid",
+            "restart_command": "systemctl restart bot",
+        }])
+
+        self.assertEqual(registry.process_names, ("bot",))
+        self.assertEqual(registry.restart_names, ())
+        self.assertIn("重启命令格式无效", registry.configuration_issues[0])
 
     def test_restart_is_only_available_for_preconfigured_command(self):
         registry = services.ManagedServiceRegistry.from_config([{

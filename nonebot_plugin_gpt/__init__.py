@@ -117,12 +117,15 @@ if isinstance(config_gpt.gpt_session,list):
         local_js=config_gpt.gpt_local_js,
         )
     chat_service = ChatService(chatbot)
+    managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
+    for issue in managed_services.configuration_issues:
+        logger.warning(f"智能体受管服务配置：{issue}")
     agent_runtime = create_agent_runtime(
         chat_service,
         confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
         session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
         plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
-        managed_services=ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services),
+        managed_services=managed_services,
     )
     chat_runtime = ChatRuntime(
         chat_service,

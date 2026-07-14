@@ -31,44 +31,77 @@ class ManagedTcpService:
 class ManagedServiceRegistry:
     """只处理预先配置的服务，不暴露任意目标查询入口。"""
 
-    def __init__(self, process_services: list[ManagedProcessService], tcp_services: list[ManagedTcpService]):
+    def __init__(
+        self,
+        process_services: list[ManagedProcessService],
+        tcp_services: list[ManagedTcpService],
+        configuration_issues: tuple[str, ...] = (),
+    ):
         self._process = {service.name: service for service in process_services}
         self._tcp = {service.name: service for service in tcp_services}
+        self._configuration_issues = configuration_issues
 
     @classmethod
     def from_config(cls, entries: list[dict[str, Any]]) -> "ManagedServiceRegistry":
         process_services = []
         tcp_services = []
         used_names = set()
-        for entry in entries:
+        issues = []
+        for index, entry in enumerate(entries, start=1):
             if not isinstance(entry, dict):
+                issues.append(f"第 {index} 项不是服务对象，已忽略。")
                 continue
             name = str(entry.get("name", "")).strip()
             kind = str(entry.get("kind", "")).strip().lower()
             command = entry.get("restart_command", [])
-            restart_command = (
-                tuple(command)
-                if isinstance(command, list) and command and all(isinstance(item, str) and item for item in command)
-                else ()
-            )
+            restart_command = ()
+            if command not in (None, []):
+                if isinstance(command, list) and all(isinstance(item, str) and item.strip() for item in command):
+                    restart_command = tuple(command)
+                else:
+                    issues.append(f"服务第 {index} 项的重启命令格式无效，已仅注册状态查询。")
             try:
                 restart_check_seconds = max(0, min(30, int(entry.get("restart_check_seconds", 3))))
             except (TypeError, ValueError):
                 restart_check_seconds = 3
+                issues.append(f"服务第 {index} 项的复检等待时间无效，已使用默认值 3 秒。")
             if not name or name in used_names:
+                issues.append(
+                    f"第 {index} 项缺少服务名称，已忽略。"
+                    if not name
+                    else f"服务名称“{name}”重复，后续配置已忽略。"
+                )
                 continue
-            if kind == "pid_file" and isinstance(entry.get("pid_file"), str):
-                process_services.append(ManagedProcessService(name, Path(entry["pid_file"]), restart_command, restart_check_seconds))
+            if kind == "pid_file":
+                pid_file = entry.get("pid_file")
+                if not isinstance(pid_file, str) or not pid_file.strip():
+                    issues.append(f"服务“{name}”缺少有效的 PID 文件路径，已忽略。")
+                    continue
+                process_services.append(ManagedProcessService(name, Path(pid_file), restart_command, restart_check_seconds))
                 used_names.add(name)
-            elif kind == "tcp" and isinstance(entry.get("host"), str):
+            elif kind == "tcp":
+                host = entry.get("host")
+                if not isinstance(host, str) or not host.strip():
+                    issues.append(f"服务“{name}”缺少有效的主机地址，已忽略。")
+                    continue
                 try:
                     port = int(entry.get("port"))
                 except (TypeError, ValueError):
+                    issues.append(f"服务“{name}”的 TCP 端口无效，已忽略。")
                     continue
                 if 1 <= port <= 65535:
-                    tcp_services.append(ManagedTcpService(name, entry["host"], port, restart_command, restart_check_seconds))
+                    tcp_services.append(ManagedTcpService(name, host, port, restart_command, restart_check_seconds))
                     used_names.add(name)
-        return cls(process_services, tcp_services)
+                else:
+                    issues.append(f"服务“{name}”的 TCP 端口必须在 1 到 65535 之间，已忽略。")
+            else:
+                issues.append(f"服务“{name}”的类型不受支持，已忽略。")
+        return cls(process_services, tcp_services, tuple(issues))
+
+    @property
+    def configuration_issues(self) -> tuple[str, ...]:
+        """返回已脱敏的配置诊断，不包含命令和连接目标。"""
+        return self._configuration_issues
 
     @property
     def process_names(self) -> tuple[str, ...]:
