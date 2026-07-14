@@ -120,6 +120,7 @@ if isinstance(config_gpt.gpt_session,list):
         chat_service,
         confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
         session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
+        plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
     )
     chat_runtime = ChatRuntime(
         chat_service,

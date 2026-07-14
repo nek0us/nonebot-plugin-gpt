@@ -11,6 +11,7 @@ package = types.ModuleType("nonebot_plugin_gpt")
 package.__path__ = [str(PACKAGE_PATH)]
 sys.modules.setdefault("nonebot_plugin_gpt", package)
 agent_runtime = importlib.import_module("nonebot_plugin_gpt.agent_runtime")
+agent_planner = importlib.import_module("nonebot_plugin_gpt.agent_planner")
 
 
 class _Service:
@@ -62,6 +63,38 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("智能体计划（未执行）", text)
         self.assertIn("建议工具：环境", text)
         self.assertIn("只输出一个 JSON", service.plan_request.prompt)
+
+    async def test_plan_execution_is_scoped_and_single_use(self):
+        calls = []
+
+        class _Planner:
+            async def plan(self, task, tools):
+                return agent_planner.AgentPlan("演示", "执行测试只读工具。", True)
+
+        runtime = agent_runtime.AgentRuntime(
+            [agent_runtime.AgentTool(
+                "演示",
+                "测试只读工具",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.AUTOMATIC,
+                lambda: self._record_call(calls),
+            )],
+            planner=_Planner(),
+            token_factory=lambda: "plan",
+        )
+
+        planned = await runtime.execute("计划 执行测试", operator_id="admin", scope_id="group:1")
+        self.assertIn("执行 plan", planned)
+        self.assertIn(
+            "原操作者",
+            await runtime.execute("执行 plan", operator_id="other", scope_id="group:1"),
+        )
+        self.assertEqual("已执行", await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"))
+        self.assertEqual(calls, ["called"])
+        self.assertIn(
+            "未找到",
+            await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"),
+        )
 
     async def test_confirmation_is_bound_to_operator_scope_and_expiry(self):
         calls = []

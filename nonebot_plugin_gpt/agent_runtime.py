@@ -71,6 +71,18 @@ class PendingAgentAction:
     expires_at: float
 
 
+@dataclass(frozen=True)
+class PlannedAgentAction:
+    """已由本地校验通过、尚未执行的工具计划。"""
+
+    token: str
+    tool: AgentTool
+    reason: str
+    operator_id: str
+    scope_id: str
+    expires_at: float
+
+
 class AgentRuntime:
     """管理工具、一次性确认与低风险临时授权。"""
 
@@ -80,6 +92,7 @@ class AgentRuntime:
         *,
         confirmation_ttl_seconds: int = 60,
         session_approval_ttl_seconds: int = 1800,
+        plan_ttl_seconds: int = 300,
         planner: AgentPlanner | None = None,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
@@ -87,10 +100,12 @@ class AgentRuntime:
         self._tools = {tool.name: tool for tool in tools}
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
+        self._plan_ttl_seconds = plan_ttl_seconds
         self._clock = clock
         self._token_factory = token_factory
         self._planner = planner
         self._pending: dict[str, PendingAgentAction] = {}
+        self._plans: dict[str, PlannedAgentAction] = {}
         self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
 
     def help_text(self) -> str:
@@ -103,6 +118,7 @@ class AgentRuntime:
         lines.extend([
             "用法：智能体 工具 / 智能体 状态 / 智能体 模型 / 智能体 环境",
             "模型规划：智能体 计划 <任务>。计划只提出建议，不会执行工具。",
+            "执行已校验计划：智能体 执行 <计划编号>。计划仅在原聊天范围内短期有效。",
             "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
             "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
         ])
@@ -119,7 +135,7 @@ class AgentRuntime:
             for tool in self._tools.values()
         ]
 
-    async def _plan_task(self, task: str) -> str:
+    async def _plan_task(self, task: str, operator_id: str, scope_id: str) -> str:
         if self._planner is None:
             return "模型规划器尚未配置。"
         plan = await self._planner.plan(task, self._planner_tools())
@@ -129,12 +145,22 @@ class AgentRuntime:
             return f"智能体计划（未执行）\n当前不建议调用工具。\n理由：{plan.reason}"
         tool = self._tools[plan.tool_name]
         approval = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
+        token = self._new_token()
+        self._plans[token] = PlannedAgentAction(
+            token=token,
+            tool=tool,
+            reason=plan.reason,
+            operator_id=operator_id,
+            scope_id=scope_id,
+            expires_at=self._clock() + self._plan_ttl_seconds,
+        )
         return "\n".join([
             "智能体计划（未执行）",
             f"建议工具：{tool.name}",
             f"权限：{_PERMISSION_NAMES[tool.permission]}｜审批：{approval}",
             f"理由：{plan.reason}",
-            "该计划仅供确认，不会自动执行工具。",
+            f"计划编号：{token}（{self._plan_ttl_seconds} 秒内有效）",
+            f"如需执行，请发送“智能体 执行 {token}”。",
         ])
 
     def _discard_expired(self) -> None:
@@ -144,11 +170,22 @@ class AgentRuntime:
             for token, action in self._pending.items()
             if action.expires_at > now
         }
+        self._plans = {
+            token: plan
+            for token, plan in self._plans.items()
+            if plan.expires_at > now
+        }
         self._approvals = {
             key: expires_at
             for key, expires_at in self._approvals.items()
             if expires_at > now
         }
+
+    def _new_token(self) -> str:
+        token = self._token_factory()
+        while token in self._pending or token in self._plans:
+            token = self._token_factory()
+        return token
 
     def _create_pending(
         self,
@@ -161,9 +198,7 @@ class AgentRuntime:
         scope_id: str,
     ) -> str:
         self._discard_expired()
-        token = self._token_factory()
-        while token in self._pending:
-            token = self._token_factory()
+        token = self._new_token()
         self._pending[token] = PendingAgentAction(
             token=token,
             name=name,
@@ -273,32 +308,7 @@ class AgentRuntime:
         )
         return self._pending_message(self._pending[token])
 
-    async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
-        normalized = name.strip()
-        if normalized.startswith("确认 "):
-            return await self._confirm(normalized.removeprefix("确认 ").strip(), operator_id, scope_id)
-        if normalized.startswith("取消 "):
-            return self._cancel(normalized.removeprefix("取消 ").strip(), operator_id, scope_id)
-        self._discard_expired()
-        if normalized in {"", "帮助", "工具"}:
-            return self.help_text()
-        if normalized == "计划":
-            return "请提供任务，例如：智能体 计划 检查当前运行环境"
-        if normalized.startswith("计划 "):
-            return await self._plan_task(normalized.removeprefix("计划 ").strip())
-        if normalized == "授权列表":
-            return self._authorization_list(operator_id, scope_id)
-        if normalized == "授权":
-            return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
-        if normalized.startswith("授权 "):
-            return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
-        if normalized == "撤销授权":
-            return self._revoke_authorization("", operator_id, scope_id)
-        if normalized.startswith("撤销授权 "):
-            return self._revoke_authorization(normalized.removeprefix("撤销授权 ").strip(), operator_id, scope_id)
-        tool = self._tools.get(normalized)
-        if tool is None:
-            return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
+    async def _execute_tool(self, tool: AgentTool, operator_id: str, scope_id: str) -> str:
         if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(
             tool.permission,
             operator_id,
@@ -314,6 +324,47 @@ class AgentRuntime:
             )
             return self._pending_message(self._pending[token])
         return await tool.handler()
+
+    async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
+        plan = self._plans.pop(token, None)
+        if plan is None:
+            return "未找到可执行计划，可能已执行、已取消或已过期。"
+        if plan.expires_at <= self._clock():
+            return "计划已过期，未执行任何工具。"
+        if plan.operator_id != operator_id or plan.scope_id != scope_id:
+            self._plans[token] = plan
+            return "该计划只能由原操作者在原聊天范围执行。"
+        return await self._execute_tool(plan.tool, operator_id, scope_id)
+
+    async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
+        normalized = name.strip()
+        if normalized.startswith("确认 "):
+            return await self._confirm(normalized.removeprefix("确认 ").strip(), operator_id, scope_id)
+        if normalized.startswith("取消 "):
+            return self._cancel(normalized.removeprefix("取消 ").strip(), operator_id, scope_id)
+        if normalized.startswith("执行 "):
+            return await self._execute_plan(normalized.removeprefix("执行 ").strip(), operator_id, scope_id)
+        self._discard_expired()
+        if normalized in {"", "帮助", "工具"}:
+            return self.help_text()
+        if normalized == "计划":
+            return "请提供任务，例如：智能体 计划 检查当前运行环境"
+        if normalized.startswith("计划 "):
+            return await self._plan_task(normalized.removeprefix("计划 ").strip(), operator_id, scope_id)
+        if normalized == "授权列表":
+            return self._authorization_list(operator_id, scope_id)
+        if normalized == "授权":
+            return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
+        if normalized.startswith("授权 "):
+            return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
+        if normalized == "撤销授权":
+            return self._revoke_authorization("", operator_id, scope_id)
+        if normalized.startswith("撤销授权 "):
+            return self._revoke_authorization(normalized.removeprefix("撤销授权 ").strip(), operator_id, scope_id)
+        tool = self._tools.get(normalized)
+        if tool is None:
+            return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
+        return await self._execute_tool(tool, operator_id, scope_id)
 
 
 def _format_model_catalog(catalog: dict[str, Any]) -> str:
@@ -340,6 +391,7 @@ def create_agent_runtime(
     *,
     confirmation_ttl_seconds: int = 60,
     session_approval_ttl_seconds: int = 1800,
+    plan_ttl_seconds: int = 300,
 ) -> AgentRuntime:
     """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
 
@@ -363,5 +415,6 @@ def create_agent_runtime(
     ],
         confirmation_ttl_seconds=confirmation_ttl_seconds,
         session_approval_ttl_seconds=session_approval_ttl_seconds,
+        plan_ttl_seconds=plan_ttl_seconds,
         planner=AgentPlanner(service),
     )

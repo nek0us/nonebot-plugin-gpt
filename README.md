@@ -109,6 +109,7 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_enabled | 否 | false | bool | 启用仅超级用户可调用的受控智能体工具 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 智能体低风险临时授权的有效秒数 |
+| gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 智能体已校验计划的有效秒数 |
 
 ```bash
 # gpt配置示例
@@ -182,6 +183,7 @@ gpt_render_mode="auto"
 gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
+gpt_agent_plan_timeout=300
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
@@ -215,7 +217,7 @@ SUPERUSERS=["admin user id"]
 | 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
-| 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 gpt_agent_enabled；提供工具、状态、模型、环境和“计划 <任务>”入口。计划只生成受控工具建议，不会自动执行 |
+| 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 gpt_agent_enabled；“计划 <任务>”只生成受控工具建议，需在原聊天范围使用“执行 <编号>”才会运行对应工具 |
 | 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus <稳定标识>，授予自动选择付费账户的权限 |
 | 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus <稳定标识>，撤销付费账户权限 |
 | plus切换 | 兼容 | Plus 权限 | 是 | 群聊/私聊/频道 | plus切换 <模型别名或完整模型名>，只更新当前逻辑会话 |
