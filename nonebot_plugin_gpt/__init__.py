@@ -115,6 +115,9 @@ if isinstance(config_gpt.gpt_session,list):
         save_screen=config_gpt.gpt_save_screen,
         headless=config_gpt.gpt_headless,
         local_js=config_gpt.gpt_local_js,
+        control_host=config_gpt.gpt_control_host,
+        control_port=config_gpt.gpt_control_port,
+        control_api_key=config_gpt.gpt_control_api_key,
         )
     chat_service = ChatService(chatbot)
     failure_diagnostics = ChatFailureDiagnostics()

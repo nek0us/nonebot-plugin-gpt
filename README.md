@@ -104,6 +104,9 @@ _✨ NoneBot GPT ✨_
 | gpt_save_screen| 否 | false | bool | 自动保存非必须的错误截图 |
 | gpt_headless| 否 | true | bool | 使用无头浏览器 |
 | gpt_local_js| 否 | false | bool | 使用本地js不联网获取 |
+| gpt_control_host | 否 | 127.0.0.1 | str | 核心账户控制台监听地址 |
+| gpt_control_port | 否 | 无 | int | 核心账户控制台端口；留空则不开启 |
+| gpt_control_api_key | 否 | 自动生成 | str | 控制台 API 密钥；建议显式配置并妥善保管 |
 | gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
@@ -170,6 +173,11 @@ gpt_headless=true
 
 # 使用本地js
 gpt_local_js=false
+
+# 核心账户控制台，默认关闭；仅建议监听本机地址
+gpt_control_host=127.0.0.1
+gpt_control_port=8765
+gpt_control_api_key='replace-with-a-long-random-secret'
 
 # 开启免费账户图片识别（大概每天5额度）
 gpt_free_image=false

@@ -28,6 +28,9 @@ class Config(BaseModel):
     gpt_save_screen: bool = False
     gpt_headless: bool = True
     gpt_local_js: bool = False
+    gpt_control_host: str = "127.0.0.1"
+    gpt_control_port: Optional[int] = Field(default=None, ge=0, le=65535)
+    gpt_control_api_key: Optional[str] = None
     gpt_free_image: bool = False
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
