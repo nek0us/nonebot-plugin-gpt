@@ -4,6 +4,7 @@ import types
 import unittest
 from pathlib import Path
 
+from ChatGPTWeb import ChatResult
 
 PACKAGE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt"
 package = types.ModuleType("nonebot_plugin_gpt")
@@ -25,6 +26,15 @@ class _Service:
             },
         }
 
+    async def send(self, request):
+        self.plan_request = request
+        return ChatResult(
+            ok=True,
+            text='{"tool":"环境","reason":"需要查看当前系统信息。"}',
+            conversation_id="",
+            message_id="",
+        )
+
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_default_tools_are_read_only_and_do_not_refresh_remote_catalog(self):
@@ -42,6 +52,16 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         runtime = agent_runtime.create_agent_runtime(_Service())
 
         self.assertIn("未找到", await runtime.execute("重启机器", operator_id="admin", scope_id="private:1"))
+
+    async def test_model_plan_is_validated_but_not_executed(self):
+        service = _Service()
+        runtime = agent_runtime.create_agent_runtime(service)
+
+        text = await runtime.execute("计划 检查系统", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("智能体计划（未执行）", text)
+        self.assertIn("建议工具：环境", text)
+        self.assertIn("只输出一个 JSON", service.plan_request.prompt)
 
     async def test_confirmation_is_bound_to_operator_scope_and_expiry(self):
         calls = []

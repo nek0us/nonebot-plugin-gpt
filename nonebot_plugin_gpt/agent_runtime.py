@@ -11,6 +11,7 @@ from typing import Any
 
 from ChatGPTWeb import ChatService
 
+from .agent_planner import AgentPlanner
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
 from .management_views import format_account_status
 
@@ -79,6 +80,7 @@ class AgentRuntime:
         *,
         confirmation_ttl_seconds: int = 60,
         session_approval_ttl_seconds: int = 1800,
+        planner: AgentPlanner | None = None,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
     ):
@@ -87,6 +89,7 @@ class AgentRuntime:
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._clock = clock
         self._token_factory = token_factory
+        self._planner = planner
         self._pending: dict[str, PendingAgentAction] = {}
         self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
 
@@ -99,10 +102,40 @@ class AgentRuntime:
             )
         lines.extend([
             "用法：智能体 工具 / 智能体 状态 / 智能体 模型 / 智能体 环境",
+            "模型规划：智能体 计划 <任务>。计划只提出建议，不会执行工具。",
             "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
             "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
         ])
         return "\n".join(lines)
+
+    def _planner_tools(self) -> list[dict[str, str]]:
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "permission": _PERMISSION_NAMES[tool.permission],
+                "approval": "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许",
+            }
+            for tool in self._tools.values()
+        ]
+
+    async def _plan_task(self, task: str) -> str:
+        if self._planner is None:
+            return "模型规划器尚未配置。"
+        plan = await self._planner.plan(task, self._planner_tools())
+        if not plan.valid:
+            return f"智能体计划未通过校验：{plan.error}"
+        if plan.tool_name is None:
+            return f"智能体计划（未执行）\n当前不建议调用工具。\n理由：{plan.reason}"
+        tool = self._tools[plan.tool_name]
+        approval = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
+        return "\n".join([
+            "智能体计划（未执行）",
+            f"建议工具：{tool.name}",
+            f"权限：{_PERMISSION_NAMES[tool.permission]}｜审批：{approval}",
+            f"理由：{plan.reason}",
+            "该计划仅供确认，不会自动执行工具。",
+        ])
 
     def _discard_expired(self) -> None:
         now = self._clock()
@@ -249,6 +282,10 @@ class AgentRuntime:
         self._discard_expired()
         if normalized in {"", "帮助", "工具"}:
             return self.help_text()
+        if normalized == "计划":
+            return "请提供任务，例如：智能体 计划 检查当前运行环境"
+        if normalized.startswith("计划 "):
+            return await self._plan_task(normalized.removeprefix("计划 ").strip())
         if normalized == "授权列表":
             return self._authorization_list(operator_id, scope_id)
         if normalized == "授权":
@@ -326,4 +363,5 @@ def create_agent_runtime(
     ],
         confirmation_ttl_seconds=confirmation_ttl_seconds,
         session_approval_ttl_seconds=session_approval_ttl_seconds,
+        planner=AgentPlanner(service),
     )
