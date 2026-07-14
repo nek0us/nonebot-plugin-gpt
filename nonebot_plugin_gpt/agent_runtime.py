@@ -10,6 +10,7 @@ from time import monotonic, perf_counter
 from typing import Any
 
 from ChatGPTWeb import ChatService
+from nonebot.log import logger
 
 from .agent_audit import AgentAuditLog
 from .agent_planner import AgentPlanner
@@ -410,7 +411,7 @@ class AgentRuntime:
                 handler=(
                     (lambda: self._run_planned_tool(tool, arguments, source_plan_token))
                     if source_plan_token
-                    else (lambda: tool.handler(arguments))
+                    else (lambda: self._run_direct_tool(tool, arguments))
                 ),
                 operator_id=operator_id,
                 scope_id=scope_id,
@@ -420,20 +421,38 @@ class AgentRuntime:
             return self._pending_message(self._pending[token])
         if source_plan_token:
             return await self._run_planned_tool(tool, arguments, source_plan_token)
+        return await self._run_direct_tool(tool, arguments)
+
+    async def _run_direct_tool(self, tool: AgentTool, arguments: dict[str, str]) -> str:
+        try:
+            result = await tool.handler(arguments)
+        except Exception:
+            logger.exception(f"智能体工具“{tool.name}”执行异常")
+            self._audit.record("工具执行失败", tool.name, _PERMISSION_NAMES[tool.permission])
+            return "智能体工具未能完成，请检查管理员工作状态或本地日志。"
         self._audit.record("工具已执行", tool.name, _PERMISSION_NAMES[tool.permission])
-        return await tool.handler(arguments)
+        return result
 
     async def _run_planned_tool(self, tool: AgentTool, arguments: dict[str, str], plan_token: str) -> str:
         """执行已确认的计划工具，并仅向操作者回显安全的运行元信息。"""
         started_at = perf_counter()
-        result = await tool.handler(arguments)
+        try:
+            result = await tool.handler(arguments)
+        except Exception:
+            logger.exception(f"智能体计划工具“{tool.name}”执行异常")
+            result = "工具未能完成，请检查管理员工作状态或本地日志。"
+            status = "失败"
+            self._audit.record("计划工具失败", tool.name, _PERMISSION_NAMES[tool.permission])
+        else:
+            status = "已完成"
+            self._audit.record("计划工具已完成", tool.name, _PERMISSION_NAMES[tool.permission])
         elapsed_ms = max(0, round((perf_counter() - started_at) * 1000))
-        self._audit.record("计划工具已完成", tool.name, _PERMISSION_NAMES[tool.permission])
         return "\n".join([
             "智能体执行结果",
             f"来源计划：{plan_token}",
             f"工具：{tool.name}",
             f"权限：{_PERMISSION_NAMES[tool.permission]}",
+            f"状态：{status}",
             f"耗时：{elapsed_ms} 毫秒",
             "结果：",
             result,

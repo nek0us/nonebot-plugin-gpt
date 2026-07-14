@@ -54,6 +54,26 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("未找到", await runtime.execute("重启机器", operator_id="admin", scope_id="private:1"))
 
+    async def test_direct_tool_exception_is_safely_reported(self):
+        async def broken(_: dict[str, str]) -> str:
+            raise RuntimeError("internal tool detail")
+
+        runtime = agent_runtime.AgentRuntime([
+            agent_runtime.AgentTool(
+                "演示",
+                "测试工具",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.AUTOMATIC,
+                broken,
+            ),
+        ])
+
+        text = await runtime.execute("演示", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("未能完成", text)
+        self.assertNotIn("internal tool detail", text)
+        self.assertIn("工具执行失败", await runtime.execute("审计", operator_id="admin", scope_id="private:1"))
+
     async def test_managed_service_overview_requires_confirmation_when_tcp_is_configured(self):
         registry = agent_runtime.ManagedServiceRegistry.from_config([{
             "name": "api",
@@ -139,6 +159,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("权限：本机只读", executed)
         self.assertIn("耗时：", executed)
         self.assertIn("已执行", executed)
+        self.assertIn("状态：已完成", executed)
         self.assertEqual(calls, ["called"])
         self.assertIn("计划进入执行", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
         self.assertNotIn("执行测试", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
@@ -146,6 +167,32 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "未找到",
             await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"),
         )
+
+    async def test_planned_tool_exception_is_safely_reported(self):
+        class _Planner:
+            async def plan(self, task, tools):
+                return agent_planner.AgentPlan("演示", "测试失败回执。", True)
+
+        async def broken(_: dict[str, str]) -> str:
+            raise RuntimeError("internal planned detail")
+
+        runtime = agent_runtime.AgentRuntime([
+            agent_runtime.AgentTool(
+                "演示",
+                "测试工具",
+                agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.AUTOMATIC,
+                broken,
+            ),
+        ], planner=_Planner(), token_factory=lambda: "plan")
+
+        await runtime.execute("计划 测试", operator_id="admin", scope_id="private:1")
+        text = await runtime.execute("执行 plan", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("智能体执行结果", text)
+        self.assertIn("状态：失败", text)
+        self.assertNotIn("internal planned detail", text)
+        self.assertIn("计划工具失败", await runtime.execute("审计", operator_id="admin", scope_id="private:1"))
 
     async def test_confirmed_plan_keeps_its_source_token_in_execution_receipt(self):
         class _Planner:
