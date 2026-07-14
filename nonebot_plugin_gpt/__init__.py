@@ -145,9 +145,17 @@ if isinstance(config_gpt.gpt_session,list):
     @driver.on_startup
     async def d():
         logger.info("登录GPT账号中")
-        loop = asyncio.get_event_loop()
-        asyncio.run_coroutine_threadsafe(chatbot.__start__(loop),loop)
+        loop = asyncio.get_running_loop()
+        chatbot._start_task = asyncio.create_task(chatbot.__start__(loop))
         await ensure_default_persona(chatbot)
+
+    @driver.on_shutdown
+    async def close_chatbot():
+        start_task = chatbot._start_task
+        if start_task and not start_task.done():
+            start_task.cancel()
+            await asyncio.gather(start_task, return_exceptions=True)
+        await chatbot.close()
 
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
