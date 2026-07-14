@@ -108,10 +108,9 @@ if isinstance(config_gpt.gpt_session,list):
     chatbot = chatgpt(
         sessions = config_gpt.gpt_session,
         plugin = True,
-        arkose_status = config_gpt.arkose_status,
         chat_file = data_dir,
         proxy = config_gpt.gpt_proxy,
-        begin_sleep_time = config_gpt.begin_sleep_time,
+        begin_sleep_time = config_gpt.gpt_begin_sleep_time,
         personality=personality,
         save_screen=config_gpt.gpt_save_screen,
         headless=config_gpt.gpt_headless,
@@ -160,7 +159,7 @@ if isinstance(config_gpt.gpt_session,list):
                     break
         if not prompt:
             await matcher.finish("请发送想聊天的内容。")
-        if config_gpt.group_chat and _is_group_context(event):
+        if config_gpt.gpt_group_chat and _is_group_context(event):
             prompt = f"{event.get_user_id()}对你说：{prompt}"
         model, prefer_paid_account = await select_model(event)
         files = []

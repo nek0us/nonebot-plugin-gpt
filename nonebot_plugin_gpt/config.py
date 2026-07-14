@@ -13,16 +13,15 @@ DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；�
 
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
-    arkose_status: bool = False
     gpt_session: Optional[List[dict]] | str = Field(default_factory=list)
-    group_chat: bool = True
+    gpt_group_chat: bool = True
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
-    begin_sleep_time: bool = False
+    gpt_begin_sleep_time: bool = False
     gpt_chat_priority: int = 90
     gpt_command_priority: int = 19
     gpt_white_list_mode: bool = True
-    gptplus_white_list_mode: bool = True
+    gpt_plus_white_list_mode: bool = True
     gpt_replay_to_replay: bool = False
     gpt_ban_str: Optional[List[str]]|str = []
     gpt_manage_ids: list = []
@@ -79,23 +78,13 @@ class Config(BaseModel):
             return v
 
         
-    @validator("arkose_status", always=True, pre=True)
-    def check_arkose_status(cls,v):
-        if isinstance(v,bool):
-            if v:
-                logger.success("已应用 arkose_status 验证配置")
-            else:
-                logger.success("已关闭 arkose_status 验证配置")
-            return v
-        
-        
-    @validator("group_chat", always=True, pre=True)
+    @validator("gpt_group_chat", always=True, pre=True)
     def check_group_chat(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success("已开启 group_chat 多人识别配置")
+                logger.success("已开启 gpt_group_chat 多人识别配置")
             else:
-                logger.success("已关闭 group_chat 多人识别配置")
+                logger.success("已关闭 gpt_group_chat 多人识别配置")
             return v    
         
     @validator("gpt_chat_start", always=True, pre=True)
@@ -114,7 +103,7 @@ class Config(BaseModel):
                 logger.success("已关闭 gpt_chat_start_in_msg 聊天前缀加入消息")
             return v    
             
-    @validator("begin_sleep_time", always=True, pre=True)
+    @validator("gpt_begin_sleep_time", always=True, pre=True)
     def check_begin_sleep_time(cls,v):
         if isinstance(v,bool):
             if v:
@@ -188,13 +177,13 @@ class Config(BaseModel):
                 logger.success("已关闭 gpt_white_list_mode 白名单模式")
             return v    
 
-    @validator("gptplus_white_list_mode", always=True, pre=True)
-    def check_gptplus_white_list_mode(cls,v):
+    @validator("gpt_plus_white_list_mode", always=True, pre=True)
+    def check_gpt_plus_white_list_mode(cls,v):
         if isinstance(v,bool):
             if v:
-                logger.success("已开启 gptplus_white_list_mode 白名单模式")
+                logger.success("已开启 gpt_plus_white_list_mode 白名单模式")
             else:
-                logger.success("已关闭 gptplus_white_list_mode 白名单模式")
+                logger.success("已关闭 gpt_plus_white_list_mode 白名单模式")
             return v  
                 
     @validator("gpt_replay_to_replay", always=True, pre=True)

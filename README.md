@@ -90,15 +90,14 @@ _✨ NoneBot GPT ✨_
 |:-----:|:----:|:----:|:----:|:----:|
 | gpt_session | 是 | 无 | List[Dict[str,str]] | openai账号密码 |
 | gpt_proxy | 否 | 无 | str | 使用的代理 |
-| arkose_status | 否 | false | bool | gpt是否开启了arkose验证 |
-| group_chat | 否 | true | bool | 群里开启多人识别 |
+| gpt_group_chat | 否 | true | bool | 群里开启多人识别 |
 | gpt_chat_start | 否 | [] | list | 聊天前缀，参考nb命令前缀 |
 | gpt_chat_start_in_msg | 否 | false | bool | 命令前缀是否包含在消息内 |
-| begin_sleep_time | 否 | false | bool | 关闭启动等待时间（建议账号数量大于5开启） |
+| gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号（建议账号数量大于5开启） |
 | gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
 | gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
 | gpt_white_list_mode | 否 | true | bool | 聊天白名单模式 |
-| gptplus_white_list_mode | 否 | true | bool | gptplus聊天白名单模式 |
+| gpt_plus_white_list_mode | 否 | true | bool | Plus 模型聊天白名单模式 |
 | gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
 | gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
 | gpt_manage_ids | 否 | 无 | List[str] | 管理访问范围标识，可在目标会话执行“会话标识”获取 |
@@ -141,15 +140,13 @@ gpt_session='[
 gpt_proxy='http://127.0.0.1:8080'
 # gpt_proxy='http://username:password@127.0.0.1:8080'
 
-arkose_status=false
-
-group_chat=true
+gpt_group_chat=true
 
 gpt_chat_start=[]
 
 gpt_chat_start_in_msg=false
 
-begin_sleep_time=true
+gpt_begin_sleep_time=true
 
 gpt_chat_priority=90
 

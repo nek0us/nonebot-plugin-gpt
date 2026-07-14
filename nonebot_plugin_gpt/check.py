@@ -89,7 +89,7 @@ async def plus_status(event: Event) -> bool:
     bans = _read_json(banpath, {})
     if get_participant_key(event) in bans:
         return False
-    if not config_gpt.gptplus_white_list_mode:
+    if not config_gpt.gpt_plus_white_list_mode:
         return True
     configured = _read_json(plusstatus, {"status": True})
     return bool(
