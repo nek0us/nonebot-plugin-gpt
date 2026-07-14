@@ -110,6 +110,7 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 智能体低风险临时授权的有效秒数 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 智能体已校验计划的有效秒数 |
+| gpt_agent_managed_services | 否 | [] | List[Dict] | 智能体可查询的受管服务；仅支持管理员预先配置的 pid_file 或 tcp 目标 |
 
 ```bash
 # gpt配置示例
@@ -184,6 +185,7 @@ gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
+gpt_agent_managed_services='[{"name":"bot","kind":"pid_file","pid_file":"/run/nonebot.pid"},{"name":"local-api","kind":"tcp","host":"127.0.0.1","port":8080}]'
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在

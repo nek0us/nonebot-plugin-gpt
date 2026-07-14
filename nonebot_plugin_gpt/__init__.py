@@ -17,6 +17,7 @@ import json
 from .config import config_gpt,Config
 from .source import ban_str_path, banpath, conversation_store_path, data_dir, personpath, plusstatus, whitepath
 from .agent_runtime import create_agent_runtime
+from .managed_services import ManagedServiceRegistry
 from .check import add_white, del_white, get_access_session_id, gpt_command_rule, gpt_manage_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .command_compat import build_legacy_command
 from .chat_runtime import ChatRuntime
@@ -121,6 +122,7 @@ if isinstance(config_gpt.gpt_session,list):
         confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
         session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
         plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
+        managed_services=ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services),
     )
     chat_runtime = ChatRuntime(
         chat_service,

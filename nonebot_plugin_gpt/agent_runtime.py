@@ -14,6 +14,7 @@ from ChatGPTWeb import ChatService
 from .agent_audit import AgentAuditLog
 from .agent_planner import AgentPlanner
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
+from .managed_services import ManagedServiceRegistry
 from .management_views import format_account_status
 
 
@@ -459,6 +460,7 @@ def create_agent_runtime(
     confirmation_ttl_seconds: int = 60,
     session_approval_ttl_seconds: int = 1800,
     plan_ttl_seconds: int = 300,
+    managed_services: ManagedServiceRegistry | None = None,
 ) -> AgentRuntime:
     """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
 
@@ -474,12 +476,38 @@ def create_agent_runtime(
     async def environment(_: dict[str, str]) -> str:
         return format_environment_diagnostics(collect_environment_diagnostics())
 
-    return AgentRuntime([
+    tools = [
         AgentTool("状态", "查看账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
         AgentTool("模型", "查看本地配置的模型别名", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
         AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
         AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
-    ],
+    ]
+    registry = managed_services or ManagedServiceRegistry([], [])
+    if registry.process_names:
+        async def process_service_status(arguments: dict[str, str]) -> str:
+            return registry.process_status(arguments["服务"])
+
+        tools.append(AgentTool(
+            "本地服务状态",
+            "查看配置中的本地 PID 服务状态",
+            AgentPermission.READ_LOCAL,
+            AgentApproval.AUTOMATIC,
+            process_service_status,
+            parameters=(AgentToolParameter("服务", "已配置的服务名称", choices=registry.process_names),),
+        ))
+    if registry.tcp_names:
+        async def tcp_service_status(arguments: dict[str, str]) -> str:
+            return await registry.tcp_status(arguments["服务"])
+
+        tools.append(AgentTool(
+            "网络服务状态",
+            "探测配置中的 TCP 服务连通性",
+            AgentPermission.READ_NETWORK,
+            AgentApproval.CONFIRM,
+            tcp_service_status,
+            parameters=(AgentToolParameter("服务", "已配置的服务名称", choices=registry.tcp_names),),
+        ))
+    return AgentRuntime(tools,
         confirmation_ttl_seconds=confirmation_ttl_seconds,
         session_approval_ttl_seconds=session_approval_ttl_seconds,
         plan_ttl_seconds=plan_ttl_seconds,
