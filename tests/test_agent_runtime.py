@@ -133,14 +133,46 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "原操作者",
             await runtime.execute("执行 plan", operator_id="other", scope_id="group:1"),
         )
-        self.assertEqual("已执行", await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"))
+        executed = await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1")
+        self.assertIn("智能体执行结果", executed)
+        self.assertIn("来源计划：plan", executed)
+        self.assertIn("权限：本机只读", executed)
+        self.assertIn("耗时：", executed)
+        self.assertIn("已执行", executed)
         self.assertEqual(calls, ["called"])
-        self.assertIn("计划已执行", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
+        self.assertIn("计划进入执行", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
         self.assertNotIn("执行测试", await runtime.execute("审计", operator_id="admin", scope_id="group:1"))
         self.assertIn(
             "未找到",
             await runtime.execute("执行 plan", operator_id="admin", scope_id="group:1"),
         )
+
+    async def test_confirmed_plan_keeps_its_source_token_in_execution_receipt(self):
+        class _Planner:
+            async def plan(self, task, tools):
+                return agent_planner.AgentPlan("重启", "需要执行受控操作。", True)
+
+        runtime = agent_runtime.AgentRuntime(
+            [agent_runtime.AgentTool(
+                "重启",
+                "执行受控重启",
+                agent_runtime.AgentPermission.PROCESS_CONTROL,
+                agent_runtime.AgentApproval.CONFIRM,
+                lambda _: self._record_call([]),
+            )],
+            planner=_Planner(),
+            token_factory=iter(("plan", "confirm")).__next__,
+        )
+
+        await runtime.execute("计划 重启服务", operator_id="admin", scope_id="private:1")
+        pending = await runtime.execute("执行 plan", operator_id="admin", scope_id="private:1")
+        self.assertIn("来源计划：plan（尚未执行）", pending)
+        self.assertIn("确认 confirm", pending)
+
+        result = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
+        self.assertIn("智能体执行结果", result)
+        self.assertIn("来源计划：plan", result)
+        self.assertIn("权限：进程控制", result)
 
     async def test_plan_arguments_are_validated_before_execution(self):
         calls = []

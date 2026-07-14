@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from secrets import token_urlsafe
-from time import monotonic
+from time import monotonic, perf_counter
 from typing import Any
 
 from ChatGPTWeb import ChatService
@@ -84,6 +84,7 @@ class PendingAgentAction:
     operator_id: str
     scope_id: str
     expires_at: float
+    source_plan_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,6 +265,7 @@ class AgentRuntime:
         handler: AgentActionHandler,
         operator_id: str,
         scope_id: str,
+        source_plan_token: str = "",
     ) -> str:
         self._discard_expired()
         token = self._new_token()
@@ -276,6 +278,7 @@ class AgentRuntime:
             operator_id=operator_id,
             scope_id=scope_id,
             expires_at=self._clock() + self._confirmation_ttl_seconds,
+            source_plan_token=source_plan_token,
         )
         return token
 
@@ -288,12 +291,15 @@ class AgentRuntime:
         return expires_at > self._clock()
 
     def _pending_message(self, action: PendingAgentAction) -> str:
-        return (
+        message = (
             f"已创建“{action.name}”待确认操作（权限：{_PERMISSION_NAMES[action.permission]}）。\n"
             f"原因：{action.description}\n"
             f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {action.token}”，"
             f"或发送“智能体 取消 {action.token}”。"
         )
+        if action.source_plan_token:
+            return f"来源计划：{action.source_plan_token}（尚未执行）\n{message}"
+        return message
 
     async def _confirm(self, token: str, operator_id: str, scope_id: str) -> str:
         action = self._pending.pop(token, None)
@@ -383,7 +389,15 @@ class AgentRuntime:
         )
         return self._pending_message(self._pending[token])
 
-    async def _execute_tool(self, tool: AgentTool, arguments: dict[str, str], operator_id: str, scope_id: str) -> str:
+    async def _execute_tool(
+        self,
+        tool: AgentTool,
+        arguments: dict[str, str],
+        operator_id: str,
+        scope_id: str,
+        *,
+        source_plan_token: str = "",
+    ) -> str:
         if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(
             tool.permission,
             operator_id,
@@ -393,14 +407,37 @@ class AgentRuntime:
                 name=tool.name,
                 description=tool.describe_action(arguments) if tool.describe_action else tool.description,
                 permission=tool.permission,
-                handler=lambda: tool.handler(arguments),
+                handler=(
+                    (lambda: self._run_planned_tool(tool, arguments, source_plan_token))
+                    if source_plan_token
+                    else (lambda: tool.handler(arguments))
+                ),
                 operator_id=operator_id,
                 scope_id=scope_id,
+                source_plan_token=source_plan_token,
             )
             self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
             return self._pending_message(self._pending[token])
+        if source_plan_token:
+            return await self._run_planned_tool(tool, arguments, source_plan_token)
         self._audit.record("工具已执行", tool.name, _PERMISSION_NAMES[tool.permission])
         return await tool.handler(arguments)
+
+    async def _run_planned_tool(self, tool: AgentTool, arguments: dict[str, str], plan_token: str) -> str:
+        """执行已确认的计划工具，并仅向操作者回显安全的运行元信息。"""
+        started_at = perf_counter()
+        result = await tool.handler(arguments)
+        elapsed_ms = max(0, round((perf_counter() - started_at) * 1000))
+        self._audit.record("计划工具已完成", tool.name, _PERMISSION_NAMES[tool.permission])
+        return "\n".join([
+            "智能体执行结果",
+            f"来源计划：{plan_token}",
+            f"工具：{tool.name}",
+            f"权限：{_PERMISSION_NAMES[tool.permission]}",
+            f"耗时：{elapsed_ms} 毫秒",
+            "结果：",
+            result,
+        ])
 
     async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
         plan = self._plans.pop(token, None)
@@ -413,8 +450,14 @@ class AgentRuntime:
             self._plans[token] = plan
             self._audit.record("计划执行被拒绝", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
             return "该计划只能由原操作者在原聊天范围执行。"
-        self._audit.record("计划已执行", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
-        return await self._execute_tool(plan.tool, plan.arguments, operator_id, scope_id)
+        self._audit.record("计划进入执行", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
+        return await self._execute_tool(
+            plan.tool,
+            plan.arguments,
+            operator_id,
+            scope_id,
+            source_plan_token=token,
+        )
 
     async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
         normalized = name.strip()
