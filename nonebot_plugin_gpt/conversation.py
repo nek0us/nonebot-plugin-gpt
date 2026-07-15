@@ -13,6 +13,8 @@ from typing import Any
 
 from nonebot.adapters import Event
 
+from .event_scope import resolve_event_scope, resolve_participant_identity
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -20,18 +22,22 @@ def _now() -> str:
 
 @dataclass(frozen=True)
 class ConversationKey:
-    """同一 NoneBot 会话中单个用户的稳定标识。"""
+    """逻辑会话的稳定标识；群聊共享，私聊按用户隔离。"""
 
     session_id: str
     user_id: str
 
     @classmethod
     def from_event(cls, event: Event) -> "ConversationKey":
-        return cls(session_id=event.get_session_id(), user_id=event.get_user_id())
+        scope = resolve_event_scope(event)
+        # 群、频道等共享范围必须只保留范围本身；若把发送者拼进键中，
+        # 每位成员都会被错误分配到独立的 ChatGPT 会话。
+        user_id = "" if scope.is_shared else resolve_participant_identity(event)
+        return cls(session_id=scope.identifier, user_id=user_id)
 
     @property
     def value(self) -> str:
-        return f"{self.session_id}:{self.user_id}"
+        return f"{self.session_id}:{self.user_id}" if self.user_id else self.session_id
 
 
 @dataclass

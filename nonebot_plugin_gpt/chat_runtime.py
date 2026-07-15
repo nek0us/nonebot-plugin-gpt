@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable
 
 from ChatGPTWeb import ChatRequest, ChatResult, ChatService, ConversationOperation
@@ -33,8 +34,37 @@ class ChatRuntime:
         self._service = service
         self._conversations = conversations
         self._context_policy = context_policy or ContextPolicy()
+        self._conversation_locks: dict[str, asyncio.Lock] = {}
+
+    def _conversation_lock(self, key: ConversationKey) -> asyncio.Lock:
+        """同一逻辑会话的上游请求必须按顺序提交，避免父消息分叉。"""
+        return self._conversation_locks.setdefault(key.value, asyncio.Lock())
 
     async def chat(
+        self,
+        key: ConversationKey,
+        prompt: str,
+        *,
+        model: str | None = None,
+        prefer_paid_account: bool | None = None,
+        files: list[IOFile] | None = None,
+        web_search: bool = False,
+        deep_research: bool = False,
+        on_event: StreamObserver | None = None,
+    ) -> ChatResult:
+        async with self._conversation_lock(key):
+            return await self._chat_locked(
+                key,
+                prompt,
+                model=model,
+                prefer_paid_account=prefer_paid_account,
+                files=files,
+                web_search=web_search,
+                deep_research=deep_research,
+                on_event=on_event,
+            )
+
+    async def _chat_locked(
         self,
         key: ConversationKey,
         prompt: str,

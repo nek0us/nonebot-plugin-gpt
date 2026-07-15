@@ -1,4 +1,5 @@
 import importlib
+import asyncio
 import sys
 import tempfile
 import types
@@ -45,6 +46,7 @@ class FakeService:
             account="account@example.com",
         )
 
+
     async def estimate_context(self, _conversation_id, **_kwargs):
         return SimpleNamespace(estimated_tokens=15_000, context_window_tokens=20_000)
 
@@ -63,7 +65,52 @@ class FakeService:
         )
 
 
+class SequentialService(FakeService):
+    def __init__(self):
+        super().__init__()
+        self.first_request_started = asyncio.Event()
+        self.release_first_request = asyncio.Event()
+
+    async def stream_to_callback(self, request, _callback):
+        self.requests.append(request)
+        sequence = len(self.requests)
+        if sequence == 1:
+            self.first_request_started.set()
+            await self.release_first_request.wait()
+        return ChatResult(
+            ok=True,
+            text=f"reply-{sequence}",
+            conversation_id="shared-conversation",
+            message_id=f"message-{sequence}",
+            used_model="gpt-5",
+        )
+
+
 class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shared_conversation_serializes_concurrent_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = SequentialService()
+            runtime = chat_runtime.ChatRuntime(
+                service,
+                store,
+                context_policy.ContextPolicy(mode="off"),
+            )
+            key = conversation.ConversationKey("onebot.v11:group:100", "")
+
+            first = asyncio.create_task(runtime.chat(key, "first"))
+            await service.first_request_started.wait()
+            second = asyncio.create_task(runtime.chat(key, "second"))
+            await asyncio.sleep(0)
+            self.assertEqual(len(service.requests), 1)
+
+            service.release_first_request.set()
+            await asyncio.gather(first, second)
+
+            self.assertEqual(len(service.requests), 2)
+            self.assertEqual(service.requests[1].conversation_id, "shared-conversation")
+            self.assertEqual(service.requests[1].parent_message_id, "message-1")
+
     async def test_initialize_persona_stores_a_snapshot_for_future_compaction(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")
