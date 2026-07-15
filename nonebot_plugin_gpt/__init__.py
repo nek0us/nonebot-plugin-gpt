@@ -86,8 +86,12 @@ def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
     """用 Alconna 解析旧指令，保持原有名称、别名和规则不变。"""
     if rule is gpt_rule:
         rule = gpt_command_rule
+    address_prefixes = [
+        *getattr(config_nb, "nickname", []),
+        *config_gpt.gpt_chat_start,
+    ]
     return on_alconna(
-        build_legacy_command(name, aliases),
+        build_legacy_command(name, aliases, address_prefixes),
         rule=rule,
         use_cmd_start=True,
         use_cmd_sep=True,

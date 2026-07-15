@@ -45,3 +45,11 @@ class LegacyCommandTest(unittest.TestCase):
             command_compat.command_argument_text(result.main_args["argument"]),
             "计划 检查当前运行环境",
         )
+
+    def test_configured_name_prefix_keeps_the_command_argument(self):
+        command = command_compat.build_legacy_command("初始化", {"加载人格"}, ["猪咪"])
+
+        result = command.parse("猪咪 加载人格 猫娘")
+
+        self.assertTrue(result.matched)
+        self.assertEqual(command_compat.command_argument_text(result.main_args["argument"]), "猫娘")

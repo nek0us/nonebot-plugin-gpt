@@ -163,22 +163,40 @@ def _message_plain_text(message: Any) -> str:
 
 
 def _addressed_to_bot(event: Event) -> bool:
-    """适配器未提供 to_me 时按未提及处理。"""
+    """读取 NoneBot 统一的提及状态，兼容少数适配器的旧属性。"""
+    is_tome = getattr(event, "is_tome", None)
+    if callable(is_tome):
+        try:
+            return bool(is_tome())
+        except (AttributeError, ValueError):
+            return False
     return bool(getattr(event, "to_me", False))
 
 
-def _is_private_session(event: Event) -> bool:
-    """识别适配器的私聊范围。"""
-    try:
-        return resolve_event_scope(event).is_private
-    except (AttributeError, ValueError):
-        return False
+def _address_prefixes() -> tuple[str, ...]:
+    """返回显式称呼机器人的文本前缀，忽略空配置避免全量误触发。"""
+    values = [*config_gpt.gpt_chat_start, *getattr(config_nb, "nickname", [])]
+    return tuple(dict.fromkeys(
+        value.strip()
+        for value in values
+        if isinstance(value, str) and value.strip()
+    ))
+
+
+def _has_address_prefix(event: Event) -> bool:
+    text = _event_plain_text(event).lstrip()
+    return any(text.startswith(prefix) for prefix in _address_prefixes())
+
+
+def _is_explicitly_addressed(event: Event) -> bool:
+    """所有插件入口均要求 @ 机器人或以已配置名称直接称呼。"""
+    return _addressed_to_bot(event) or _has_address_prefix(event)
 
 
 async def plus_status(event: Event) -> bool:
     """判断事件是否允许使用付费模型命令。"""
     user_id = get_event_user_id(event)
-    if not user_id:
+    if not user_id or not _is_explicitly_addressed(event):
         return False
     if user_id in config_nb.superusers:
         return True
@@ -198,11 +216,7 @@ async def gpt_rule(event: Event) -> bool:
     """聊天事件匹配规则。"""
     if not get_event_user_id(event):
         return False
-    is_prefixed = any(
-        _event_plain_text(event).startswith(prefix)
-        for prefix in config_gpt.gpt_chat_start
-    )
-    if not (_addressed_to_bot(event) or _is_private_session(event) or is_prefixed):
+    if not _is_explicitly_addressed(event):
         return False
     bans = _read_json(banpath, {})
     if is_banned(event, bans):
@@ -213,11 +227,8 @@ async def gpt_rule(event: Event) -> bool:
 
 
 async def gpt_command_rule(event: Event) -> bool:
-    """已由 Alconna 精确识别的聊天命令授权规则。
-
-    命令匹配本身已经完成，因此不能再依赖不同适配器对 ``to_me`` 的实现差异。
-    """
-    if not get_event_user_id(event):
+    """已由 Alconna 识别的命令仍需显式称呼机器人后才能执行。"""
+    if not get_event_user_id(event) or not _is_explicitly_addressed(event):
         return False
     bans = _read_json(banpath, {})
     if is_banned(event, bans):
@@ -230,7 +241,7 @@ async def gpt_command_rule(event: Event) -> bool:
 async def gpt_manage_rule(event: Event) -> bool:
     """管理事件匹配。"""
     user_id = get_event_user_id(event)
-    if not user_id:
+    if not user_id or not _is_explicitly_addressed(event):
         return False
     return (
         user_id in config_nb.superusers
@@ -251,12 +262,12 @@ async def gpt_operator_command_rule(event: Event) -> bool:
 async def gpt_superuser_rule(event: Event) -> bool:
     """仅允许 NoneBot 超级用户执行高风险的本地运维入口。"""
     user_id = get_event_user_id(event)
-    return bool(user_id and user_id in config_nb.superusers)
+    return bool(user_id and _is_explicitly_addressed(event) and user_id in config_nb.superusers)
 
 
 async def gpt_cdk_redeem_rule(event: Event) -> bool:
     """允许未入白名单的正常用户兑换 CDK。"""
-    if not get_event_user_id(event):
+    if not get_event_user_id(event) or not _is_explicitly_addressed(event):
         return False
     bans = _read_json(banpath, {})
     return not is_banned(event, bans)

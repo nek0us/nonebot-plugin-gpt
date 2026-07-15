@@ -27,6 +27,28 @@ class ContextlessEvent:
         raise ValueError("Event has no context!")
 
 
+class AddressedEvent:
+    def __init__(self, *, to_me: bool, text: str = ""):
+        self._to_me = to_me
+        self._text = text
+        self.group_id = "100"
+
+    def get_user_id(self):
+        return "42"
+
+    def get_session_id(self):
+        return "group_100_42"
+
+    def get_plaintext(self):
+        return self._text
+
+    def is_tome(self):
+        return self._to_me
+
+
+AddressedEvent.__module__ = "nonebot.adapters.onebot.v11.event"
+
+
 class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_contextless_event_is_ignored_by_all_access_rules(self):
         event = ContextlessEvent()
@@ -39,6 +61,26 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await check.gpt_manage_rule(event))
         self.assertFalse(await check.gpt_superuser_rule(event))
         self.assertFalse(await check.plus_status(event))
+
+    async def test_chat_requires_a_mention_or_configured_name(self):
+        with (
+            patch.object(check.config_gpt, "gpt_white_list_mode", False),
+            patch.object(check.config_gpt, "gpt_chat_start", ["猪咪"]),
+            patch.object(check.config_nb, "nickname", ["小猪"]),
+        ):
+            self.assertFalse(await check.gpt_rule(AddressedEvent(to_me=False, text="你好")))
+            self.assertTrue(await check.gpt_rule(AddressedEvent(to_me=True, text="你好")))
+            self.assertTrue(await check.gpt_rule(AddressedEvent(to_me=False, text="猪咪 你好")))
+            self.assertTrue(await check.gpt_rule(AddressedEvent(to_me=False, text="小猪你好")))
+
+    async def test_commands_require_a_mention_or_configured_name(self):
+        with (
+            patch.object(check.config_gpt, "gpt_white_list_mode", False),
+            patch.object(check.config_gpt, "gpt_chat_start", ["猪咪"]),
+        ):
+            self.assertFalse(await check.gpt_command_rule(AddressedEvent(to_me=False, text="初始化 人设")))
+            self.assertTrue(await check.gpt_command_rule(AddressedEvent(to_me=True, text="初始化 人设")))
+            self.assertTrue(await check.gpt_command_rule(AddressedEvent(to_me=False, text="猪咪 初始化 人设")))
 
     def test_legacy_private_whitelist_keeps_onebot_cross_group_behavior(self):
         class GroupEvent:

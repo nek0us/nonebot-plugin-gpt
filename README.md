@@ -91,7 +91,7 @@ _✨ NoneBot GPT ✨_
 | gpt_session | 是 | 无 | List[Dict[str,str]] | openai账号密码 |
 | gpt_proxy | 否 | 无 | str | 使用的代理 |
 | gpt_group_chat | 否 | true | bool | 群聊向模型附加固定发言者标签（稳定身份与显示名），帮助自然区分多人；不对回复文本做名称替换 |
-| gpt_chat_start | 否 | [] | list | 聊天前缀，参考nb命令前缀 |
+| gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
 | gpt_chat_start_in_msg | 否 | false | bool | 是否把聊天触发前缀原样交给模型；false 时仍保留“正在直接称呼机器人”的语境，但不将别名当作人设名称 |
 | gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
 | gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号（建议账号数量大于5开启） |
