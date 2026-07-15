@@ -54,6 +54,7 @@ from .persona_editor import (
 from .history_views import format_history, format_history_tree
 from .help_views import format_help
 from .management_views import format_account_status
+from .management_images import build_account_status_html, build_help_html, render_management_image
 from .message_output import finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
@@ -116,6 +117,23 @@ async def _finish_management_message(matcher: Matcher, event: Event, message) ->
         message,
         recall_after=config_gpt.gpt_management_recall_after,
     )
+
+
+async def _finish_management_image(
+    matcher: Matcher,
+    event: Event,
+    *,
+    html: str,
+    fallback: str,
+) -> None:
+    """优先发送管理图片；渲染器异常时保留跨平台文本降级。"""
+    try:
+        image = await render_management_image(html)
+    except Exception as error:
+        logger.warning(f"管理图片渲染失败，已回退文本输出：{error}")
+        await _finish_management_message(matcher, event, paginate_text(fallback))
+        return
+    await finish_message(matcher, event, image)
 
 
 try:
@@ -264,7 +282,13 @@ if isinstance(config_gpt.gpt_session,list):
     )
     @help_command.handle()
     async def help_handle(event: Event, argument: Match[str], matcher: Matcher):
-        await _finish_management_message(matcher, event, paginate_text(format_help(_argument_text(argument))))
+        topic = _argument_text(argument)
+        await _finish_management_image(
+            matcher,
+            event,
+            html=build_help_html(topic),
+            fallback=format_help(topic),
+        )
 
                         
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -477,10 +501,14 @@ if isinstance(config_gpt.gpt_session,list):
     status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
     async def status_handle(event: Event, matcher: Matcher):
-        await _finish_management_message(matcher, event, paginate_text(format_account_status(
-            await chat_service.get_account_status(),
-            failure_summary=failure_diagnostics.format(),
-        )))
+        failure_summary = failure_diagnostics.format()
+        account_status = await chat_service.get_account_status()
+        await _finish_management_image(
+            matcher,
+            event,
+            html=build_account_status_html(account_status, failure_summary=failure_summary),
+            fallback=format_account_status(account_status, failure_summary=failure_summary),
+        )
 
     agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()
