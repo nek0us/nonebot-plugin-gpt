@@ -77,3 +77,22 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         whitelist["users"] = ["satori:user:42"]
         with patch.object(check, "read_whitelist", return_value=whitelist):
             self.assertFalse(check.is_whitelisted(GroupEvent()))
+
+    def test_personal_identity_keeps_satori_platforms_separate(self):
+        class Login:
+            platform = "telegram"
+
+        class SatoriEvent:
+            login = Login()
+
+            def get_user_id(self):
+                return "42"
+
+            def get_session_id(self):
+                return "chat-1"
+
+        SatoriEvent.__module__ = "nonebot.adapters.satori.event"
+        self.assertEqual(
+            check.get_event_user_identity(SatoriEvent()),
+            "satori:telegram:user:42",
+        )

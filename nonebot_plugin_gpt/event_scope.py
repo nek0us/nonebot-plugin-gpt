@@ -86,8 +86,12 @@ def resolve_event_scope(event: Event) -> EventScope:
 
 
 def resolve_participant_identity(event: Event) -> str:
-    """返回适配器内稳定的用户标识，不携带群聊或私聊范围。"""
+    """返回平台内稳定的用户标识，不携带群聊或私聊范围。"""
     user_id = str(event.get_user_id()).strip()
     if not user_id:
         raise ValueError("event does not contain a user id")
-    return f"{_adapter_namespace(event)}:user:{user_id}"
+    adapter = _adapter_namespace(event)
+    login = getattr(event, "login", None)
+    platform = _object_attribute(login, "platform") or _attribute(event, "platform")
+    namespace = f"{adapter}:{platform}" if platform else adapter
+    return f"{namespace}:user:{user_id}"
