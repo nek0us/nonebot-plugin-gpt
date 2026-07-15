@@ -36,3 +36,16 @@ class HistoryViewTests(unittest.TestCase):
 
         self.assertIn("港口剧情", text)
         self.assertNotIn("physical-id", text)
+
+    def test_history_hides_group_speaker_metadata(self):
+        history = [
+            {
+                "Q": '[群聊发言者] {"id": "onebot.v11:user:42", "name": "小明"}\n你好',
+                "A": "你好，小明。",
+            }
+        ]
+
+        text = history_views.format_history(history)
+
+        self.assertIn("用户：你好", text)
+        self.assertNotIn("群聊发言者", text)
