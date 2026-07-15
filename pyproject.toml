@@ -1,12 +1,12 @@
 [project]
 name = "nonebot-plugin-gpt"
-version = "1.1.1"
+version = "1.1.2"
 description = "Nonebot2's plugin of ChatGPT "
 authors = [
     {name = "nek0us", email = "nekouss@mail.com"},
 ]
 license = {text = "GPL3"}
-dependencies = ["ChatGPTWeb>=0.4.1","nonebot2>=2.0.0","nonebot-plugin-htmlkit","nonebot-plugin-alconna","nonebot_plugin_localstore"]
+dependencies = ["ChatGPTWeb>=0.4.3","nonebot2>=2.0.0","nonebot-plugin-htmlkit","nonebot-plugin-alconna","nonebot_plugin_localstore"]
 requires-python = ">=3.10"
 readme = "README.md"
 
