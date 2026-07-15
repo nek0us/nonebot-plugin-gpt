@@ -55,10 +55,20 @@ from .history_views import format_history, format_history_tree
 from .help_views import format_help
 from .management_views import format_account_status
 from .management_images import build_account_status_html, build_help_html, render_management_image
-from .message_output import finish_message
+from .message_output import finish_image_pages, finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
 from .paged_output import paginate_text
+from .document_output import build_history_markdown_pages, markdown_pages_from_text, render_markdown_pages
+from .table_documents import (
+    blacklist_table_pages,
+    cdk_table_pages,
+    persona_table_pages,
+    render_table_pages,
+    session_table_pages,
+    TablePage,
+    whitelist_table_pages,
+)
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
 from .personality_service import ensure_default_persona
 from .persona_migration import migrate_legacy_personas
@@ -134,6 +144,54 @@ async def _finish_management_image(
         await _finish_management_message(matcher, event, paginate_text(fallback))
         return
     await finish_message(matcher, event, image)
+
+
+async def _finish_management_document(
+    matcher: Matcher,
+    event: Event,
+    *,
+    title: str,
+    pages: tuple[str, ...],
+    fallback: str,
+) -> None:
+    """将较长的管理信息渲染为 Markdown 图片，保留文本降级路径。"""
+    try:
+        images = await render_markdown_pages(pages)
+    except Exception as error:
+        logger.warning(f"管理文档图片渲染失败，已回退文本输出：{error}")
+        await _finish_management_message(matcher, event, paginate_text(fallback))
+        return
+    await finish_image_pages(
+        matcher,
+        event,
+        images,
+        title=title,
+        recall_after=config_gpt.gpt_management_recall_after,
+    )
+
+
+async def _finish_management_table(
+    matcher: Matcher,
+    event: Event,
+    *,
+    title: str,
+    pages: tuple[TablePage, ...],
+    fallback: str,
+) -> None:
+    """将结构化管理数据渲染为分页表格图片。"""
+    try:
+        images = await render_table_pages(pages)
+    except Exception as error:
+        logger.warning(f"管理表格图片渲染失败，已回退文本输出：{error}")
+        await _finish_management_message(matcher, event, paginate_text(fallback))
+        return
+    await finish_image_pages(
+        matcher,
+        event,
+        images,
+        title=title,
+        recall_after=config_gpt.gpt_management_recall_after,
+    )
 
 
 try:
@@ -385,7 +443,10 @@ if isinstance(config_gpt.gpt_session,list):
     @personality_list.handle()
     async def personality_list_handle(event: Event, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
-        await _finish_management_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
+        text = list_personas(chatbot.personality, metadata).extract_plain_text()
+        await _finish_management_table(
+            matcher, event, title="人设列表", pages=persona_table_pages(chatbot.personality, metadata), fallback=text,
+        )
                 
             
     cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -393,12 +454,10 @@ if isinstance(config_gpt.gpt_session,list):
     async def cat_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
         name = _argument_text(argument)
-        await _finish_management_message(matcher, event, paginate_text(show_persona(
-            chatbot.personality,
-            metadata,
-            name,
-            event.get_user_id(),
-        ).extract_plain_text()))
+        text = show_persona(chatbot.personality, metadata, name, event.get_user_id()).extract_plain_text()
+        await _finish_management_document(
+            matcher, event, title="人设详情", pages=markdown_pages_from_text("人设详情", text), fallback=text,
+        )
                 
                 
     add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_persona_editor_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -450,7 +509,10 @@ if isinstance(config_gpt.gpt_session,list):
             "open": personality["open"],
         }
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await _finish_management_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
+        text = list_personas(chatbot.personality, metadata).extract_plain_text()
+        await _finish_management_table(
+            matcher, event, title="人设列表", pages=persona_table_pages(chatbot.personality, metadata), fallback=text,
+        )
         
     async def set_persona_name(status: T_State, value: str, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
@@ -470,14 +532,24 @@ if isinstance(config_gpt.gpt_session,list):
         await chatbot.del_personality(name)
         del metadata[name]
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await _finish_management_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
+        text = list_personas(chatbot.personality, metadata).extract_plain_text()
+        await _finish_management_table(
+            matcher, event, title="人设列表", pages=persona_table_pages(chatbot.personality, metadata), fallback=text,
+        )
 
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = _argument_text(argument)
         history = await chat_runtime.get_history(ConversationKey.from_event(event))
-        await _finish_management_message(matcher, event, paginate_text(format_history(history, value)))
+        fallback = format_history(history, value)
+        await _finish_management_document(
+            matcher,
+            event,
+            title="聊天记录",
+            pages=build_history_markdown_pages(history, value),
+            fallback=fallback,
+        )
 
     chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
@@ -485,12 +557,21 @@ if isinstance(config_gpt.gpt_session,list):
         key = ConversationKey.from_event(event)
         state = await chat_runtime.get_active_session(key)
         history = await chat_runtime.get_history(key)
-        await _finish_management_message(matcher, event, paginate_text(format_history_tree(state, len(history))))
+        text = format_history_tree(state, len(history))
+        await _finish_management_document(
+            matcher, event, title="历史记录树", pages=markdown_pages_from_text("历史记录树", text), fallback=text,
+        )
 
     chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
     async def chat_conversations_handle(event: Event, matcher: Matcher):
-        await _finish_management_message(matcher, event, paginate_text(await list_sessions(chat_runtime, ConversationKey.from_event(event))))
+        key = ConversationKey.from_event(event)
+        active = await chat_runtime.get_active_session(key)
+        sessions = await chat_runtime.list_sessions(key)
+        text = await list_sessions(chat_runtime, key)
+        await _finish_management_table(
+            matcher, event, title="逻辑会话", pages=session_table_pages(sessions, active.logical_id), fallback=text,
+        )
 
     change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
@@ -516,11 +597,14 @@ if isinstance(config_gpt.gpt_session,list):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         value = _argument_text(argument)
-        await _finish_management_message(matcher, event, paginate_text(await agent_runtime.execute(
+        text = await agent_runtime.execute(
             value,
             operator_id=event.get_user_id(),
             scope_id=get_access_session_id(event),
-        )))
+        )
+        await _finish_management_document(
+            matcher, event, title="智能体结果", pages=markdown_pages_from_text("智能体结果", text), fallback=text,
+        )
 
     create_cdk = legacy_command("生成cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @create_cdk.handle()
@@ -565,9 +649,10 @@ if isinstance(config_gpt.gpt_session,list):
     list_cdk = legacy_command("cdk列表", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @list_cdk.handle()
     async def list_cdk_handle(event: Event, matcher: Matcher):
-        await _finish_management_message(matcher, event, paginate_text(
-            f"{cdk_registry.format_list()}\n{cdk_registry.migration_summary()}"
-        ))
+        text = f"{cdk_registry.format_list()}\n{cdk_registry.migration_summary()}"
+        await _finish_management_table(
+            matcher, event, title="CDK 列表", pages=cdk_table_pages(cdk_registry.list_records()), fallback=text,
+        )
 
     revoke_cdk = legacy_command("作废cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @revoke_cdk.handle()
@@ -592,7 +677,10 @@ if isinstance(config_gpt.gpt_session,list):
     async def ban_list_handle(event: Event,argument: Match[str], matcher: Matcher):
         target = _argument_text(argument).strip()
         bans = json.loads(banpath.read_text(encoding="utf-8"))
-        await _finish_management_message(matcher, event, paginate_text(format_bans(bans, target)))
+        text = format_bans(bans, target)
+        await _finish_management_table(
+            matcher, event, title="黑名单列表", pages=blacklist_table_pages(bans, target), fallback=text,
+        )
         
     ban_del = legacy_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
@@ -622,7 +710,10 @@ if isinstance(config_gpt.gpt_session,list):
     async def white_list_handle(event: Event, matcher: Matcher):
         whitelist = read_whitelist()
         paid = json.loads(plusstatus.read_text(encoding="utf-8"))
-        await _finish_management_message(matcher, event, paginate_text(format_whitelist(whitelist, paid)))
+        text = format_whitelist(whitelist, paid)
+        await _finish_management_table(
+            matcher, event, title="白名单列表", pages=whitelist_table_pages(whitelist, paid), fallback=text,
+        )
         
     md_status_cmd = legacy_command("md状态",rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @md_status_cmd.handle()

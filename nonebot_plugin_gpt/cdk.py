@@ -246,6 +246,21 @@ class CdkRegistry:
                 lines.append(f"{code}：已作废；来源：{note}")
         return "\n".join(lines)
 
+    def list_records(self) -> list[dict[str, str]]:
+        """返回供管理视图表格使用的非敏感 CDK 元数据。"""
+        records: list[dict[str, str]] = []
+        for code, record in sorted(self._load()["codes"].items()):
+            if not isinstance(record, dict):
+                continue
+            records.append({
+                "code": str(code),
+                "status": str(record.get("status") or "unknown"),
+                "grant_kind": str(record.get("grant_kind") or "scope"),
+                "note": str(record.get("note") or ""),
+                "created_at": str(record.get("created_at") or ""),
+            })
+        return records
+
     def migration_summary(self) -> str:
         migration = self._load()["migration"].get("legacy_cdk_v1", {})
         available = int(migration.get("available", 0))
