@@ -18,12 +18,13 @@ async def ensure_default_persona(chatbot: chatgpt) -> None:
         "value": "你好",
     }
     metadata = json.loads(personpath.read_text(encoding="utf-8"))
-    if persona["name"] not in metadata:
+    existing = {str(item.get("name", "")) for item in chatbot.personality.init_list}
+    if persona["name"] not in existing:
         await chatbot.add_personality(persona)
-    metadata[persona["name"]] = {
-        "r18": persona["r18"],
-        "open": persona["open"],
-    }
+    for item in chatbot.personality.init_list:
+        if not isinstance(item, dict) or not str(item.get("name", "")).strip():
+            continue
+        metadata.setdefault(str(item["name"]), {"r18": False, "open": ""})
     personpath.write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",

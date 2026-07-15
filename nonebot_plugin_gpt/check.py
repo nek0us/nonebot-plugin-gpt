@@ -51,12 +51,28 @@ def _read_json(path, fallback: dict[str, object]) -> dict[str, object]:
 
 
 def read_whitelist() -> dict[str, object]:
-    """读取 v2 会话白名单，旧分类键不再参与授权判断。"""
+    """读取 v2 白名单，并保留旧版分组数据用于兼容授权。"""
     raw = _read_json(whitepath, {})
     sessions = raw.get("sessions", [])
+    legacy = raw.get("legacy", {})
+    if not isinstance(legacy, dict):
+        legacy = {}
+    legacy = {
+        **legacy,
+        "group": raw.get("group", legacy.get("group", [])),
+        "private": raw.get("private", legacy.get("private", [])),
+        "qqgroup": raw.get("qqgroup", legacy.get("qqgroup", [])),
+        "qqguild": raw.get("qqguild", legacy.get("qqguild", [])),
+        "session": raw.get("session", legacy.get("session", [])),
+    }
     return {
         "version": 2,
         "sessions": [str(value) for value in sessions if isinstance(value, str)],
+        "legacy": {
+            name: [str(value) for value in values if isinstance(value, (str, int))]
+            for name, values in legacy.items()
+            if isinstance(values, list)
+        },
     }
 
 
@@ -65,6 +81,46 @@ def write_whitelist(value: dict[str, object]) -> None:
         json.dumps(value, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _legacy_whitelist_matches(event: Event, whitelist: dict[str, object]) -> bool:
+    legacy = whitelist.get("legacy", {})
+    if not isinstance(legacy, dict):
+        return False
+    raw_values = {
+        str(getattr(event, name, ""))
+        for name in ("group_id", "group_openid", "guild_id", "channel_id")
+    }
+    raw_values.discard("")
+    user_id = get_event_user_id(event)
+    session_id = str(event.get_session_id())
+    group_values = {str(value) for value in legacy.get("group", [])}
+    qq_group_values = {str(value) for value in legacy.get("qqgroup", [])}
+    private_values = {str(value) for value in legacy.get("private", [])}
+    guild_values = {str(value) for value in legacy.get("qqguild", [])}
+    session_values = {str(value) for value in legacy.get("session", [])}
+    return bool(
+        raw_values & (group_values | qq_group_values | guild_values)
+        or (_is_private_session(event) and user_id and user_id in private_values)
+        or session_id in session_values
+        or get_access_session_id(event) in session_values
+    )
+
+
+def is_whitelisted(event: Event) -> bool:
+    """判断当前范围是否处于新版或旧版白名单。"""
+    whitelist = read_whitelist()
+    return (
+        get_access_session_id(event) in whitelist["sessions"]
+        or _legacy_whitelist_matches(event, whitelist)
+    )
+
+
+def is_banned(event: Event, bans: dict[str, object] | None = None) -> bool:
+    """兼容旧版按用户 ID 封禁与新版按会话参与者封禁。"""
+    records = bans if bans is not None else _read_json(banpath, {})
+    user_id = get_event_user_id(event)
+    return bool(get_participant_key(event) in records or (user_id and user_id in records))
 
 
 def _event_plain_text(event: Event) -> str:
@@ -110,7 +166,7 @@ async def plus_status(event: Event) -> bool:
     if user_id in config_nb.superusers:
         return True
     bans = _read_json(banpath, {})
-    if get_participant_key(event) in bans:
+    if is_banned(event, bans):
         return False
     if not config_gpt.gpt_plus_white_list_mode:
         return True
@@ -132,11 +188,11 @@ async def gpt_rule(event: Event) -> bool:
     if not (_addressed_to_bot(event) or _is_private_session(event) or is_prefixed):
         return False
     bans = _read_json(banpath, {})
-    if get_participant_key(event) in bans:
+    if is_banned(event, bans):
         return False
     if not config_gpt.gpt_white_list_mode:
         return True
-    return get_access_session_id(event) in read_whitelist()["sessions"]
+    return is_whitelisted(event)
 
 
 async def gpt_command_rule(event: Event) -> bool:
@@ -147,11 +203,11 @@ async def gpt_command_rule(event: Event) -> bool:
     if not get_event_user_id(event):
         return False
     bans = _read_json(banpath, {})
-    if get_participant_key(event) in bans:
+    if is_banned(event, bans):
         return False
     if not config_gpt.gpt_white_list_mode:
         return True
-    return get_access_session_id(event) in read_whitelist()["sessions"]
+    return is_whitelisted(event)
 
 
 async def gpt_manage_rule(event: Event) -> bool:
@@ -165,6 +221,16 @@ async def gpt_manage_rule(event: Event) -> bool:
     )
 
 
+async def gpt_persona_editor_rule(event: Event) -> bool:
+    """允许已授权用户创建人设，也让管理员可在任意会话维护人设。"""
+    return await gpt_manage_rule(event) or await gpt_command_rule(event)
+
+
+async def gpt_operator_command_rule(event: Event) -> bool:
+    """管理者可在未加白会话使用维护命令，普通用户仍需白名单授权。"""
+    return await gpt_manage_rule(event) or await gpt_command_rule(event)
+
+
 async def gpt_superuser_rule(event: Event) -> bool:
     """仅允许 NoneBot 超级用户执行高风险的本地运维入口。"""
     user_id = get_event_user_id(event)
@@ -176,7 +242,7 @@ async def gpt_cdk_redeem_rule(event: Event) -> bool:
     if not get_event_user_id(event):
         return False
     bans = _read_json(banpath, {})
-    return get_participant_key(event) not in bans
+    return not is_banned(event, bans)
 
 
 async def add_white(session_id: str, plus: bool = False) -> str:
@@ -230,7 +296,7 @@ async def ban_check(event: Event, matcher: Matcher, text: Any = None) -> None:
     """执行参与者封禁和关键词封禁检查。"""
     participant_key = get_participant_key(event)
     bans = _read_json(banpath, {})
-    if participant_key in bans:
+    if is_banned(event, bans):
         await matcher.finish()
     plain_text = _message_plain_text(text)
     if not plain_text:

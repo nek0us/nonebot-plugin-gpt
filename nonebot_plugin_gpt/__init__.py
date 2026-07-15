@@ -29,7 +29,7 @@ from .source import (
 )
 from .agent_runtime import create_agent_runtime
 from .managed_services import ManagedServiceRegistry
-from .check import add_white, del_white, get_access_session_id, get_event_user_id, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
+from .check import add_white, del_white, get_access_session_id, get_event_user_id, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
 from .command_compat import build_legacy_command, command_argument_text
 from .chat_runtime import ChatRuntime
@@ -55,8 +55,10 @@ from .management_views import format_account_status
 from .message_output import finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
+from .paged_output import paginate_text
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
 from .personality_service import ensure_default_persona
+from .persona_migration import migrate_legacy_personas
 from .event_scope import resolve_event_scope
 
 
@@ -133,6 +135,7 @@ __plugin_meta__ = PluginMetadata(
 )
 
 if isinstance(config_gpt.gpt_session,list):
+    migrate_legacy_personas(data_dir)
     personality = Personality([])
     
     chatbot = chatgpt(
@@ -218,7 +221,7 @@ if isinstance(config_gpt.gpt_session,list):
             prefer_paid_account=prefer_paid_account,
         )
         if auto_result is not None and not auto_result.ok:
-            logger.warning("当前会话的自动人设初始化失败，将继续使用普通聊天")
+            logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
         files = []
         if config_gpt.gpt_free_image or prefer_paid_account:
             files = await extract_image_files(text, proxy=config_gpt.gpt_proxy)
@@ -238,16 +241,16 @@ if isinstance(config_gpt.gpt_session,list):
     help_command = legacy_command(
         "gpt_help",
         aliases={"GPT帮助", "gpt帮助", "帮助GPT"},
-        rule=gpt_rule,
+        rule=gpt_operator_command_rule,
         priority=config_gpt.gpt_command_priority,
         block=True,
     )
     @help_command.handle()
     async def help_handle(event: Event, argument: Match[str], matcher: Matcher):
-        await finish_message(matcher, event, format_help(_argument_text(argument)))
+        await finish_message(matcher, event, paginate_text(format_help(_argument_text(argument))))
 
                         
-    reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
     async def reset_handle(event: Event, matcher: Matcher):
         await finish_message(matcher, event, await restart_persona_reply(
@@ -260,7 +263,7 @@ if isinstance(config_gpt.gpt_session,list):
         ))
     
             
-    last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()
     async def last_handle(event: Event, matcher: Matcher):
         await finish_message(matcher, event, await rewind_reply(
@@ -274,7 +277,7 @@ if isinstance(config_gpt.gpt_session,list):
         ))
             
             
-    back = legacy_command("backloop",aliases={"回到过去"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    back = legacy_command("backloop",aliases={"回到过去"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @back.handle()
     async def back_handle(event: Event,argument: Match[str], matcher: Matcher):
         reference = _argument_text(argument)
@@ -289,12 +292,12 @@ if isinstance(config_gpt.gpt_session,list):
         ))
             
 
-    init = legacy_command("init",aliases={"初始化","初始化人格","加载人格","加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    init = legacy_command("init",aliases={"初始化","初始化人格","加载人格","加载预设"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @init.handle()
     async def init_handle(event: Event,argument: Match[str], matcher: Matcher):
         await initialize_persona_handle(event, argument, matcher)
         
-    plus_init = legacy_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    plus_init = legacy_command("plus_init",aliases={"plus初始化","plus初始化人格","plus加载人格","plus加载预设"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @plus_init.handle()
     async def plus_init_handle(event: Event,argument: Match[str], matcher: Matcher):
         await initialize_persona_handle(event, argument, matcher, prefer_paid_account=True)
@@ -337,27 +340,27 @@ if isinstance(config_gpt.gpt_session,list):
             failure_diagnostics=failure_diagnostics,
         ))
 
-    personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @personality_list.handle()
     async def personality_list_handle(event: Event, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
-        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
                 
             
-    cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    cat_personality = legacy_command("查看人设",aliases={"查看预设","查看人格"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @cat_personality.handle()
     async def cat_personality_handle(event: Event,argument: Match[str], matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
         name = _argument_text(argument)
-        await finish_message(matcher, event, show_persona(
+        await finish_message(matcher, event, paginate_text(show_persona(
             chatbot.personality,
             metadata,
             name,
             event.get_user_id(),
-        ))
+        ).extract_plain_text()))
                 
                 
-    add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    add_personality = legacy_command("添加人设",aliases={"添加预设","添加人格"},rule=gpt_persona_editor_rule,priority=config_gpt.gpt_command_priority,block=True)
     @add_personality.handle()
     async def add_personality_handle(event: Event,status: T_State,argument: Match[str], matcher: Matcher):
         status["creator_id"] = event.get_user_id()
@@ -406,7 +409,7 @@ if isinstance(config_gpt.gpt_session,list):
             "open": personality["open"],
         }
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
         
     async def set_persona_name(status: T_State, value: str, matcher: Matcher):
         metadata = json.loads(personpath.read_text(encoding="utf-8"))
@@ -426,29 +429,29 @@ if isinstance(config_gpt.gpt_session,list):
         await chatbot.del_personality(name)
         del metadata[name]
         personpath.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-        await finish_message(matcher, event, list_personas(chatbot.personality, metadata))
+        await finish_message(matcher, event, paginate_text(list_personas(chatbot.personality, metadata).extract_plain_text()))
 
-    chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = _argument_text(argument)
         history = await chat_runtime.get_history(ConversationKey.from_event(event))
-        await matcher.finish(format_history(history, value))
+        await finish_message(matcher, event, paginate_text(format_history(history, value)))
 
-    chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
     async def chat_history_handle(event: Event, matcher: Matcher):
         key = ConversationKey.from_event(event)
         state = await chat_runtime.get_active_session(key)
         history = await chat_runtime.get_history(key)
-        await matcher.finish(format_history_tree(state, len(history)))
+        await finish_message(matcher, event, paginate_text(format_history_tree(state, len(history))))
 
-    chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_conversations.handle()
     async def chat_conversations_handle(event: Event, matcher: Matcher):
-        await matcher.finish(await list_sessions(chat_runtime, ConversationKey.from_event(event)))
+        await finish_message(matcher, event, paginate_text(await list_sessions(chat_runtime, ConversationKey.from_event(event))))
 
-    change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @change_conversation.handle()
     async def change_conversation_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = _argument_text(argument)
@@ -456,11 +459,11 @@ if isinstance(config_gpt.gpt_session,list):
 
     status = legacy_command("gpt_status",aliases={"工作状态"},rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @status.handle()
-    async def status_handle(matcher: Matcher):
-        await matcher.finish(format_account_status(
+    async def status_handle(event: Event, matcher: Matcher):
+        await finish_message(matcher, event, paginate_text(format_account_status(
             await chat_service.get_account_status(),
             failure_summary=failure_diagnostics.format(),
-        ))
+        )))
 
     agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()
@@ -468,11 +471,11 @@ if isinstance(config_gpt.gpt_session,list):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         value = _argument_text(argument)
-        await matcher.finish(await agent_runtime.execute(
+        await finish_message(matcher, event, paginate_text(await agent_runtime.execute(
             value,
             operator_id=event.get_user_id(),
             scope_id=get_access_session_id(event),
-        ))
+        )))
 
     create_cdk = legacy_command("生成cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @create_cdk.handle()
@@ -498,8 +501,10 @@ if isinstance(config_gpt.gpt_session,list):
 
     list_cdk = legacy_command("cdk列表", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @list_cdk.handle()
-    async def list_cdk_handle(matcher: Matcher):
-        await matcher.finish(f"{cdk_registry.format_list()}\n{cdk_registry.migration_summary()}")
+    async def list_cdk_handle(event: Event, matcher: Matcher):
+        await finish_message(matcher, event, paginate_text(
+            f"{cdk_registry.format_list()}\n{cdk_registry.migration_summary()}"
+        ))
 
     revoke_cdk = legacy_command("作废cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @revoke_cdk.handle()
@@ -519,7 +524,7 @@ if isinstance(config_gpt.gpt_session,list):
     async def ban_list_handle(event: Event,argument: Match[str], matcher: Matcher):
         target = _argument_text(argument).strip()
         bans = json.loads(banpath.read_text(encoding="utf-8"))
-        await matcher.finish(format_bans(bans, target))
+        await finish_message(matcher, event, paginate_text(format_bans(bans, target)))
         
     ban_del = legacy_command("解黑",rule=gpt_manage_rule,aliases={"解除黑名单","删除黑名单"},priority=config_gpt.gpt_command_priority,block=True)
     @ban_del.handle()
@@ -546,12 +551,12 @@ if isinstance(config_gpt.gpt_session,list):
         
     white_list_cmd = legacy_command("白名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @white_list_cmd.handle()
-    async def white_list_handle(matcher: Matcher):
+    async def white_list_handle(event: Event, matcher: Matcher):
         whitelist = read_whitelist()
         paid = json.loads(plusstatus.read_text(encoding="utf-8"))
-        await matcher.finish(format_whitelist(whitelist, paid))
+        await finish_message(matcher, event, paginate_text(format_whitelist(whitelist, paid)))
         
-    md_status_cmd = legacy_command("md状态",rule=gpt_rule,priority=config_gpt.gpt_command_priority,block=True)
+    md_status_cmd = legacy_command("md状态",rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @md_status_cmd.handle()
     async def md_status_cmd_handle(matcher: Matcher):
         await matcher.finish("当前版本会按消息内容与适配器能力自动选择文本或图片渲染，md状态不再需要单独设置。")

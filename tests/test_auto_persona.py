@@ -73,3 +73,24 @@ class AutoPersonaTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
         self.assertEqual(runtime.calls, [])
+
+    async def test_missing_configured_persona_leaves_first_message_unpersonaed(self):
+        class MissingPersonaRuntime(_Runtime):
+            async def initialize_persona(self, *args, **kwargs):
+                raise ValueError("未找到指定人设")
+
+        runtime = MissingPersonaRuntime()
+        initializer = auto_persona.AutoPersonaInitializer(
+            runtime,
+            group_enabled=True,
+            group_persona_name="已删除的人设",
+        )
+
+        result = await initializer.ensure_initialized(
+            conversation.ConversationKey("group:1", "user:1"),
+            is_shared=True,
+            model="auto",
+            prefer_paid_account=False,
+        )
+
+        self.assertIsNone(result)

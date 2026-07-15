@@ -35,3 +35,11 @@ class AccessViewTests(unittest.TestCase):
         )
 
         self.assertIn("会话：telegram:private:1，Plus", text)
+
+    def test_format_whitelist_keeps_legacy_entries_visible(self):
+        text = access_views.format_whitelist(
+            {"version": 2, "sessions": [], "legacy": {"group": ["123"]}},
+            {"status": True},
+        )
+
+        self.assertIn("旧版group：123", text)

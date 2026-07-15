@@ -38,4 +38,12 @@ def format_whitelist(whitelist: Mapping[str, Any], paid: Mapping[str, Any]) -> s
     for identifier in whitelist.get("sessions", []):
         marker = "，Plus" if str(identifier) in paid else ""
         lines.append(f"会话：{identifier}{marker}")
+    legacy = whitelist.get("legacy", {})
+    if isinstance(legacy, Mapping):
+        for kind, values in legacy.items():
+            if not isinstance(values, list):
+                continue
+            for identifier in values:
+                marker = "，Plus" if str(identifier) in paid else ""
+                lines.append(f"旧版{kind}：{identifier}{marker}")
     return "\n".join(lines) if len(lines) > 1 else "白名单为空。"

@@ -38,3 +38,16 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await check.gpt_manage_rule(event))
         self.assertFalse(await check.gpt_superuser_rule(event))
         self.assertFalse(await check.plus_status(event))
+
+    def test_legacy_private_whitelist_does_not_authorize_a_group(self):
+        class GroupEvent:
+            group_id = "123"
+
+            def get_user_id(self):
+                return "42"
+
+            def get_session_id(self):
+                return "group_123_42"
+
+        whitelist = {"legacy": {"private": ["42"]}, "sessions": []}
+        self.assertFalse(check._legacy_whitelist_matches(GroupEvent(), whitelist))

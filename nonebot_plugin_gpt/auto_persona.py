@@ -54,12 +54,17 @@ class AutoPersonaInitializer:
                 state = await self._runtime.get_active_session(key)
                 if state.conversation_id or state.persona_name:
                     return None
-                return await self._runtime.initialize_persona(
-                    key,
-                    persona_name,
-                    model=model,
-                    prefer_paid_account=prefer_paid_account,
-                )
+                try:
+                    return await self._runtime.initialize_persona(
+                        key,
+                        persona_name,
+                        model=model,
+                        prefer_paid_account=prefer_paid_account,
+                    )
+                except ValueError:
+                    # 配置的人设尚未创建或已删除时，直接让用户首条消息创建无
+                    # 人设会话；不能用默认人设悄悄改变用户的对话语境。
+                    return None
         finally:
             if not lock.locked():
                 self._locks.pop(key.value, None)
