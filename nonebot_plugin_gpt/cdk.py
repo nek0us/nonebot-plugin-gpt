@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-GrantScope = Callable[[str], Awaitable[str]]
+GrantTarget = Callable[[str], Awaitable[str]]
 
 
 def _now() -> str:
@@ -113,7 +113,16 @@ class CdkRegistry:
         }
         self._write(state)
 
-    async def create(self, *, note: str, creator_id: str, creator_scope: str) -> str:
+    async def create(
+        self,
+        *,
+        note: str,
+        creator_id: str,
+        creator_scope: str,
+        grant_kind: str = "scope",
+    ) -> str:
+        if grant_kind not in {"scope", "participant"}:
+            raise ValueError("unsupported CDK grant kind")
         async with self._lock:
             state = self._load()
             codes = state["codes"]
@@ -127,6 +136,7 @@ class CdkRegistry:
                 "created_by": creator_id,
                 "created_scope": creator_scope,
                 "note": note.strip(),
+                "grant_kind": grant_kind,
             }
             self._write(state)
             return code
@@ -137,7 +147,9 @@ class CdkRegistry:
         *,
         redeemer_id: str,
         scope_id: str,
-        grant_scope: GrantScope,
+        grant_scope: GrantTarget,
+        participant_id: str = "",
+        grant_participant: GrantTarget | None = None,
     ) -> str:
         normalized = code.strip().lower()
         if not normalized:
@@ -157,8 +169,20 @@ class CdkRegistry:
             if status != "available":
                 return "该 CDK 当前不可兑换。"
 
+            grant_kind = str(record.get("grant_kind") or "scope")
+            if grant_kind == "participant":
+                if not participant_id or grant_participant is None:
+                    return "当前会话无法识别兑换者，个人 CDK 兑换未完成。"
+                grant_target = participant_id
+                grant_callback = grant_participant
+                success_text = "兑换成功，当前用户已获得同一适配器全部会话的聊天权限。"
+            else:
+                grant_target = scope_id
+                grant_callback = grant_scope
+                success_text = "兑换成功，当前会话已获得聊天权限。"
+
             try:
-                grant_result = await grant_scope(scope_id)
+                grant_result = await grant_callback(grant_target)
             except Exception:
                 return "兑换未完成，请稍后重试。"
             if grant_result not in {"添加成功", "白名单已存在"}:
@@ -169,11 +193,12 @@ class CdkRegistry:
                 "redeemed_at": _now(),
                 "redeemed_by": redeemer_id,
                 "redeemed_scope": scope_id,
+                "redeemed_target": grant_target,
             })
             self._write(state)
             note = str(record.get("note") or "")
             source = f"（来源：{note}）" if note else ""
-            return f"兑换成功，当前会话已获得聊天权限。{source}"
+            return f"{success_text}{source}"
 
     async def revoke(self, code: str, *, operator_id: str) -> str:
         normalized = code.strip().lower()
@@ -183,7 +208,9 @@ class CdkRegistry:
             if not isinstance(record, dict):
                 return "CDK 不存在。"
             if record.get("status") == "redeemed":
-                return "该 CDK 已兑换，不能作废；请使用“删除白名单”撤销目标会话权限。"
+                kind = str(record.get("grant_kind") or "scope")
+                command = "退出个人白名单" if kind == "participant" else "删除白名单"
+                return f"该 CDK 已兑换，不能作废；请使用“{command}”撤销对应权限。"
             if record.get("status") == "revoked":
                 return "该 CDK 已作废。"
             record.update({
@@ -206,11 +233,12 @@ class CdkRegistry:
             status = str(record.get("status", "unknown"))
             note = str(record.get("note") or "未备注")
             created = str(record.get("created_at") or "未知时间")
+            kind = "个人" if str(record.get("grant_kind") or "scope") == "participant" else "会话"
             if status == "redeemed":
-                target = str(record.get("redeemed_scope") or "未知范围")
-                lines.append(f"{code}：已兑换 -> {target}；来源：{note}；创建：{created}")
+                target = str(record.get("redeemed_target") or record.get("redeemed_scope") or "未知范围")
+                lines.append(f"{code}：已兑换（{kind}） -> {target}；来源：{note}；创建：{created}")
             elif status == "available":
-                lines.append(f"{code}：待兑换；来源：{note}；创建：{created}")
+                lines.append(f"{code}：待兑换（{kind}）；来源：{note}；创建：{created}")
             elif status == "legacy_redeemed_unresolved":
                 target = str(record.get("legacy_target") or "未知旧目标")
                 lines.append(f"{code}：旧版已兑换待确认 -> {target}；来源：{note}")

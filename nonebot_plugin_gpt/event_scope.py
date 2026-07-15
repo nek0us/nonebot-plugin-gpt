@@ -36,6 +36,11 @@ def _adapter_namespace(event: Event) -> str:
     return type(event).__module__.replace(".", "_")
 
 
+def get_adapter_namespace(event: Event) -> str:
+    """返回稳定的适配器命名空间，供跨会话个人授权使用。"""
+    return _adapter_namespace(event)
+
+
 def _attribute(event: Event, name: str) -> str:
     value = getattr(event, name, None)
     return str(value) if value not in (None, "") else ""
@@ -78,3 +83,11 @@ def resolve_event_scope(event: Event) -> EventScope:
 
     session_id = event.get_session_id()
     return EventScope(f"{adapter}:private:{session_id}", "private")
+
+
+def resolve_participant_identity(event: Event) -> str:
+    """返回适配器内稳定的用户标识，不携带群聊或私聊范围。"""
+    user_id = str(event.get_user_id()).strip()
+    if not user_id:
+        raise ValueError("event does not contain a user id")
+    return f"{_adapter_namespace(event)}:user:{user_id}"

@@ -38,6 +38,8 @@ def format_whitelist(whitelist: Mapping[str, Any], paid: Mapping[str, Any]) -> s
     for identifier in whitelist.get("sessions", []):
         marker = "，Plus" if str(identifier) in paid else ""
         lines.append(f"会话：{identifier}{marker}")
+    for identity in whitelist.get("users", []):
+        lines.append(f"个人：{identity}")
     legacy = whitelist.get("legacy", {})
     if isinstance(legacy, Mapping):
         for kind, values in legacy.items():

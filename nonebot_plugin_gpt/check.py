@@ -11,7 +11,7 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 
 from .config import config_gpt, config_nb
-from .event_scope import resolve_event_scope
+from .event_scope import get_adapter_namespace, resolve_event_scope, resolve_participant_identity
 from .source import ban_str_path, banpath, plusstatus, whitepath
 
 
@@ -42,6 +42,14 @@ def get_participant_key(event: Event) -> str:
     return f"{session_id}::{user_id}" if session_id else ""
 
 
+def get_event_user_identity(event: Event) -> str:
+    """返回跨会话的个人授权标识；不同适配器的同名 ID 不会互相冲突。"""
+    try:
+        return resolve_participant_identity(event)
+    except (AttributeError, ValueError):
+        return ""
+
+
 def _read_json(path, fallback: dict[str, object]) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -54,6 +62,7 @@ def read_whitelist() -> dict[str, object]:
     """读取 v2 白名单，并保留旧版分组数据用于兼容授权。"""
     raw = _read_json(whitepath, {})
     sessions = raw.get("sessions", [])
+    users = raw.get("users", [])
     legacy = raw.get("legacy", {})
     if not isinstance(legacy, dict):
         legacy = {}
@@ -68,6 +77,7 @@ def read_whitelist() -> dict[str, object]:
     return {
         "version": 2,
         "sessions": [str(value) for value in sessions if isinstance(value, str)],
+        "users": [str(value) for value in users if isinstance(value, str)],
         "legacy": {
             name: [str(value) for value in values if isinstance(value, (str, int))]
             for name, values in legacy.items()
@@ -101,7 +111,13 @@ def _legacy_whitelist_matches(event: Event, whitelist: dict[str, object]) -> boo
     session_values = {str(value) for value in legacy.get("session", [])}
     return bool(
         raw_values & (group_values | qq_group_values | guild_values)
-        or (_is_private_session(event) and user_id and user_id in private_values)
+        # 旧版 OneBot 的 private 白名单按裸 QQ 号匹配所有群聊和私聊。
+        # 保持这一兼容语义，但限定在原适配器，避免其他平台同 ID 被误授权。
+        or (
+            get_adapter_namespace(event) == "onebot.v11"
+            and user_id
+            and user_id in private_values
+        )
         or session_id in session_values
         or get_access_session_id(event) in session_values
     )
@@ -112,6 +128,7 @@ def is_whitelisted(event: Event) -> bool:
     whitelist = read_whitelist()
     return (
         get_access_session_id(event) in whitelist["sessions"]
+        or get_event_user_identity(event) in whitelist["users"]
         or _legacy_whitelist_matches(event, whitelist)
     )
 
@@ -276,6 +293,32 @@ async def del_white(session_id: str) -> str:
         encoding="utf-8",
     )
     sessions.remove(session_id)
+    write_whitelist(whitelist)
+    return "删除成功"
+
+
+async def add_personal_white(identity: str) -> str:
+    """授权一个用户在同一适配器的所有会话中触发普通聊天。"""
+    if not identity:
+        return "未识别到用户标识"
+    whitelist = read_whitelist()
+    users = whitelist["users"]
+    if identity in users:
+        return "白名单已存在"
+    users.append(identity)
+    write_whitelist(whitelist)
+    return "添加成功"
+
+
+async def del_personal_white(identity: str) -> str:
+    """撤销一个跨会话个人白名单授权。"""
+    if not identity:
+        return "未识别到用户标识"
+    whitelist = read_whitelist()
+    users = whitelist["users"]
+    if identity not in users:
+        return "不在白名单中"
+    users.remove(identity)
     write_whitelist(whitelist)
     return "删除成功"
 

@@ -85,6 +85,40 @@ class CdkRegistryTests(unittest.IsolatedAsyncioTestCase):
                 "该旧 CDK 已使用，且旧目标无法安全迁移；请联系管理员重新生成 CDK。",
             )
 
+    async def test_personal_cdk_grants_the_redeemer_not_the_current_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = CdkRegistry(Path(directory) / "codes.json")
+            code = await registry.create(
+                note="个人测试",
+                creator_id="admin",
+                creator_scope="onebot.v11:group:1",
+                grant_kind="participant",
+            )
+            granted_scopes = []
+            granted_users = []
+
+            async def grant_scope(scope_id: str) -> str:
+                granted_scopes.append(scope_id)
+                return "添加成功"
+
+            async def grant_user(identity: str) -> str:
+                granted_users.append(identity)
+                return "添加成功"
+
+            result = await registry.redeem(
+                code,
+                redeemer_id="42",
+                scope_id="onebot.v11:group:99",
+                grant_scope=grant_scope,
+                participant_id="onebot.v11:user:42",
+                grant_participant=grant_user,
+            )
+
+            self.assertEqual(granted_scopes, [])
+            self.assertEqual(granted_users, ["onebot.v11:user:42"])
+            self.assertIn("同一适配器全部会话", result)
+            self.assertIn("已兑换（个人）", registry.format_list())
+
     async def test_revoked_code_cannot_be_redeemed(self):
         with tempfile.TemporaryDirectory() as directory:
             registry = CdkRegistry(Path(directory) / "codes.json")

@@ -29,7 +29,7 @@ from .source import (
 )
 from .agent_runtime import create_agent_runtime
 from .managed_services import ManagedServiceRegistry
-from .check import add_white, del_white, get_access_session_id, get_event_user_id, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
+from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
 from .command_compat import build_legacy_command, command_argument_text
 from .chat_runtime import ChatRuntime
@@ -120,7 +120,7 @@ __plugin_meta__ = PluginMetadata(
 聊天：@机器人或配置的前缀后发送内容。
 会话：初始化、人设列表、历史聊天、历史会话、切换会话、重置、回到过去。
 管理：工作状态、黑名单列表、解黑、白名单列表、添加白名单、删除白名单、会话标识。
-授权：生成cdk、兑换、cdk列表、作废cdk、退出白名单。
+授权：生成cdk、生成个人cdk、兑换、cdk列表、作废cdk、退出白名单、退出个人白名单。
 付费模型：添加plus、删除plus、plus切换、全局plus。
 
 白名单、Plus 与管理会话均使用插件生成的访问范围标识；管理员可在目标会话执行“会话标识”后复制使用。
@@ -489,6 +489,22 @@ if isinstance(config_gpt.gpt_session,list):
         source = note.strip() or "未备注"
         await matcher.finish(f"已生成 CDK：{code}\n来源：{source}\n请在目标会话发送：兑换 {code}")
 
+    create_personal_cdk = legacy_command("生成个人cdk", aliases={"生成个人CDK"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
+    @create_personal_cdk.handle()
+    async def create_personal_cdk_handle(event: Event, argument: Match[str], matcher: Matcher):
+        note = _argument_text(argument)
+        code = await cdk_registry.create(
+            note=note,
+            creator_id=get_event_user_id(event) or "",
+            creator_scope=get_access_session_id(event),
+            grant_kind="participant",
+        )
+        source = note.strip() or "未备注"
+        await matcher.finish(
+            f"已生成个人 CDK：{code}\n来源：{source}\n"
+            f"请由目标用户在任意同平台私聊、群聊或频道发送：兑换 {code}"
+        )
+
     redeem_cdk = legacy_command("兑换", aliases={"出现吧"}, rule=gpt_cdk_redeem_rule, priority=config_gpt.gpt_command_priority, block=True)
     @redeem_cdk.handle()
     async def redeem_cdk_handle(event: Event, argument: Match[str], matcher: Matcher):
@@ -497,6 +513,8 @@ if isinstance(config_gpt.gpt_session,list):
             redeemer_id=get_event_user_id(event) or "",
             scope_id=get_access_session_id(event),
             grant_scope=add_white,
+            participant_id=get_event_user_identity(event),
+            grant_participant=add_personal_white,
         ))
 
     list_cdk = legacy_command("cdk列表", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
@@ -518,6 +536,11 @@ if isinstance(config_gpt.gpt_session,list):
     @leave_cdk.handle()
     async def leave_cdk_handle(event: Event, matcher: Matcher):
         await matcher.finish(await del_white(get_access_session_id(event)))
+
+    leave_personal_cdk = legacy_command("退出个人白名单", aliases={"退出个人授权"}, rule=gpt_cdk_redeem_rule, priority=config_gpt.gpt_command_priority, block=True)
+    @leave_personal_cdk.handle()
+    async def leave_personal_cdk_handle(event: Event, matcher: Matcher):
+        await matcher.finish(await del_personal_white(get_event_user_identity(event)))
         
     ban_list = legacy_command("黑名单列表",rule=gpt_manage_rule,priority=config_gpt.gpt_command_priority,block=True)
     @ban_list.handle()

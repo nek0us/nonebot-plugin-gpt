@@ -43,3 +43,11 @@ class AccessViewTests(unittest.TestCase):
         )
 
         self.assertIn("旧版group：123", text)
+
+    def test_format_whitelist_shows_personal_grants(self):
+        text = access_views.format_whitelist(
+            {"version": 2, "sessions": [], "users": ["onebot.v11:user:42"]},
+            {"status": True},
+        )
+
+        self.assertIn("个人：onebot.v11:user:42", text)

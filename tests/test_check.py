@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import nonebot
 
@@ -39,7 +40,7 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await check.gpt_superuser_rule(event))
         self.assertFalse(await check.plus_status(event))
 
-    def test_legacy_private_whitelist_does_not_authorize_a_group(self):
+    def test_legacy_private_whitelist_keeps_onebot_cross_group_behavior(self):
         class GroupEvent:
             group_id = "123"
 
@@ -49,5 +50,30 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
             def get_session_id(self):
                 return "group_123_42"
 
+        GroupEvent.__module__ = "nonebot.adapters.onebot.v11.event"
+
         whitelist = {"legacy": {"private": ["42"]}, "sessions": []}
-        self.assertFalse(check._legacy_whitelist_matches(GroupEvent(), whitelist))
+        self.assertTrue(check._legacy_whitelist_matches(GroupEvent(), whitelist))
+
+    def test_personal_whitelist_grants_all_scopes_on_the_same_adapter(self):
+        class GroupEvent:
+            group_id = "456"
+
+            def get_user_id(self):
+                return "42"
+
+            def get_session_id(self):
+                return "group_456_42"
+
+        GroupEvent.__module__ = "nonebot.adapters.onebot.v11.event"
+        whitelist = {
+            "sessions": [],
+            "users": ["onebot.v11:user:42"],
+            "legacy": {},
+        }
+        with patch.object(check, "read_whitelist", return_value=whitelist):
+            self.assertTrue(check.is_whitelisted(GroupEvent()))
+
+        whitelist["users"] = ["satori:user:42"]
+        with patch.object(check, "read_whitelist", return_value=whitelist):
+            self.assertFalse(check.is_whitelisted(GroupEvent()))
