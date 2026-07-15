@@ -8,7 +8,13 @@ from typing import Any
 from nonebot.adapters import Event
 from nonebot.matcher import Matcher
 from nonebot.log import logger
-from nonebot_plugin_alconna.uniseg import CustomNode, Reference, UniMessage
+from nonebot_plugin_alconna.uniseg import (
+    CustomNode,
+    FallbackStrategy,
+    Reference,
+    SerializeFailed,
+    UniMessage,
+)
 
 from .paged_output import TextPages
 
@@ -56,9 +62,21 @@ async def finish_image_pages(
             for index, image in enumerate(images, start=1)
         ]
         try:
-            receipt = await UniMessage(Reference(nodes=nodes)).send(event)
+            receipt = await UniMessage(Reference(nodes=nodes)).send(
+                event,
+                fallback=FallbackStrategy.forbid,
+            )
+        except SerializeFailed as error:
+            # 导出阶段明确说明该适配器不支持合并引用，此时尚未投递，逐张降级是安全的。
+            logger.debug(f"合并引用消息不受当前适配器支持，改为逐张图片发送：{error}")
         except Exception as error:
-            logger.debug(f"合并引用消息发送失败，改为逐张图片发送：{error}")
+            # send() 同时包含导出、投递和回执。非导出错误可能发生在上游已接收
+            # 合并消息之后，继续逐张重试会造成整组图片重复刷屏。
+            logger.warning(
+                f"合并引用消息发送结果不确定，停止逐张重试以避免重复发送：{error}"
+            )
+            await matcher.finish()
+            return
         else:
             _schedule_recall(receipt, recall_after)
             await matcher.finish()

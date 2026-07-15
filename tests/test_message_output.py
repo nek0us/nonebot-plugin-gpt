@@ -5,7 +5,7 @@ import types
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from nonebot_plugin_alconna.uniseg import UniMessage
+from nonebot_plugin_alconna.uniseg import SerializeFailed, UniMessage
 
 
 _MODULE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt" / "message_output.py"
@@ -98,6 +98,7 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
             UniMessage.send = original_send
 
         send.assert_awaited_once()
+        self.assertEqual(send.await_args.kwargs["fallback"].value, "forbid")
         schedule.assert_called_once_with(send.return_value, 60)
         matcher.finish.assert_awaited_once_with()
 
@@ -105,7 +106,7 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
         matcher = _Matcher()
         original_send = UniMessage.send
         receipt = object()
-        send = AsyncMock(side_effect=(RuntimeError("unsupported"), receipt, receipt))
+        send = AsyncMock(side_effect=(SerializeFailed("unsupported"), receipt, receipt))
         UniMessage.send = send
         try:
             await finish_image_pages(
@@ -118,4 +119,22 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
             UniMessage.send = original_send
 
         self.assertEqual(send.await_count, 3)
+        matcher.finish.assert_awaited_once_with()
+
+    async def test_image_pages_do_not_retry_after_an_ambiguous_send_error(self):
+        matcher = _Matcher()
+        original_send = UniMessage.send
+        send = AsyncMock(side_effect=RuntimeError("transport response lost"))
+        UniMessage.send = send
+        try:
+            await finish_image_pages(
+                matcher,
+                object(),
+                (b"first", b"second"),
+                title="聊天记录",
+            )
+        finally:
+            UniMessage.send = original_send
+
+        send.assert_awaited_once()
         matcher.finish.assert_awaited_once_with()
