@@ -171,6 +171,14 @@ async def gpt_superuser_rule(event: Event) -> bool:
     return bool(user_id and user_id in config_nb.superusers)
 
 
+async def gpt_cdk_redeem_rule(event: Event) -> bool:
+    """允许未入白名单的正常用户兑换 CDK。"""
+    if not get_event_user_id(event):
+        return False
+    bans = _read_json(banpath, {})
+    return get_participant_key(event) not in bans
+
+
 async def add_white(session_id: str, plus: bool = False) -> str:
     """添加一个精确会话标识到白名单。"""
     whitelist = read_whitelist()

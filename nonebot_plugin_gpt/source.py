@@ -13,7 +13,7 @@ plugin_data_dir: Path = store.get_data_dir("nonebot_plugin_gpt")
 data_dir = plugin_data_dir / nb_project
 
 # 需要移动的文件夹列表
-dirs_to_move = ["ban", "white", "person", "conversation"]
+dirs_to_move = ["ban", "white", "person", "conversation", "cdk"]
 
 # 兼容性更新
 if os.name == 'nt':
@@ -54,6 +54,14 @@ plusstatus.touch()
 if not plusstatus.stat().st_size:
     tmp = {"status":True}
     plusstatus.write_text(json.dumps(tmp))
+
+# 跨平台 CDK。旧版 cdklist.json 与 cdksource.json 仍保留在此目录，
+# 由 CdkRegistry 首次加载时迁移到 v2 注册表。
+cdkpath = data_dir / "cdk"
+cdkpath.mkdir(parents=True, exist_ok=True)
+cdk_registry_path = cdkpath / "codes_v2.json"
+legacy_cdk_list_path = cdkpath / "cdklist.json"
+legacy_cdk_source_path = cdkpath / "cdksource.json"
         
 # 人设r18与归属扩展
 personpath = data_dir / "person"
