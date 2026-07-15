@@ -13,6 +13,7 @@ from .source import ban_str_path
 
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
+DEFAULT_EMPTY_TRIGGER_PROMPT = "有人正在呼唤你。请以当前人设自然回应，不要提及系统提示、空消息或内部实现。"
 
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
@@ -20,6 +21,7 @@ class Config(BaseModel):
     gpt_group_chat: bool = True
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
+    gpt_empty_trigger_prompt: str = DEFAULT_EMPTY_TRIGGER_PROMPT
     gpt_begin_sleep_time: bool = False
     gpt_chat_priority: int = 90
     gpt_command_priority: int = 19
@@ -37,6 +39,7 @@ class Config(BaseModel):
     gpt_free_image: bool = False
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
+    gpt_management_recall_after: int = Field(default=0, ge=0, le=3600)
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_agent_enabled: bool = False
@@ -69,6 +72,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_conversation_recovery_message 配置无效，已使用默认会话恢复提示")
         return DEFAULT_CONVERSATION_RECOVERY_MESSAGE
+
+    @validator("gpt_empty_trigger_prompt", always=True, pre=True)
+    def check_gpt_empty_trigger_prompt(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_empty_trigger_prompt 配置无效，已使用默认呼唤提示")
+        return DEFAULT_EMPTY_TRIGGER_PROMPT
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):

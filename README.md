@@ -90,9 +90,10 @@ _✨ NoneBot GPT ✨_
 |:-----:|:----:|:----:|:----:|:----:|
 | gpt_session | 是 | 无 | List[Dict[str,str]] | openai账号密码 |
 | gpt_proxy | 否 | 无 | str | 使用的代理 |
-| gpt_group_chat | 否 | true | bool | 群里开启多人识别 |
+| gpt_group_chat | 否 | true | bool | 群聊向模型提供发言者显示名与稳定身份，帮助自然区分多人；不对回复文本做名称替换 |
 | gpt_chat_start | 否 | [] | list | 聊天前缀，参考nb命令前缀 |
-| gpt_chat_start_in_msg | 否 | false | bool | 命令前缀是否包含在消息内 |
+| gpt_chat_start_in_msg | 否 | false | bool | 是否把聊天触发前缀原样交给模型；false 时仍保留“正在直接称呼机器人”的语境，但不将别名当作人设名称 |
+| gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
 | gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号（建议账号数量大于5开启） |
 | gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
 | gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
@@ -110,6 +111,7 @@ _✨ NoneBot GPT ✨_
 | gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
+| gpt_management_recall_after | 否 | 0 | int | 多页管理输出的自动撤回秒数；0 为关闭，适配器不支持时自动忽略 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_auto_init_group | 否 | false | bool | 群聊或频道中的用户首次聊天时，自动加载群聊默认人设 |
@@ -154,6 +156,10 @@ gpt_chat_start=[]
 
 gpt_chat_start_in_msg=false
 
+# NICKNAME 是机器人称呼列表；插件通过 Alconna 的跨平台原始消息抽象保留称呼语境
+# 仅 @机器人或只发送聊天前缀时，交给模型生成符合人设的自然回应
+gpt_empty_trigger_prompt="有人在呼唤你。请以当前人设自然回应。"
+
 gpt_begin_sleep_time=true
 
 gpt_chat_priority=90
@@ -192,6 +198,9 @@ gpt_force_upgrade_model=true
 
 # 富文本输出策略：auto、text、image
 gpt_render_mode="auto"
+
+# 多页帮助、列表、历史等管理输出在 60 秒后自动撤回；0 表示关闭
+gpt_management_recall_after=60
 
 # 请求失败时的用户提示，可按机器人身份调整
 gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"

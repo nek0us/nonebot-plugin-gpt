@@ -64,3 +64,18 @@ class EventScopeTests(unittest.TestCase):
 
         self.assertEqual(scope.identifier, "satori:private:dm-1")
         self.assertTrue(scope.is_private)
+
+    def test_group_speaker_prompt_keeps_name_and_identity_as_metadata(self):
+        event = make_event(
+            "nonebot.adapters.onebot.v11.event",
+            group_id=100,
+            session_id="group_100_alice",
+            sender=types.SimpleNamespace(card="小明", nickname="明明"),
+        )
+        event.get_user_id = lambda: "42"
+
+        prompt = event_scope.format_group_speaker_prompt(event, "你好")
+
+        self.assertIn('"speaker_id": "onebot.v11:user:42"', prompt)
+        self.assertIn('"speaker_name": "小明"', prompt)
+        self.assertTrue(prompt.endswith("用户消息：你好"))

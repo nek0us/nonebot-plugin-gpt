@@ -3,7 +3,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from nonebot_plugin_alconna.uniseg import UniMessage
 
@@ -59,3 +59,22 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(send.await_count, 2)
         matcher.finish.assert_awaited_once_with()
+
+    async def test_only_multi_page_management_output_schedules_recall(self):
+        matcher = _Matcher()
+        event = object()
+        original_send = UniMessage.send
+        UniMessage.send = AsyncMock(return_value=object())
+        try:
+            with patch.object(message_output, "_schedule_recall") as schedule:
+                await finish_message(
+                    matcher,
+                    event,
+                    TextPages(("第一页", "第二页")),
+                    recall_after=60,
+                )
+        finally:
+            UniMessage.send = original_send
+
+        self.assertEqual(schedule.call_count, 2)
+        self.assertTrue(all(call.args[1] == 60 for call in schedule.call_args_list))
