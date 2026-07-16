@@ -48,3 +48,31 @@ class TableDocumentTests(unittest.TestCase):
 
         self.assertIn("Plus", pages[0].html)
         self.assertIn("个人", pages[0].html)
+
+    def test_persona_table_shows_newest_first_without_renumbering(self):
+        personality = type("Personality", (), {
+            "init_list": [{"name": "旧人设"}, {"name": "中间人设"}, {"name": "新人设"}],
+        })()
+
+        pages = tables.persona_table_pages(personality, {})
+
+        self.assertEqual(pages[0].rows[0][:2], ("3", "新人设"))
+        self.assertEqual(pages[0].rows[-1][:2], ("1", "旧人设"))
+
+    def test_access_tables_show_newest_entries_first(self):
+        blacklist = tables.blacklist_table_pages({"旧目标": ["旧原因"], "新目标": ["新原因"]})
+        whitelist = tables.whitelist_table_pages(
+            {"sessions": ["会话:旧", "会话:新"], "users": ["用户:旧", "用户:新"]},
+            {},
+        )
+
+        self.assertEqual(blacklist[0].rows[0][0], "新目标")
+        self.assertEqual(whitelist[0].rows[:2], (("会话", "会话:新", "普通"), ("会话", "会话:旧", "普通")))
+
+    def test_cdk_table_orders_records_by_created_time_descending(self):
+        pages = tables.cdk_table_pages((
+            {"code": "old", "status": "available", "created_at": "2026-01-01T00:00:00+00:00"},
+            {"code": "new", "status": "available", "created_at": "2026-01-02T00:00:00+00:00"},
+        ))
+
+        self.assertEqual(pages[0].rows[0][0], "new")

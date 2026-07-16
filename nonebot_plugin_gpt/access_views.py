@@ -22,7 +22,7 @@ def parse_access_target(value: str, *, default_target: str = "") -> tuple[str, b
 
 def format_bans(bans: Mapping[str, Any], target: str = "") -> str:
     """生成简洁的黑名单文本。"""
-    keys = [target] if target else list(bans)
+    keys = [target] if target else list(reversed(list(bans)))
     lines = ["黑名单"]
     for key in keys:
         values = bans.get(key)
@@ -35,17 +35,17 @@ def format_bans(bans: Mapping[str, Any], target: str = "") -> str:
 def format_whitelist(whitelist: Mapping[str, Any], paid: Mapping[str, Any]) -> str:
     """生成白名单与 Plus 标记的跨平台文本。"""
     lines = ["白名单"]
-    for identifier in whitelist.get("sessions", []):
+    for identifier in reversed(list(whitelist.get("sessions", []))):
         marker = "，Plus" if str(identifier) in paid else ""
         lines.append(f"会话：{identifier}{marker}")
-    for identity in whitelist.get("users", []):
+    for identity in reversed(list(whitelist.get("users", []))):
         lines.append(f"个人：{identity}")
     legacy = whitelist.get("legacy", {})
     if isinstance(legacy, Mapping):
-        for kind, values in legacy.items():
+        for kind, values in reversed(list(legacy.items())):
             if not isinstance(values, list):
                 continue
-            for identifier in values:
+            for identifier in reversed(values):
                 marker = "，Plus" if str(identifier) in paid else ""
                 lines.append(f"旧版{kind}：{identifier}{marker}")
     return "\n".join(lines) if len(lines) > 1 else "白名单为空。"

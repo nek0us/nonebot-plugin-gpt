@@ -51,3 +51,13 @@ class AccessViewTests(unittest.TestCase):
         )
 
         self.assertIn("个人：onebot.v11:user:42", text)
+
+    def test_access_text_lists_show_newest_entries_first(self):
+        bans = access_views.format_bans({"旧目标": ["旧原因"], "新目标": ["新原因"]})
+        whitelist = access_views.format_whitelist(
+            {"version": 2, "sessions": ["会话:旧", "会话:新"]},
+            {},
+        )
+
+        self.assertLess(bans.index("新目标"), bans.index("旧目标"))
+        self.assertLess(whitelist.index("会话：会话:新"), whitelist.index("会话：会话:旧"))

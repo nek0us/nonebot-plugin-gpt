@@ -141,3 +141,16 @@ class CdkRegistryTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 "该 CDK 已被作废。",
             )
+
+    async def test_lists_show_newest_cdk_first(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry = CdkRegistry(Path(directory) / "codes.json")
+            state = registry._load()
+            state["codes"] = {
+                "old": {"status": "available", "created_at": "2026-01-01T00:00:00+00:00"},
+                "new": {"status": "available", "created_at": "2026-01-02T00:00:00+00:00"},
+            }
+            registry._write(state)
+
+            self.assertEqual(registry.list_records()[0]["code"], "new")
+            self.assertLess(registry.format_list().index("new"), registry.format_list().index("old"))

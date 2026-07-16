@@ -28,6 +28,10 @@ class PersonaViewTests(unittest.TestCase):
 
         self.assertIn("船长 (普通, 公开)", message.extract_plain_text())
         self.assertIn("秘密 (R18, 私有)", message.extract_plain_text())
+        self.assertLess(
+            message.extract_plain_text().index("2. 秘密"),
+            message.extract_plain_text().index("1. 船长"),
+        )
 
     def test_private_persona_is_not_exposed_to_other_users(self):
         message = persona_views.show_persona(

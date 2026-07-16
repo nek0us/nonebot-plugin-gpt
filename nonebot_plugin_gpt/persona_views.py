@@ -14,7 +14,8 @@ def list_personas(personality: Any, metadata: Mapping[str, Any]) -> UniMessage:
     if not personas:
         return UniMessage.text("还没有可用人设。")
     lines = ["人设列表"]
-    for index, item in enumerate(personas, start=1):
+    indexed_personas = enumerate(personas, start=1)
+    for index, item in reversed(list(indexed_personas)):
         name = str(item.get("name", "")) if isinstance(item, Mapping) else ""
         details = metadata.get(name, {})
         r18 = "R18" if isinstance(details, Mapping) and details.get("r18") else "普通"

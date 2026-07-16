@@ -91,7 +91,8 @@ def build_table_pages(
 
 def persona_table_pages(personality: Any, metadata: Mapping[str, Any]) -> tuple[str, ...]:
     rows = []
-    for index, item in enumerate(getattr(personality, "init_list", []), start=1):
+    indexed_personas = enumerate(getattr(personality, "init_list", []), start=1)
+    for index, item in reversed(list(indexed_personas)):
         if not isinstance(item, Mapping):
             continue
         name = _as_text(item.get("name"))
@@ -103,7 +104,8 @@ def persona_table_pages(personality: Any, metadata: Mapping[str, Any]) -> tuple[
 
 def blacklist_table_pages(bans: Mapping[str, Any], target: str = "") -> tuple[str, ...]:
     rows = []
-    for key in ([target] if target else bans):
+    keys = [target] if target else reversed(list(bans))
+    for key in keys:
         values = bans.get(key)
         if isinstance(values, list) and values:
             rows.append((key, str(values[0]).replace("\n", " ")))
@@ -112,22 +114,27 @@ def blacklist_table_pages(bans: Mapping[str, Any], target: str = "") -> tuple[st
 
 def whitelist_table_pages(whitelist: Mapping[str, Any], paid: Mapping[str, Any]) -> tuple[str, ...]:
     rows = []
-    for identifier in whitelist.get("sessions", []):
+    for identifier in reversed(list(whitelist.get("sessions", []))):
         rows.append(("会话", identifier, "Plus" if str(identifier) in paid else "普通"))
-    for identity in whitelist.get("users", []):
+    for identity in reversed(list(whitelist.get("users", []))):
         rows.append(("个人", identity, "-"))
     legacy = whitelist.get("legacy", {})
     if isinstance(legacy, Mapping):
-        for kind, values in legacy.items():
+        for kind, values in reversed(list(legacy.items())):
             if isinstance(values, list):
-                for identifier in values:
+                for identifier in reversed(values):
                     rows.append((f"旧版 {kind}", identifier, "Plus" if str(identifier) in paid else "普通"))
     return build_table_pages("白名单列表", ("类型", "标识", "权限"), rows, subtitle="会话与个人授权范围")
 
 
 def cdk_table_pages(records: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
     rows = []
-    for record in records:
+    ordered_records = sorted(
+        records,
+        key=lambda record: (str(record.get("created_at") or ""), str(record.get("code") or "")),
+        reverse=True,
+    )
+    for record in ordered_records:
         kind = "个人" if str(record.get("grant_kind") or "scope") == "participant" else "会话"
         rows.append((
             record.get("code"),

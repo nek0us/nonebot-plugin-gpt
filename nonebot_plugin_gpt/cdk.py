@@ -227,7 +227,12 @@ class CdkRegistry:
         if not codes:
             return "暂无 CDK。"
         lines = ["CDK 列表"]
-        for code, record in sorted(codes.items()):
+        records = sorted(
+            codes.items(),
+            key=lambda item: (str(item[1].get("created_at") or "") if isinstance(item[1], dict) else "", item[0]),
+            reverse=True,
+        )
+        for code, record in records:
             if not isinstance(record, dict):
                 continue
             status = str(record.get("status", "unknown"))
@@ -249,7 +254,13 @@ class CdkRegistry:
     def list_records(self) -> list[dict[str, str]]:
         """返回供管理视图表格使用的非敏感 CDK 元数据。"""
         records: list[dict[str, str]] = []
-        for code, record in sorted(self._load()["codes"].items()):
+        codes = self._load()["codes"]
+        ordered_codes = sorted(
+            codes.items(),
+            key=lambda item: (str(item[1].get("created_at") or "") if isinstance(item[1], dict) else "", item[0]),
+            reverse=True,
+        )
+        for code, record in ordered_codes:
             if not isinstance(record, dict):
                 continue
             records.append({
