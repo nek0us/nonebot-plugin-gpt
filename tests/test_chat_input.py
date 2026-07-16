@@ -4,6 +4,8 @@ import types
 import unittest
 from pathlib import Path
 
+from nonebot_plugin_alconna.uniseg import Audio, At, File, Image, Text, UniMessage, Video
+
 
 PACKAGE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt"
 package = types.ModuleType("nonebot_plugin_gpt")
@@ -13,6 +15,51 @@ chat_input = importlib.import_module("nonebot_plugin_gpt.chat_input")
 
 
 class ChatInputTests(unittest.TestCase):
+    def test_message_extraction_preserves_a_mentioned_user(self):
+        message = UniMessage(
+            [
+                Text("猪咪，如何评价"),
+                At("user", "541608820", "萨雨连傅说:王国之戾"),
+            ]
+        )
+
+        self.assertEqual(
+            chat_input.extract_chat_message(message, self_id="1113587295"),
+            "猪咪，如何评价@萨雨连傅说:王国之戾（用户ID：541608820）",
+        )
+
+    def test_message_extraction_omits_a_mentioned_bot(self):
+        message = UniMessage(
+            [
+                At("user", "1113587295", "猪咪"),
+                Text("如何评价"),
+                At("user", "541608820", "萨雨连傅说:王国之戾"),
+            ]
+        )
+
+        self.assertEqual(
+            chat_input.extract_chat_message(message, self_id="1113587295"),
+            "如何评价@萨雨连傅说:王国之戾（用户ID：541608820）",
+        )
+
+    def test_message_extraction_marks_non_text_attachments(self):
+        message = UniMessage(
+            [
+                Image(name="cat.png"),
+                Audio(name="voice.mp3"),
+                Video(name="clip.mp4"),
+                File(name="notes.pdf"),
+            ]
+        )
+
+        self.assertEqual(
+            chat_input.extract_chat_message(message),
+            "【图片附件：cat.png】"
+            "【音频附件：voice.mp3，暂不支持解析】"
+            "【视频附件：clip.mp4，暂不支持解析】"
+            "【文件附件：notes.pdf，暂不支持读取】",
+        )
+
     def test_nickname_preserves_the_original_natural_subject_by_default(self):
         prompt = chat_input.build_chat_prompt(
             "今天吃什么",

@@ -13,6 +13,17 @@ attachments = importlib.import_module("nonebot_plugin_gpt.attachments")
 
 
 class AttachmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unimessage_image_is_extracted_without_adapter_conversion(self):
+        from nonebot_plugin_alconna.uniseg import Image, UniMessage
+
+        files = await attachments.extract_image_files(
+            UniMessage([Image(raw=b"image-data", name="cat.png")]),
+        )
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].name, "cat.png")
+        self.assertEqual(files[0].content, b"image-data")
+
     async def test_segments_without_http_image_urls_are_ignored(self):
         class Segment:
             def __init__(self, segment_type, data):

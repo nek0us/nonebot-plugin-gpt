@@ -17,10 +17,13 @@ async def extract_image_files(message, *, proxy: str = "") -> list[IOFile]:
     urls: list[str] = []
     seen_urls: set[str] = set()
 
-    try:
-        unified = UniMessage.of(message)
-    except Exception:
-        unified = UniMessage()
+    if isinstance(message, UniMessage):
+        unified = message
+    else:
+        try:
+            unified = UniMessage.of(message)
+        except Exception:
+            unified = UniMessage()
     for segment in unified:
         if not isinstance(segment, Image):
             continue

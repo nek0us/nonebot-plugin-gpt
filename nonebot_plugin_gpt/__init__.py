@@ -3,7 +3,7 @@ from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_message
 from nonebot.matcher import Matcher
-from nonebot.params import Arg, EventMessage
+from nonebot.params import Arg
 from nonebot.adapters import Event
 from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
@@ -41,7 +41,7 @@ from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_image_files
 from .auto_persona import AutoPersonaInitializer
-from .chat_input import build_chat_prompt
+from .chat_input import build_chat_prompt, extract_chat_message
 from .persona_views import list_personas, show_persona
 from .persona_editor import (
     PersonaValidationError,
@@ -326,13 +326,16 @@ if isinstance(config_gpt.gpt_session,list):
         event: Event,
         matcher: Matcher,
         original_message: OriginalUniMsg,
-        text = EventMessage(),
     ):
         if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
+        message_text = extract_chat_message(
+            original_message,
+            self_id=str(getattr(event, "self_id", "")),
+        )
         prompt = build_chat_prompt(
-            text.extract_plain_text(),
-            original_text=original_message.extract_plain_text(),
+            message_text,
+            original_text=message_text,
             nicknames=[str(name) for name in getattr(config_nb, "nickname", [])],
             chat_prefixes=config_gpt.gpt_chat_start,
             include_prefix=config_gpt.gpt_chat_start_in_msg,
@@ -353,7 +356,7 @@ if isinstance(config_gpt.gpt_session,list):
             logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
         files = []
         if config_gpt.gpt_free_image or prefer_paid_account:
-            files = await extract_image_files(text, proxy=config_gpt.gpt_proxy)
+            files = await extract_image_files(original_message, proxy=config_gpt.gpt_proxy)
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,
             ConversationKey.from_event(event),

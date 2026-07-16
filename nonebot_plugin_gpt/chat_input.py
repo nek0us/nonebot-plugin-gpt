@@ -2,6 +2,70 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from nonebot_plugin_alconna.uniseg import (
+    At,
+    AtAll,
+    Audio,
+    Emoji,
+    File,
+    Image,
+    Text,
+    UniMessage,
+    Video,
+    Voice,
+)
+
+
+def _segment_text(segment: Any) -> str:
+    if isinstance(segment, Text):
+        return segment.text
+    if isinstance(segment, At):
+        display = " ".join((segment.display or "").split())
+        target = str(segment.target).strip()
+        label = display or target or "未知对象"
+        kind = {
+            "user": "用户",
+            "role": "身份组",
+            "channel": "频道",
+        }.get(segment.flag, "对象")
+        identifier = f"{kind}ID：{target}" if target else ""
+        return f"@{label}（{identifier}）" if identifier else f"@{label}"
+    if isinstance(segment, AtAll):
+        return "@全体成员"
+    if isinstance(segment, Image):
+        return f"【图片附件：{segment.name or '未命名图片'}】"
+    if isinstance(segment, (Audio, Voice)):
+        return f"【音频附件：{segment.name or '未命名音频'}，暂不支持解析】"
+    if isinstance(segment, Video):
+        return f"【视频附件：{segment.name or '未命名视频'}，暂不支持解析】"
+    if isinstance(segment, File):
+        return f"【文件附件：{segment.name or '未命名文件'}，暂不支持读取】"
+    if isinstance(segment, Emoji):
+        return f"【表情：{segment.name or segment.id}】"
+    return ""
+
+
+def extract_chat_message(message: Any, *, self_id: str = "") -> str:
+    """保留跨平台消息中的文本与提及语义，移除仅用于唤醒机器人的 @。"""
+    if isinstance(message, UniMessage):
+        segments = message
+    else:
+        try:
+            segments = UniMessage.of(message)
+        except Exception:
+            extract_plain_text = getattr(message, "extract_plain_text", None)
+            return str(extract_plain_text() if callable(extract_plain_text) else message or "")
+
+    bot_id = str(self_id).strip()
+    parts: list[str] = []
+    for segment in segments:
+        if isinstance(segment, At) and segment.flag == "user" and bot_id and segment.target == bot_id:
+            continue
+        parts.append(_segment_text(segment))
+    return "".join(parts)
+
 
 def _only_repeated_prefix(text: str, prefix: str) -> bool:
     compact_text = "".join(text.split())
