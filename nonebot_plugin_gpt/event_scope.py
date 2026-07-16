@@ -131,6 +131,27 @@ def format_group_speaker_prompt(event: Event, message: str) -> str:
     return f"{GROUP_SPEAKER_TAG} {json.dumps(metadata, ensure_ascii=False)}\n{message}"
 
 
+def project_group_speaker_prompt(message: str, *, anonymize: bool = False) -> tuple[str, str]:
+    """将内部群聊发言者标签投影为历史视图可用的身份与正文。"""
+    if message.startswith(GROUP_SPEAKER_TAG):
+        header, separator, body = message.partition("\n")
+        try:
+            metadata = json.loads(header.removeprefix(GROUP_SPEAKER_TAG).strip())
+        except json.JSONDecodeError:
+            metadata = None
+        if isinstance(metadata, dict) and separator:
+            if anonymize:
+                return "用户", body.strip()
+            name = " ".join(str(metadata.get("name") or "").split())
+            identity = str(metadata.get("id") or "").strip()
+            if name:
+                return f"用户 · {name[:80]}", body.strip()
+            if identity:
+                return f"用户 · {identity.rsplit(':', maxsplit=1)[-1]}", body.strip()
+            return "用户", body.strip()
+    return "用户", strip_group_speaker_prompt(message)
+
+
 def strip_group_speaker_prompt(message: str) -> str:
     """从上游历史记录中移除插件写入的群聊发言者标签。"""
     if message.startswith(GROUP_SPEAKER_TAG):

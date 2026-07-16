@@ -156,7 +156,7 @@ def render_history_page(page: Any) -> bytes:
         draw.text((margin + 14, y + 7), label, font=round_font, fill="#6149ad")
         y += 47
         for role, lines, fill, border, role_color in (
-            ("用户", user_lines, "#eaf3ff", "#d4e8ff", "#2d6eae"),
+            (round_item.speaker, user_lines, "#eaf3ff", "#d4e8ff", "#2d6eae"),
             ("回复", reply_lines, "#fff0f6", "#ffdce9", "#b4537c"),
         ):
             if not lines:

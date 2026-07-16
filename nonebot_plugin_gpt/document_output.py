@@ -9,7 +9,7 @@ from html import escape
 
 import markdown
 
-from .event_scope import strip_group_speaker_prompt
+from .event_scope import project_group_speaker_prompt
 from .history_views import parse_history_range
 from .image_fallback import render_history_page, render_markdown_page, use_local_font_renderer
 
@@ -72,6 +72,7 @@ class HistoryRound:
     number: int
     question: str
     answer: str
+    speaker: str = "用户"
     continuation: str = ""
 
 
@@ -152,16 +153,26 @@ def build_history_markdown_pages(
     history: Iterable[dict[str, str]],
     value: str = "",
     *,
+    anonymize: bool = False,
     page_limit: int = 6000,
 ) -> tuple[str, ...]:
     """保留历史 Markdown 投影，供文本回退与兼容调用使用。"""
-    return tuple(page.markdown for page in build_history_pages(history, value, page_limit=page_limit))
+    return tuple(
+        page.markdown
+        for page in build_history_pages(
+            history,
+            value,
+            anonymize=anonymize,
+            page_limit=page_limit,
+        )
+    )
 
 
 def _history_rounds(
     history: Iterable[dict[str, str]],
     value: str,
     *,
+    anonymize: bool,
     page_limit: int,
 ) -> list[HistoryRound]:
     """将历史拆成可独立绘制的轮次，极长内容保留明确的续页标签。"""
@@ -171,24 +182,29 @@ def _history_rounds(
     rounds: list[HistoryRound] = []
     part_limit = max(page_limit - 560, 180)
     for index, item in enumerate(selected, start=start + 1):
-        question = strip_group_speaker_prompt(str(item.get("Q") or item.get("input") or "")).strip()
+        speaker, question = project_group_speaker_prompt(
+            str(item.get("Q") or item.get("input") or ""),
+            anonymize=anonymize,
+        )
+        question = question.strip()
         answer = str(item.get("A") or item.get("output") or "").strip()
         question = question or "（空消息）"
         answer = answer or "（无回复）"
         if len(question) + len(answer) <= part_limit:
-            rounds.append(HistoryRound(index, question, answer))
+            rounds.append(HistoryRound(index, question, answer, speaker=speaker))
             continue
 
-        for role, content in (("用户", question), ("回复", answer)):
+        for is_question, role, content in ((True, speaker, question), (False, "回复", answer)):
             segments = _split_block(content, max(part_limit - 180, 120))
             for segment_index, segment in enumerate(segments, start=1):
                 continuation = f"{role}续 {segment_index}/{len(segments)}" if len(segments) > 1 else role
                 rounds.append(
                     HistoryRound(
                         index,
-                        segment if role == "用户" else "",
-                        segment if role == "回复" else "",
-                        continuation,
+                        segment if is_question else "",
+                        segment if not is_question else "",
+                        speaker=speaker,
+                        continuation=continuation,
                     )
                 )
     return rounds
@@ -202,7 +218,7 @@ def _history_markdown(rounds: Iterable[HistoryRound], index: int, total: int) ->
             label += f" · {round_item.continuation}"
         content = [f"## {label}"]
         if round_item.question:
-            content.append(f"### 用户\n\n{round_item.question}")
+            content.append(f"### {round_item.speaker}\n\n{round_item.question}")
         if round_item.answer:
             content.append(f"### 回复\n\n{round_item.answer}")
         blocks.append("\n\n".join(content))
@@ -219,7 +235,7 @@ def _history_html(rounds: Iterable[HistoryRound], index: int, total: int) -> str
         cards = []
         if round_item.question:
             cards.append(
-                f'<section class="card user"><p class="role">用户</p><div class="content">'
+                f'<section class="card user"><p class="role">{escape(round_item.speaker)}</p><div class="content">'
                 f"{escape(round_item.question)}</div></section>"
             )
         if round_item.answer:
@@ -241,10 +257,16 @@ def build_history_pages(
     history: Iterable[dict[str, str]],
     value: str = "",
     *,
+    anonymize: bool = False,
     page_limit: int = 6000,
 ) -> tuple[HistoryPage, ...]:
     """构造适合图片卡片展示的聊天历史分页。"""
-    rounds = _history_rounds(history, value, page_limit=page_limit)
+    rounds = _history_rounds(
+        history,
+        value,
+        anonymize=anonymize,
+        page_limit=page_limit,
+    )
     if not rounds:
         rounds = [HistoryRound(0, "当前逻辑会话还没有可展示的聊天记录。", "")]
 

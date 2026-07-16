@@ -129,6 +129,7 @@ _✨ NoneBot GPT ✨_
 | gpt_force_upgrade_model| 否 | true | bool | 避免已保存逻辑会话继续选择不适合免费账户的旧模型偏好。 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；渲染异常会回退文本。 |
 | gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式。`native` 是粉蓝紫纵向主题，`off` 是黑白纵向主题；也可填写含 `{{ content }}` 的自定义 HTML 模板路径。 |
+| gpt_history_anonymize | 否 | false | bool | 历史聊天是否隐藏群聊发言者昵称；默认 false，历史图片会显示当时记录的昵称，开启后统一显示为“用户”。 |
 | gpt_management_recall_after | 否 | 0 | int | 多页帮助、列表、历史等管理输出的自动撤回秒数；`0` 关闭，适配器不支持撤回时自动忽略。 |
 | gpt_context_compaction_mode | 否 | summarize_restart | off/reinforce/summarize_restart | 接近上下文上限时：关闭、仅补发人设、或摘要后迁移到新逻辑会话。 |
 | gpt_context_compaction_threshold | 否 | 0.6 | 0.1-0.95 | 估算上下文达到模型上限比例时触发维护。 |
@@ -322,6 +323,7 @@ SUPERUSERS=["admin user id"]
 ### 群聊、上下文与图片输出
 
 - `gpt_group_chat=true` 时，每一条群聊输入都会在发送给模型前附加固定的 `[群聊发言者]` 标签，包含稳定身份与适配器可用的显示名。它只辅助模型区分成员，不会强制替换模型回复，也不会出现在历史聊天图片中。
+- `gpt_history_anonymize=false` 时，历史聊天会将上述内部标签投影为“用户 · 昵称”；标签本身与完整平台身份不会显示。需要隐藏群成员昵称时设为 true。
 - 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
 - `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。
 - `gpt_render_mode=auto` 会根据内容复杂度与适配器能力选择文本或图片。长帮助、历史、名单等管理内容优先分页图片；多页时优先以合并引用消息发送。

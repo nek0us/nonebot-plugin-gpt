@@ -62,7 +62,7 @@ class HistoryViewTests(unittest.TestCase):
         self.assertEqual([item["Q"] for item in projection.entries], ["你好"])
         self.assertEqual(projection.resolve_rewind_reference("1"), "2")
 
-    def test_history_hides_group_speaker_metadata(self):
+    def test_history_shows_group_speaker_name_by_default(self):
         history = [
             {
                 "Q": '[群聊发言者] {"id": "onebot.v11:user:42", "name": "小明"}\n你好',
@@ -72,5 +72,18 @@ class HistoryViewTests(unittest.TestCase):
 
         text = history_views.format_history(history)
 
-        self.assertIn("用户：你好", text)
+        self.assertIn("用户 · 小明：你好", text)
         self.assertNotIn("群聊发言者", text)
+
+    def test_history_can_anonymize_group_speaker(self):
+        history = [
+            {
+                "Q": '[群聊发言者] {"id": "onebot.v11:user:42", "name": "小明"}\n你好',
+                "A": "你好，小明。",
+            }
+        ]
+
+        text = history_views.format_history(history, anonymize=True)
+
+        self.assertIn("用户：你好", text)
+        self.assertNotIn("用户 · 小明", text)

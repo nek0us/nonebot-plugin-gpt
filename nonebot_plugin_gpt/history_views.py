@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .event_scope import strip_group_speaker_prompt
+from .event_scope import project_group_speaker_prompt
 
 
 @dataclass(frozen=True)
@@ -69,7 +69,12 @@ def parse_history_range(value: str, total: int) -> tuple[int, int]:
         return 0, total
 
 
-def format_history(history: Iterable[dict[str, str]], value: str = "") -> str:
+def format_history(
+    history: Iterable[dict[str, str]],
+    value: str = "",
+    *,
+    anonymize: bool = False,
+) -> str:
     """生成不包含物理消息标识的问答历史文本。"""
     entries = list(history)
     start, end = parse_history_range(value, len(entries))
@@ -78,7 +83,10 @@ def format_history(history: Iterable[dict[str, str]], value: str = "") -> str:
         return "当前逻辑会话还没有可展示的聊天记录。"
     lines = ["聊天记录"]
     for index, item in enumerate(selected, start=start + 1):
-        question = strip_group_speaker_prompt(str(item.get("Q") or item.get("input") or ""))
+        speaker, question = project_group_speaker_prompt(
+            str(item.get("Q") or item.get("input") or ""),
+            anonymize=anonymize,
+        )
         answer = str(item.get("A") or item.get("output") or "")
-        lines.extend((f"{index}. 用户：{question}", f"   回复：{answer}"))
+        lines.extend((f"{index}. {speaker}：{question}", f"   回复：{answer}"))
     return "\n".join(lines)

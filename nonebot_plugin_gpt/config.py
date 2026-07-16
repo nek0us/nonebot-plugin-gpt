@@ -46,6 +46,7 @@ class Config(BaseModel):
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_chat_image_template: str = "native"
     gpt_management_recall_after: int = Field(default=0, ge=0, le=3600)
+    gpt_history_anonymize: bool = False
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_agent_enabled: bool = False

@@ -595,11 +595,19 @@ if isinstance(config_gpt.gpt_session,list):
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = _argument_text(argument)
         history = await chat_runtime.get_visible_history(ConversationKey.from_event(event))
-        fallback = format_history(history.entries, value)
+        fallback = format_history(
+            history.entries,
+            value,
+            anonymize=config_gpt.gpt_history_anonymize,
+        )
         await _finish_history_document(
             matcher,
             event,
-            pages=build_history_pages(history.entries, value),
+            pages=build_history_pages(
+                history.entries,
+                value,
+                anonymize=config_gpt.gpt_history_anonymize,
+            ),
             fallback=fallback,
         )
 

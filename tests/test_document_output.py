@@ -36,7 +36,7 @@ class DocumentOutputTests(unittest.TestCase):
         self.assertIn(f"第 1 / {len(pages)} 页", pages[0])
         self.assertIn(f"第 {len(pages)} / {len(pages)} 页", pages[-1])
 
-    def test_history_hides_internal_group_speaker_metadata(self):
+    def test_history_shows_group_speaker_name_without_internal_metadata(self):
         pages = document_output.build_history_markdown_pages([
             {
                 "Q": '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明"}\n你好',
@@ -47,6 +47,7 @@ class DocumentOutputTests(unittest.TestCase):
         self.assertIn("你好", pages[0])
         self.assertNotIn("群聊发言者", pages[0])
         self.assertNotIn("onebot.v11:user:42", pages[0])
+        self.assertIn("用户 · 小明", pages[0])
 
     def test_very_long_history_round_keeps_a_labeled_continuation(self):
         pages = document_output.build_history_markdown_pages([
