@@ -28,11 +28,20 @@ _✨ NoneBot GPT ✨_
 
 ## 📖 介绍
 
-自用的使用浏览器 ChatGPT 接入 NoneBot2 插件。聊天和管理命令基于 Alconna 与 UniMessage，支持接入不同适配器。
+基于浏览器 ChatGPT 会话的 NoneBot2 插件。聊天和管理命令使用 Alconna 与 UniMessage，支持接入不同适配器，并提供逻辑会话、人设、授权、富文本和受控智能体能力。
+
+| 能力 | 说明 |
+| --- | --- |
+| 跨平台聊天 | 使用 NoneBot 统一事件和 UniMessage，不依赖 OneBot 专属消息类型。 |
+| 逻辑会话 | 群聊/频道共享会话，私聊独立；支持初始化、重置、回退、历史与切换。 |
+| 人设与上下文 | 支持公开/私有人设、自动初始化、会话内人设强化与上下文摘要迁移。 |
+| 富文本输出 | 根据内容和适配器能力输出文本或 Markdown 图片，支持自定义聊天图片模板。 |
+| 授权管理 | 支持会话/个人白名单、一次性 CDK、黑名单、Plus 权限、账户状态与本机控制台。 |
+
 
 ### 使用条件
 
-需要纯净ip用来过cf，另外根据使用账号数量需要相应多的内存
+需要能正常访问 ChatGPT 的网络环境。首次登录、Cloudflare 验证、邮箱验证码和浏览器启动故障建议在带桌面的环境中排查；多账号常驻会增加内存占用。
 
 ## 💿 安装
 
@@ -46,7 +55,7 @@ _✨ NoneBot GPT ✨_
 
 <details>
 <summary>使用包管理器安装</summary>
-在 nonebot2 项目的插件目录下, 打开命令行, 根据你使用的包管理器, 输入相应的安装命令
+在 NoneBot2 项目根目录打开命令行，根据使用的包管理器执行其一：
 
 <details>
 <summary>pip</summary>
@@ -59,16 +68,15 @@ _✨ NoneBot GPT ✨_
     pdm add nonebot-plugin-gpt
 </details>
 <details>
+<summary>uv</summary>
+
+    uv add nonebot-plugin-gpt
+</details>
+<details>
 <summary>poetry</summary>
 
     poetry add nonebot-plugin-gpt
 </details>
-<details>
-<summary>conda</summary>
-
-    conda install nonebot-plugin-gpt
-</details>
-
 打开 nonebot2 项目根目录下的 `pyproject.toml` 文件, 在 `[tool.nonebot]` 部分追加写入
 
     plugins = ["nonebot_plugin_gpt"]
@@ -80,75 +88,85 @@ _✨ NoneBot GPT ✨_
 
     pip install nonebot-plugin-gpt -U
 
+    pdm update nonebot-plugin-gpt
+
+    uv lock --upgrade-package nonebot-plugin-gpt
+    uv sync
+
 </details>
 
 ## ⚙️ 配置
 
-在 nonebot2 项目的`.env`文件中添加下表中的必填配置
+在 NoneBot2 项目的 `.env` 文件中添加下列配置。列表和对象建议使用 JSON，并把整个值包在单引号中。
 
 | 配置项 | 必填 | 默认值 | 类型 | 说明 |
 |:-----:|:----:|:----:|:----:|:----:|
-| gpt_session | 是 | 无 | List[Dict[str,str]] | openai账号密码 |
-| gpt_proxy | 否 | 无 | str | 使用的代理 |
-| gpt_group_chat | 否 | true | bool | 群聊向模型附加固定发言者标签（稳定身份与显示名），帮助自然区分多人；不对回复文本做名称替换 |
+| gpt_session | 是 | 无 | JSON List[Dict] | ChatGPT 账号列表；`email`、`password` 必填，`mode` 可为 `openai`（默认）、`microsoft`、`google`。请使用 JSON。 |
+| gpt_proxy | 否 | 无 | str | 提供给核心浏览器运行时的代理地址，例如 `http://127.0.0.1:7890`；用于访问 ChatGPT，不影响 NoneBot 的其他网络请求。 |
+| gpt_group_chat | 否 | true | bool | 群聊/频道向模型附加固定 `[群聊发言者]` 标签，包含稳定身份与可用显示名，帮助模型区分成员。 |
 | gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
 | gpt_chat_start_in_msg | 否 | false | bool | 是否把 `gpt_chat_start` 路由前缀原样交给模型；false 时会移除纯路由前缀，但 `NICKNAME` 的自然称呼会保留原句主语 |
 | gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
 | gpt_direct_address_context_enabled | 否 | false | bool | 是否额外向模型解释“用户正在直接称呼机器人”；默认关闭，保留如“猪咪今天吃什么”的原始主语，减少内部提示干扰 |
 | gpt_direct_address_context_prompt | 否 | 见配置默认值 | str | 开启上述开关后附加的称呼语境提示；仅供模型理解，不会发送给用户 |
-| gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号（建议账号数量大于5开启） |
-| gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
-| gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
-| gpt_white_list_mode | 否 | true | bool | 聊天白名单模式 |
-| gpt_plus_white_list_mode | 否 | true | bool | Plus 模型聊天白名单模式 |
-| gpt_replay_to_replay | 否 | false | bool | 是否响应"回复消息" |
-| gpt_ban_str | 否 | 无 | List[str] | 黑名单屏蔽词列表 |
-| gpt_manage_ids | 否 | 无 | List[str] | 管理访问范围标识，可在目标会话执行“会话标识”获取 |
-| gpt_save_screen| 否 | false | bool | 自动保存非必须的错误截图 |
-| gpt_headless| 否 | true | bool | 使用无头浏览器 |
-| gpt_local_js| 否 | false | bool | 使用本地js不联网获取 |
-| gpt_control_host | 否 | 127.0.0.1 | str | 核心账户控制台监听地址 |
-| gpt_control_port | 否 | 无 | int | 核心账户控制台端口；留空则不开启 |
-| gpt_control_api_key | 否 | 自动生成 | str | 控制台 API 密钥；建议显式配置并妥善保管 |
-| gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
-| gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
-| gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
-| gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式：native 为柔和纵向主题，off 为黑白纵向主题；填写本地 HTML 模板路径可自定义 |
-| gpt_management_recall_after | 否 | 0 | int | 多页管理输出的自动撤回秒数；0 为关闭，适配器不支持时自动忽略 |
+| gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号，减少多账号同时登录；账号少时通常关闭。 |
+| gpt_chat_priority | 否 | 90 | int | 普通聊天匹配器优先级。只有与其他插件抢占消息时才需要调整，数值越小越先执行。 |
+| gpt_command_priority | 否 | 19 | int | 插件命令匹配器优先级。通常保持比聊天优先，以便“重置”等命令不会被当作普通对话。 |
+| gpt_white_list_mode | 否 | true | bool | `true` 时普通聊天要求会话白名单或个人白名单；管理权限、CDK 兑换仍有独立规则。 |
+| gpt_plus_white_list_mode | 否 | true | bool | `true` 时高级模型切换需要 Plus 授权；关闭后是否有高级账户仍由上游账户能力决定。 |
+| gpt_replay_to_replay | 否 | false | bool | 是否将“回复机器人上一条消息”的事件视为聊天触发。开启会增加群聊中的触发机会。 |
+| gpt_ban_str | 否 | `[]` | JSON List[str] | 屏蔽词列表；命中后消息不会交给模型。不要把它当作完整内容安全系统。 |
+| gpt_manage_ids | 否 | `[]` | JSON List[str] | 额外管理会话的稳定访问范围标识。管理员在目标会话使用“会话标识”取得该值后配置。 |
+| gpt_save_screen| 否 | false | bool | 保存额外的登录、刷新、渲染失败截图。截图可能含账号或聊天内容，以便debug。 |
+| gpt_headless| 否 | true | bool | 是否无头运行 Firefox。以便debug。 |
+| gpt_local_js| 否 | false | bool | `false` 使用联网兼容脚本，便于跟随网页更新；`true` 使用本地缓存，适合网络排障但可能过期。 |
+| gpt_control_host | 否 | 127.0.0.1 | str | 核心账户控制台监听地址。 |
+| gpt_control_port | 否 | 无 | int | 控制台端口；留空不开启。设置为 `8765` 时从本机访问 `http://127.0.0.1:8765`。 |
+| gpt_control_api_key | 否 | 自动生成 | str | 控制台 API 密钥。 |
+| gpt_free_image| 否 | false | bool | 允许免费账户上传图片；额度较低且受上游限制，默认关闭。 |
+| gpt_force_upgrade_model| 否 | true | bool | 避免已保存逻辑会话继续选择不适合免费账户的旧模型偏好。 |
+| gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；渲染异常会回退文本。 |
+| gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式。`native` 是粉蓝紫纵向主题，`off` 是黑白纵向主题；也可填写含 `{{ content }}` 的自定义 HTML 模板路径。 |
+| gpt_management_recall_after | 否 | 0 | int | 多页帮助、列表、历史等管理输出的自动撤回秒数；`0` 关闭，适配器不支持撤回时自动忽略。 |
+| gpt_context_compaction_mode | 否 | summarize_restart | off/reinforce/summarize_restart | 接近上下文上限时：关闭、仅补发人设、或摘要后迁移到新逻辑会话。 |
+| gpt_context_compaction_threshold | 否 | 0.6 | 0.1-0.95 | 估算上下文达到模型上限比例时触发维护。 |
+| gpt_context_compaction_min_tokens | 否 | 0 | int | 估算 token 未达到此值不触发维护；0 表示只看比例。 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
-| gpt_auto_init_group | 否 | false | bool | 群聊或频道中的用户首次聊天时，自动加载群聊默认人设 |
-| gpt_auto_init_friend | 否 | false | bool | 私聊用户首次聊天时，自动加载私聊默认人设 |
-| gpt_init_group_persona_name | 否 | 无 | str | 群聊自动初始化使用的人设名称 |
-| gpt_init_friend_persona_name | 否 | 无 | str | 私聊自动初始化使用的人设名称 |
-| gpt_agent_enabled | 否 | false | bool | 启用仅超级用户可调用的受控智能体工具 |
-| gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 智能体待确认操作的有效秒数 |
-| gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 智能体低风险临时授权的有效秒数 |
-| gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 智能体已校验计划的有效秒数 |
-| gpt_agent_managed_services | 否 | [] | List[Dict] | 智能体可查询的受管服务；仅支持管理员预先配置的 pid_file 或 tcp 目标 |
+| gpt_auto_init_group | 否 | false | bool | 群聊或频道首次有效聊天时自动加载群聊默认人设；不会覆盖已有逻辑会话。 |
+| gpt_auto_init_friend | 否 | false | bool | 私聊首次有效聊天时自动加载私聊默认人设；不会覆盖已有逻辑会话。 |
+| gpt_init_group_persona_name | 否 | 空 | str | 群聊自动初始化使用的人设名称。配置不存在的人设会跳过自动初始化并创建普通会话。 |
+| gpt_init_friend_persona_name | 否 | 空 | str | 私聊自动初始化使用的人设名称，行为同上。 |
+| gpt_agent_enabled | 否 | false | bool | 启用受控智能体入口。入口仍只允许 `SUPERUSERS`，`gpt_manage_ids` 不会获得智能体权限。 |
+| gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 单次待确认操作的有效秒数；超时后需要重新计划或重新执行。 |
+| gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数；写入、网络和进程控制始终逐次确认。 |
+| gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
+| gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
+| gpt_agent_managed_services | 否 | `[]` | JSON List[Dict] | 管理员预先声明的 `pid_file` 或 `tcp` 服务；模型不能传入任意进程、端口或 shell 命令。 |
 
-```bash
-# gpt配置示例
-# 当mode为空或者为openai时，建议提前手动登录一次获取session_token填入（成功使用后可删除session_token项），mode目前不支持苹果账号
+> `gpt_init_group_pernal_name` 与 `gpt_init_friend_pernal_name` 是历史拼写，仅保留兼容读取；新配置请使用带 `persona` 的字段。`begin_sleep_time`、`gpt_lgr_markdown`、`gpt_httpx`、`gpt_url_replace` 已废弃，分别迁移为 `gpt_begin_sleep_time`、`gpt_render_mode`，或直接删除。
+
+```env
+# 账号列表请使用 JSON；session_token 只能辅助短期恢复，不能替代长期重新登录。
+# Microsoft 账户可按需配置 help_email；gptplus 只表示优先候选，已弃用，实际能力以账户探测结果为准。mode目前不支持苹果账号
 gpt_session='[
     {
         "email": "xxxx@hotmail.com",
-        "password": "xxxx",
-        "session_token": "ey....", 
+        "password": "xxxx"
     },
     {
         "email": "aaaa@gmail.com",
         "password": "xxxx",
-        "mode": "google",
+        "mode": "google"
     },
     {
-        "email": "bbb@sss.com",
+        "email": "bbb@outlook.com",
         "password": "xxxx",
         "mode": "microsoft",
-        "help_email": "xxx@xx.com",
-        "gptplus": True,
+        "help_email": "xxx@xx.com"
     },
 ]'
+
 
 gpt_proxy='http://127.0.0.1:8080'
 # gpt_proxy='http://username:password@127.0.0.1:8080'
@@ -178,7 +196,7 @@ gpt_ban_str='[
     "你是猪",
 ]'
 # 管理访问范围标识，可在目标会话执行“会话标识”获取
-gpt_manage_ids=['adapter:bot:session']
+gpt_manage_ids='["adapter:bot:session"]'
 # 发送消息异常和刷新cookie异常截图保存（登录失败截图固定开启，截图保存在bot目录screen下）
 gpt_save_screen=false
 
@@ -208,6 +226,11 @@ gpt_render_mode="auto"
 # 可复制 nonebot_plugin_gpt/templates/chat-image-template.html 后自行修改。
 gpt_chat_image_template="native"
 
+# 接近上下文上限时，摘要后迁移到新逻辑会话；长期角色扮演建议保留默认值。
+gpt_context_compaction_mode="summarize_restart"
+gpt_context_compaction_threshold=0.6
+gpt_context_compaction_min_tokens=0
+
 # 多页帮助、列表、历史等管理输出在 60 秒后自动撤回；0 表示关闭
 gpt_management_recall_after=60
 
@@ -233,12 +256,14 @@ gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
+# 文件工具只允许访问此工作目录；不需要文件能力时保持未配置。
+gpt_agent_workspace="./data/agent-workspace"
 gpt_agent_managed_services='[{"name":"bot","kind":"pid_file","pid_file":"/run/nonebot.pid","restart_command":["systemctl","restart","nonebot"],"restart_check_seconds":5},{"name":"local-api","kind":"tcp","host":"127.0.0.1","port":8080}]'
     
 
 # 插件需要一些其他的Nonebot基础配置，请检查是否存在
 # 机器人名
-nickname=["bot name"]
+NICKNAME=["bot name"]
 # 超级管理员用户标识（由所用适配器决定）
 SUPERUSERS=["admin user id"]
 
@@ -248,6 +273,7 @@ SUPERUSERS=["admin user id"]
 ### 指令表
 | 指令 | 适配器 | 权限 | 需要@ | 范围 |  说明 |
 |:-----:|:----:|:----:|:----:|:----:|:----:|
+| GPT帮助 / 聊天帮助 [主题] | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看总览或会话、人设、模型、管理、授权、智能体帮助；优先图片输出。 |
 | @bot 聊天内容... | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | @或者叫名+内容 开始聊天，随所有者白名单模式设置改变 |
 | 初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 初始化(人设名) |
 | plus初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | plus初始化(人设名) 会使用plus账户新开会话，可切换plus模型 |
@@ -267,22 +293,43 @@ SUPERUSERS=["admin user id"]
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
 | 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 gpt_agent_enabled；“计划 <任务>”只生成受控工具建议，需在原聊天范围使用“执行 <编号>”才会运行对应工具；“审计 [数量]”查看当前运行的无敏感操作记录 |
-| 生成cdk [来源] | 兼容 | 仅超级管理员 | 否 | 任意会话 | 生成一次性会话白名单 CDK，并记录创建者、创建会话与可选来源备注 |
-| 生成个人cdk [来源] | 兼容 | 仅超级管理员 | 否 | 任意会话 | 生成一次性个人白名单 CDK，兑换者可在同一适配器的任意会话聊天 |
-| 兑换 <CDK> | 兼容 | 无 | 否 | 群聊/私聊/频道 | 根据 CDK 类型授权当前会话或兑换者本人；兼容旧别名“出现吧”，每个 CDK 只能兑换一次 |
-| cdk列表 / 作废cdk <CDK> | 兼容 | 仅超级管理员 | 否 | 任意会话 | 查看 CDK 来源和兑换范围，或作废未兑换的 CDK |
-| 退出白名单 / 退出个人白名单 | 兼容 | 白名单 | 否 | 群聊/私聊/频道 | 分别撤销当前访问范围或当前用户的白名单；前者兼容旧别名“结束吧” |
+| 生成cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性会话白名单 CDK，并记录创建者、创建会话与可选来源备注 |
+| 生成个人cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性个人白名单 CDK，兑换者可在同一适配器的任意会话聊天 |
+| 兑换 <CDK> | 兼容 | 无 | 是 | 群聊/私聊/频道 | 根据 CDK 类型授权当前会话或兑换者本人；兼容旧别名“出现吧”，每个 CDK 只能兑换一次 |
+| cdk列表 / 作废cdk <CDK> | 兼容 | 仅超级管理员 | 是 | 任意会话 | 查看 CDK 来源和兑换范围，或作废未兑换的 CDK |
+| 退出白名单 / 退出个人白名单 | 兼容 | 白名单 | 是 | 群聊/私聊/频道 | 分别撤销当前访问范围或当前用户的白名单；前者兼容旧别名“结束吧” |
 | 添加plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 添加plus <稳定标识>，授予自动选择付费账户的权限 |
 | 删除plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 删除plus <稳定标识>，撤销付费账户权限 |
 | plus切换 | 兼容 | Plus 权限 | 是 | 群聊/私聊/频道 | plus切换 <模型别名或完整模型名>，只更新当前逻辑会话 |
 | 全局plus | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 全局plus 开启/关闭，关闭时禁止普通用户的付费模型切换 |
-| 会话标识 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 显示当前访问范围标识，用于授权与管理配置 |
-| 删除白名单 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 删除白名单 [访问范围标识]；省略时删除当前会话范围 |
-| 添加白名单 | 兼容 | 超级管理员/管理会话 | 否 | 任意会话 | 添加白名单 [plus] [访问范围标识]；省略时添加当前会话范围 |
+| 会话标识 | 兼容 | 超级管理员/管理会话 | 是 | 任意会话 | 显示当前访问范围标识，用于授权与管理配置 |
+| 删除白名单 | 兼容 | 超级管理员/管理会话 | 是 | 任意会话 | 删除白名单 [访问范围标识]；省略时删除当前会话范围 |
+| 添加白名单 | 兼容 | 超级管理员/管理会话 | 是 | 任意会话 | 添加白名单 [plus] [访问范围标识]；省略时添加当前会话范围 |
 
 > <为必填内容>，(为选填内容)
 
 > 逻辑会话由用户可见的会话列表管理。模型切换不会泄露或展示底层 ChatGPT 会话 ID。
+
+> 所有插件入口都要求适配器识别为提及机器人，或消息以 `NICKNAME` / `gpt_chat_start` 的名称开头。私聊是否天然满足提及条件由适配器决定；群聊中建议明确 @ 或使用名称前缀，防止误触发。
+
+### 群聊、上下文与图片输出
+
+- `gpt_group_chat=true` 时，每一条群聊输入都会在发送给模型前附加固定的 `[群聊发言者]` 标签，包含稳定身份与适配器可用的显示名。它只辅助模型区分成员，不会强制替换模型回复，也不会出现在历史聊天图片中。
+- 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
+- `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。
+- `gpt_render_mode=auto` 会根据内容复杂度与适配器能力选择文本或图片。长帮助、历史、名单等管理内容优先分页图片；多页时优先以合并引用消息发送。
+
+### 自定义聊天图片模板
+
+`gpt_chat_image_template` 仅控制聊天 Markdown 转图片的主题，不影响纯文本输出或管理页面。内置值：`native`/`原生` 为粉蓝紫纵向卡片，`off`/`关`/`plain` 为黑白纵向样式。
+
+也可以复制 [`nonebot_plugin_gpt/templates/chat-image-template.html`](nonebot_plugin_gpt/templates/chat-image-template.html) 后自行修改：
+
+```env
+gpt_chat_image_template="./data/gpt/chat-template.html"
+```
+
+模板必须包含 `{{ content }}` 占位符，插件会把 Markdown 转换后的 HTML 注入其中。模板不存在、缺少占位符或渲染失败时会自动回退为文本，不会中断聊天。
 
 > 白名单分为会话授权与个人授权：会话授权使用访问范围标识，会将同一群或频道的不同用户归为同一授权范围；个人授权使用“适配器 + 平台（适用时）+ 用户 ID”，仅在同一平台生效。Satori 会额外纳入其 `login.platform`，不会混淆它承载的不同平台。旧版 `group/private/qqgroup/qqguild` 数据会保留兼容读取，其中旧版 `private` 白名单继续按 OneBot 用户在群聊和私聊中生效。
 
@@ -297,69 +344,25 @@ SUPERUSERS=["admin user id"]
 
 ## 常见问题
 ### cloudflare验证
-请先更换更干净的代理。cf验证问题，在无cfcookie的第一次登陆时一般会出现，可以在有窗口桌面的操作系统上，填写并运行以下脚本，手动过一次cf，
-等待 data/chat_history/conversation/sessions 目录下有对应的session文件生成，将sessions文件夹复制到下方 `数据缓存` 里介绍的数据目录下
-```python
-import asyncio
-import aioconsole
-from ChatGPTWeb import chatgpt
-from ChatGPTWeb.config import Personality, MsgData,IOFile
-
-# 此处填写要使用的账号信息
-session_token = [
-    {
-        "email": "xxxx@hotmail.com",
-        "password": "xxxx",
-        "session_token": "ey....", 
-    },
-    {
-        "email": "aaaa@gmail.com",
-        "password": "xxxx",
-        "mode": "google",
-    },
-    {
-        "email": "bbb@sss.com",
-        "password": "xxxx",
-        "mode": "microsoft",
-        "help_email": "xxx@xx.com",
-        "gptplus": True,
-    },
-]
-personality_definition = Personality(
-    [
-        {
-            "name": "Programmer",
-            'value': 'You are python Programmer'
-        },
-    ]
-)
-
-chat = chatgpt(sessions=session_token, begin_sleep_time=False, headless=False,httpx_status=False,logger_level="DEBUG",stdout_flush=True,local_js=True)
-# 此处headless=False，通过关闭无头模式，来手动点击获取cf cookie
-
-async def main():
-    await asyncio.sleep(1000)
-
-loop = asyncio.get_event_loop()
-loop.run_until_complete(main())      
-
-```
+先检查网络、代理和账号状态。首次登录、Cloudflare、邮箱验证码或 Firefox 启动异常时，将 `gpt_headless=false`，在有桌面的机器上观察浏览器并完成必要的人机验证；不要依赖旧版手工复制会话文件的做法。
 
 
 ### 浏览器问题
-使用了新方案，如果浏览器出现问题，请尝试`playwright_firefox install firefox`
+浏览器安装或损坏时尝试：`playwright_firefox install firefox`。账号控制台会展示“需要处理”“临时异常”等状态；完成验证后可在本机控制台点击重试登录。
+
+安装更新playwright_firefox时出现 .lock 文件报错时，请删除该文件。
 
 ### 微软辅助邮箱验证
-当触发验证后，会在启动目录生成带有启动账号名称的txt文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
+Microsoft 可能要求辅助邮箱验证。按登录页面和本机控制台的提示完成验证；不要在机器人聊天、日志或截图中公开验证码。
 
 ### openai邮箱验证码
-同微软邮箱。当触发验证后，会在启动目录生成带有启动账号名称与openai字样的txt文件，键入收到的验证码并保存，即可自动验证。留意日志输出提示
+OpenAI 原生登录会先尝试密码。上游要求邮箱验证码时，按本机控制台的待处理状态输入验证码后继续。
 
 ### 谷歌登录方式
-请先从你的浏览器手动使用google登录chatgpt一次，然后访问`https://myaccount.google.com/`，使用浏览器插件Cookie-Editor导出该页面的Cookie为json格式。 当"\{email_address\}_google_cookie.txt"文件出现时，将复制的json粘贴进去并保存。
+Google 登录受其自身风控和浏览器环境影响较大。优先在同一机器的可见浏览器中完成 Google 侧验证；不要把导出的 Cookie 或任何会话信息提交、转发或写入公开配置。
 
 ### markdown发送问题
-协议bot的md似了，QQbot的md模板差不多也似了，如果你是QQBot原生md用户可以催我适配一下，不然这个功能就鸽了
+插件不依赖各平台不一致的原生 Markdown 协议。复杂 Markdown、链接、表格和长内容会按 `gpt_render_mode` 转为兼容的纵向图片；普通内容仍尽量以文本发送。可通过 `gpt_chat_image_template` 调整聊天图片主题。
 
 ### 历史聊天问题
 历史聊天会隐藏初始化、强化人设等私有提示词，并将其余对话从第 1 轮重新编号；`回到过去 <编号>`使用的也是这个可见编号。历史较长时会分页为图片，渲染或适配器不支持时才回退为分页文本。可使用`2-5`或`:5`限定查看范围。
@@ -369,6 +372,7 @@ loop.run_until_complete(main())
 
 
 ### 数据缓存
+由 `nonebot-plugin-localstore` 决定。请通过该插件的文档或运行环境查看实际数据目录；不要在脚本中假定固定的旧版会话目录。
 见 nonebot_plugin_localstore 插件说明，通常为用户目录下 
 ```bash
 # linux
@@ -381,20 +385,26 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 
 ### 自动初始化人设
 
-插件会保留旧版 `personality` 人设正文并在启动时迁入 `chatgptweb/personas.json`。纯新部署始终可以直接聊天；如果自动初始化配置的人设尚未创建或已删除，插件会跳过自动初始化，让用户首条消息创建普通无角色会话，不会抛出异常或自动套用“默认”人设。
+纯新部署可以直接聊天；如果自动初始化配置的人设尚未创建或已删除，插件会跳过自动初始化，让用户首条消息创建普通无角色会话，不会自动套用“默认”人设。1.0.3版本历史人设和旧授权数据会在启动时尽力迁移。
 
 ### 长列表输出
 
-`GPT帮助` 与 `工作状态` 会优先渲染为信息图片：前者按主题展示命令说明，后者展示账户概览和需要处理的状态。黑白名单、人设列表、历史会话和 CDK 列表会按分页表格渲染；人设正文、历史聊天和智能体文本结果会按 Markdown 文档分页渲染。历史记录固定以“用户 / 回复”成对显示，不按字符截断。多页图片会优先使用 Alconna 的合并引用消息发送；当前适配器不支持时自动改为逐张图片，渲染环境异常时才回退为分页文本。
+帮助、工作状态、黑白名单、人设、CDK、历史会话和历史聊天会优先分页图片。多页图片优先使用 Alconna 合并引用消息发送；当前适配器不支持时才逐张发送，渲染环境异常时回退分页文本。人设、黑白名单、白名单和 CDK 列表均最新在前；人设继续保留原始编号。
 
 ### 管理员与白名单
 
-`SUPERUSERS` 与 `gpt_manage_ids` 指定的管理会话可以在未加白的范围内执行帮助、人设维护、会话查看/重置、账户状态、黑白名单、Plus 与 CDK 管理等命令。普通聊天消息始终遵守 `gpt_white_list_mode`，不会因管理员偶然发言而绕过群聊白名单。
-> 由于时间关系，仅测试了onebot适配器的群聊效果，onebot适配器私聊和QQ适配器群私聊理论上也支持，若有bug可发issue通知我改下；
+`SUPERUSERS` 与 `gpt_manage_ids` 指定的管理会话可以在未加白的范围内执行管理命令。普通聊天始终遵守 `gpt_white_list_mode`，不会因管理员偶然发言绕过群聊白名单。会话 CDK 用于授权当前聊天范围；个人 CDK 用于授权兑换者在同一适配器的其他会话。
 
-> 还是由于时间关系，暂时没写与白名单相关适配，自动初始化人设若开启，优先级会比白名单高，例如非白名单群，入群也会在gpt账户上创建一个会话（3.5的会话），当然没白名单该群后续触发不了这个会话
+### 智能体Agent
+
+暂未实现，相关命令可忽略
 
 ### 更新日志
+2026.07.16 1.1.3
+1. 跨平台支持（未全量测试）
+2. 更稳定的底层依赖
+
+
 2025.08.11 1.0.3
 1. 修复cf问题
 2. 修复openai和microsoft登录问题
