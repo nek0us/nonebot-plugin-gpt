@@ -18,7 +18,9 @@ class ManagementImageTests(unittest.TestCase):
 
         self.assertIn("GPT 帮助 - 会话", html)
         self.assertIn("切换会话", html)
-        self.assertIn("NONEBOT PLUGIN", html)
+        self.assertNotIn("NONEBOT PLUGIN", html)
+        self.assertNotIn("nonebot-plugin-gpt", html)
+        self.assertIn("border-left: 7px solid #8c75d9", html)
 
     def test_default_help_image_includes_cdk_onboarding(self):
         html = management_images.build_help_html()

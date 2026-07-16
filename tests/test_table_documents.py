@@ -25,6 +25,8 @@ class TableDocumentTests(unittest.TestCase):
         self.assertEqual(pages[0].index, 1)
         self.assertEqual(pages[0].total, 1)
         self.assertIn("<table>", pages[0].html)
+        self.assertIn("#8c75d9", pages[0].html)
+        self.assertIn("#fff9fc", pages[0].html)
 
     def test_table_splits_long_lists_into_multiple_pages(self):
         pages = tables.build_table_pages(

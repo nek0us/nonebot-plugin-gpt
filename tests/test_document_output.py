@@ -67,3 +67,11 @@ class DocumentOutputTests(unittest.TestCase):
         self.assertIn('class="card user"', pages[0].html)
         self.assertIn('class="card reply"', pages[0].html)
         self.assertNotIn("NONEBOT PLUGIN", pages[0].html)
+
+    def test_management_document_uses_the_shared_light_theme(self):
+        html = document_output.build_document_html("# 人设详情\n\n## 说明\n\n- 一条内容")
+
+        self.assertIn('class="document"', html)
+        self.assertIn("#8c75d9", html)
+        self.assertIn("#e58ab0", html)
+        self.assertNotIn("NONEBOT PLUGIN", html)

@@ -21,38 +21,37 @@ from .management_views import (
 
 _STYLE = """
 * { box-sizing: border-box; }
-body { margin: 0; color: #1d2939; background: #f5f7fa; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
-.sheet { width: 900px; padding: 36px; background: #f5f7fa; }
-.header { padding: 30px 32px; color: #ffffff; background: #12344d; border-radius: 8px; }
-.eyebrow { margin: 0 0 8px; color: #b7d9d6; font-size: 15px; font-weight: 700; }
-h1 { margin: 0; color: inherit; font-size: 32px; line-height: 1.2; }
-.subtitle { margin: 10px 0 0; color: #d7e5ed; font-size: 16px; line-height: 1.55; }
-.summary { display: flex; gap: 12px; margin: 20px 0; }
-.metric { flex: 1; min-height: 90px; padding: 18px 20px; background: #ffffff; border: 1px solid #d9e2ec; border-radius: 8px; }
-.metric-label { color: #627d98; font-size: 14px; }
-.metric-value { margin-top: 7px; color: #102a43; font-size: 28px; font-weight: 700; }
-.notice { margin: 0 0 20px; padding: 14px 16px; color: #7c2d12; background: #fff7ed; border-left: 4px solid #f97316; border-radius: 4px; font-size: 14px; line-height: 1.55; }
-.account, .content { margin-top: 16px; padding: 22px 24px; background: #ffffff; border: 1px solid #d9e2ec; border-radius: 8px; }
+body { margin: 0; color: #29384f; background: #f6f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+.sheet { width: 960px; padding: 30px; background: #f6f7fb; }
+.header { padding: 24px 28px; border: 1px solid #e3e6f0; border-left: 7px solid #8c75d9; border-radius: 10px; background: #ffffff; }
+h1 { margin: 0; color: #2c3654; font-size: 30px; line-height: 1.25; }
+.subtitle { margin: 8px 0 0; color: #737b91; font-size: 14px; line-height: 1.55; }
+.summary { display: flex; gap: 12px; margin: 18px 0; }
+.metric { flex: 1; min-height: 90px; padding: 18px 20px; border: 1px solid #e3e6f0; border-radius: 8px; background: #ffffff; }
+.metric:nth-child(1) { background: #eef5ff; border-color: #d7e8fb; }.metric:nth-child(2) { background: #fff1f6; border-color: #ffdce9; }.metric:nth-child(3) { background: #f2efff; border-color: #ded5ff; }
+.metric-label { color: #5b6680; font-size: 14px; }.metric-value { margin-top: 7px; color: #354064; font-size: 28px; font-weight: 700; }
+.notice { margin: 0 0 18px; padding: 14px 16px; color: #934565; background: #fff1f6; border-left: 4px solid #e58ab0; border-radius: 5px; font-size: 14px; line-height: 1.55; }
+.account, .content { margin-top: 16px; padding: 22px 24px; background: #ffffff; border: 1px solid #e3e6f0; border-radius: 8px; }
 .account-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
-.email { max-width: 600px; overflow-wrap: anywhere; color: #102a43; font-size: 19px; font-weight: 700; }
+.email { max-width: 600px; overflow-wrap: anywhere; color: #354064; font-size: 19px; font-weight: 700; }
 .badge { padding: 5px 10px; border-radius: 4px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .ready { color: #0f5132; background: #d1fae5; }
-.attention { color: #9a3412; background: #ffedd5; }
-.details { margin: 14px 0 0; color: #486581; font-size: 15px; line-height: 1.65; }
-.runtime { margin-top: 10px; color: #1f5f5b; font-size: 14px; }
-.action { margin-top: 12px; padding: 10px 12px; color: #7c2d12; background: #fff7ed; border-radius: 4px; font-size: 14px; line-height: 1.5; }
+.attention { color: #934565; background: #fff0f6; }
+.details { margin: 14px 0 0; color: #4b5872; font-size: 15px; line-height: 1.65; }
+.runtime { margin-top: 10px; color: #466f9d; font-size: 14px; }
+.action { margin-top: 12px; padding: 10px 12px; color: #6651a8; background: #f2efff; border-radius: 5px; font-size: 14px; line-height: 1.5; }
 .section { margin-top: 24px; }
-h2 { margin: 0 0 14px; color: #102a43; font-size: 22px; }
-p { margin: 10px 0; color: #334e68; font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
-ul { margin: 12px 0; padding-left: 22px; color: #334e68; }
+h2 { margin: 0 0 14px; color: #4c5d88; font-size: 22px; }
+p { margin: 10px 0; color: #3f4d66; font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
+ul { margin: 12px 0; padding-left: 22px; color: #3f4d66; }
 li { margin: 9px 0; font-size: 16px; line-height: 1.55; }
-.footer { margin-top: 18px; color: #829ab1; font-size: 13px; text-align: right; }
+li::marker { color: #8c75d9; }
 """
 
 
 def _document(title: str, subtitle: str, content: str) -> str:
     return f"""<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><style>{_STYLE}</style></head>
-<body><main class=\"sheet\"><header class=\"header\"><p class=\"eyebrow\">NONEBOT PLUGIN</p><h1>{escape(title)}</h1><p class=\"subtitle\">{escape(subtitle)}</p></header>{content}<footer class=\"footer\">由 nonebot-plugin-gpt 生成</footer></main></body></html>"""
+<body><main class=\"sheet\"><header class=\"header\"><h1>{escape(title)}</h1><p class=\"subtitle\">{escape(subtitle)}</p></header>{content}</main></body></html>"""
 
 
 def build_help_html(topic: str = "") -> str:

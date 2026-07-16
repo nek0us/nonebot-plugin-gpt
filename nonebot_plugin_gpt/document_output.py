@@ -7,6 +7,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from html import escape
 
+import markdown
+
 from .event_scope import strip_group_speaker_prompt
 from .history_views import parse_history_range
 from .image_fallback import render_history_page, render_markdown_page, use_local_font_renderer
@@ -31,6 +33,38 @@ h1 { margin: 0; color: #2c3654; font-size: 30px; line-height: 1.25; }
 .content { color: #29384f; font-size: 16px; line-height: 1.72; white-space: pre-wrap; overflow-wrap: anywhere; }
 .footer { margin: 18px 4px 0; color: #8991a4; font-size: 12px; text-align: right; }
 """
+
+
+_DOCUMENT_STYLE = """
+* { box-sizing: border-box; }
+body { margin: 0; color: #29384f; background: #f6f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+.sheet { width: 960px; padding: 30px; background: #f6f7fb; }
+.document { padding: 26px 28px; border: 1px solid #e3e6f0; border-radius: 10px; background: #ffffff; }
+.document > :first-child { margin-top: 0; }.document > :last-child { margin-bottom: 0; }
+.document h1 { margin: 0 0 20px; padding-left: 14px; color: #354064; border-left: 6px solid #8c75d9; font-size: 30px; line-height: 1.3; }
+.document h2 { margin: 26px 0 14px; padding-left: 12px; color: #4d6695; border-left: 5px solid #79a9dc; font-size: 24px; line-height: 1.35; }
+.document h3 { margin: 21px 0 11px; padding-left: 10px; color: #a7547d; border-left: 4px solid #e58ab0; font-size: 19px; line-height: 1.4; }
+.document p, .document li { color: #3f4d66; font-size: 16px; line-height: 1.75; }.document p { margin: 12px 0; }
+.document ul, .document ol { margin: 12px 0; padding-left: 1.55em; }.document li { margin: 7px 0; }.document li::marker { color: #8c75d9; }
+.document blockquote { margin: 16px 0; padding: 12px 16px; color: #5d6179; border-left: 4px solid #d6c8ff; border-radius: 0 8px 8px 0; background: #f6f2ff; }
+.document code { padding: 2px 5px; color: #a34b72; border-radius: 4px; background: #fff1f6; font-family: Consolas, monospace; }
+.document pre { margin: 16px 0; padding: 16px; overflow-x: auto; color: #edf2ff; border-radius: 8px; background: #30394f; }.document pre code { padding: 0; color: inherit; background: transparent; }
+.document table { width: 100%; margin: 16px 0; border-collapse: separate; border-spacing: 0; overflow: hidden; border: 1px solid #e3e6f0; border-radius: 8px; font-size: 15px; }.document th { padding: 10px 12px; color: #5b4d9b; background: #eef2ff; text-align: left; }.document td { padding: 10px 12px; color: #3f4d66; border-top: 1px solid #e9ecf2; }.document tr:nth-child(even) td { background: #fff9fc; }
+.document a { color: #4779ba; text-decoration: none; overflow-wrap: anywhere; }.document img { display: block; max-width: 100%; height: auto; margin: 14px auto; border-radius: 8px; }.document hr { border: 0; border-top: 1px solid #e3e6ef; margin: 22px 0; }
+"""
+
+
+def build_document_html(markdown_text: str) -> str:
+    """把管理文档渲染为与表格和历史一致的静态页面。"""
+    content = markdown.markdown(
+        markdown_text,
+        extensions=["pymdownx.tasklist", "tables", "fenced_code", "codehilite", "pymdownx.tilde"],
+    )
+    return (
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+        f"<style>{_DOCUMENT_STYLE}</style></head><body><main class=\"sheet\">"
+        f'<article class="document">{content}</article></main></body></html>'
+    )
 
 
 @dataclass(frozen=True)
@@ -243,11 +277,17 @@ async def render_markdown_pages(pages: Iterable[str]) -> tuple[bytes, ...]:
     if use_local_font_renderer():
         return tuple(render_markdown_page(page) for page in page_list)
 
-    from nonebot_plugin_htmlkit import md_to_pic
+    from nonebot_plugin_htmlkit import html_to_pic
 
     images = []
     for page in page_list:
-        images.append(await md_to_pic(page, dpi=120, max_width=860))
+        images.append(await html_to_pic(
+            build_document_html(page),
+            dpi=110,
+            max_width=960,
+            device_height=10,
+            default_font_size=16,
+        ))
     return tuple(images)
 
 

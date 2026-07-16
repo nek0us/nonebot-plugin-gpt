@@ -14,14 +14,14 @@ _STYLE = """
 * { box-sizing: border-box; }
 body { margin: 0; color: #29384f; background: #f6f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
 .sheet { width: 960px; padding: 30px; background: #f6f7fb; }
-.header { padding: 24px 28px; border: 1px solid #e3e6f0; border-left: 7px solid #75a8d9; border-radius: 10px 10px 0 0; background: #ffffff; }
+.header { padding: 24px 28px; border: 1px solid #e3e6f0; border-left: 7px solid #8c75d9; border-radius: 10px; background: #ffffff; }
 h1 { margin: 0; color: #2c3654; font-size: 30px; line-height: 1.25; }
 .subtitle { margin: 8px 0 0; color: #737b91; font-size: 14px; line-height: 1.55; }
-.table-wrap { overflow: hidden; border: 1px solid #e3e6f0; border-top: 0; border-radius: 0 0 10px 10px; background: #ffffff; }
+.table-wrap { margin-top: 14px; overflow: hidden; border: 1px solid #e3e6f0; border-radius: 10px; background: #ffffff; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-th { padding: 12px 14px; color: #6149ad; background: #eee9ff; border-bottom: 1px solid #ddd5fb; font-size: 13px; text-align: left; }
+th { padding: 12px 14px; color: #5b4d9b; background: #eef2ff; border-bottom: 1px solid #d9def5; font-size: 13px; text-align: left; }
 td { padding: 13px 14px; color: #29384f; border-bottom: 1px solid #edf0f5; font-size: 14px; line-height: 1.55; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
-tbody tr:nth-child(even) td { background: #fafbfe; }
+tbody tr:nth-child(even) td { background: #fff9fc; }
 tr:last-child td { border-bottom: 0; }
 .empty { padding: 32px; color: #737b91; text-align: center; }
 .footer { margin: 14px 4px 0; color: #8991a4; font-size: 12px; text-align: right; }

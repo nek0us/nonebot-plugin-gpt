@@ -82,7 +82,7 @@ def render_markdown_page(markdown: str) -> bytes:
         if stripped.startswith("### "):
             font, color, gap, text = _font(20, bold=True), "#1d2939", 9, stripped[4:]
         elif stripped.startswith("## "):
-            font, color, gap, text = _font(24, bold=True), "#12344d", 15, stripped[3:]
+            font, color, gap, text = _font(24, bold=True), "#5d4aa3", 15, stripped[3:]
         elif stripped == "---":
             font, color, gap, text = _font(14), "#829ab1", 12, ""
         else:
@@ -211,19 +211,19 @@ def render_table_page(page: Any) -> bytes:
     image = Image.new("RGB", (width, max(height, 260)), "#f6f7fb")
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((margin, 20, width - margin, header_height - 12), radius=14, fill="#ffffff", outline="#e3e6f0")
-    draw.rounded_rectangle((margin + 18, 44, margin + 24, 99), radius=3, fill="#75a8d9")
+    draw.rounded_rectangle((margin + 18, 44, margin + 24, 99), radius=3, fill="#8c75d9")
     draw.text((margin + 42, 40), str(page.title), font=_font(31, bold=True), fill="#2c3654")
     draw.text((margin + 42, 82), str(page.subtitle), font=_font(15), fill="#737b91")
 
     y = header_height
-    draw.rectangle((margin, y, width - margin, y + table_header_height), fill="#eee9ff")
+    draw.rectangle((margin, y, width - margin, y + table_header_height), fill="#eef2ff")
     x = margin
     for index, column in enumerate(columns):
-        draw.text((x + 11, y + 12), str(column), font=header_font, fill="#6149ad")
+        draw.text((x + 11, y + 12), str(column), font=header_font, fill="#5b4d9b")
         x += widths[index]
     y += table_header_height
     for row_index, (row, cells, row_height) in enumerate(zip(rows, cell_lines, row_heights)):
-        draw.rectangle((margin, y, width - margin, y + row_height), fill="#ffffff" if row_index % 2 == 0 else "#fafbfe")
+        draw.rectangle((margin, y, width - margin, y + row_height), fill="#ffffff" if row_index % 2 == 0 else "#fff9fc")
         draw.line((margin, y + row_height, width - margin, y + row_height), fill="#e3e6f0")
         x = margin
         for index, lines in enumerate(cells):
