@@ -92,8 +92,10 @@ _✨ NoneBot GPT ✨_
 | gpt_proxy | 否 | 无 | str | 使用的代理 |
 | gpt_group_chat | 否 | true | bool | 群聊向模型附加固定发言者标签（稳定身份与显示名），帮助自然区分多人；不对回复文本做名称替换 |
 | gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
-| gpt_chat_start_in_msg | 否 | false | bool | 是否把聊天触发前缀原样交给模型；false 时仍保留“正在直接称呼机器人”的语境，但不将别名当作人设名称 |
+| gpt_chat_start_in_msg | 否 | false | bool | 是否把 `gpt_chat_start` 路由前缀原样交给模型；false 时会移除纯路由前缀，但 `NICKNAME` 的自然称呼会保留原句主语 |
 | gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
+| gpt_direct_address_context_enabled | 否 | false | bool | 是否额外向模型解释“用户正在直接称呼机器人”；默认关闭，保留如“猪咪今天吃什么”的原始主语，减少内部提示干扰 |
+| gpt_direct_address_context_prompt | 否 | 见配置默认值 | str | 开启上述开关后附加的称呼语境提示；仅供模型理解，不会发送给用户 |
 | gpt_begin_sleep_time | 否 | false | bool | 启动登录时随机错开账号（建议账号数量大于5开启） |
 | gpt_chat_priority | 否 | 90 | int | gpt聊天响应优先级 |
 | gpt_command_priority | 否 | 19 | int | gpt命令响应优先级 |
@@ -201,6 +203,11 @@ gpt_render_mode="auto"
 
 # 多页帮助、列表、历史等管理输出在 60 秒后自动撤回；0 表示关闭
 gpt_management_recall_after=60
+
+# 默认保留“猪咪今天吃什么”这类原始主语，不再向模型额外解释称呼来源。
+# 仅在确实需要兼容旧的称呼语境逻辑时开启，并可自行改写附加提示。
+gpt_direct_address_context_enabled=false
+gpt_direct_address_context_prompt="【对话语境】用户正在直接称呼你，请结合当前人设自然理解消息中的主语，不要提及这段提示。"
 
 # 请求失败时的用户提示，可按机器人身份调整
 gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"

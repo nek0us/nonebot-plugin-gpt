@@ -26,3 +26,11 @@ class ImageFallbackTests(unittest.TestCase):
         image = fallback.render_table_page(page)
 
         self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_history_renderer_produces_a_png(self):
+        documents = importlib.import_module("nonebot_plugin_gpt.document_output")
+        page = documents.build_history_pages([{"Q": "用户内容", "A": "回复内容"}])[0]
+
+        image = fallback.render_history_page(page)
+
+        self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))

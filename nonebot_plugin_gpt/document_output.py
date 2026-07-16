@@ -4,10 +4,50 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
+from html import escape
 
 from .event_scope import strip_group_speaker_prompt
 from .history_views import parse_history_range
-from .image_fallback import render_markdown_page, use_local_font_renderer
+from .image_fallback import render_history_page, render_markdown_page, use_local_font_renderer
+
+
+_HISTORY_STYLE = """
+* { box-sizing: border-box; }
+body { margin: 0; color: #26334d; background: #f6f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+.sheet { width: 960px; padding: 30px; background: #f6f7fb; }
+.header { padding: 24px 28px; border: 1px solid #e3e6f0; border-left: 7px solid #8c75d9; border-radius: 10px; background: #ffffff; }
+h1 { margin: 0; color: #2c3654; font-size: 30px; line-height: 1.25; }
+.subtitle { margin: 8px 0 0; color: #737b91; font-size: 14px; }
+.round { margin-top: 20px; }
+.round-label { display: inline-block; margin-bottom: 9px; padding: 6px 12px; color: #6149ad; border-radius: 999px; background: #eee9ff; font-size: 14px; font-weight: 700; }
+.card { padding: 16px 18px; border-radius: 10px; }
+.card + .card { margin-top: 10px; }
+.user { background: #eaf3ff; border: 1px solid #d4e8ff; }
+.reply { background: #fff0f6; border: 1px solid #ffdce9; }
+.role { margin: 0 0 9px; font-size: 14px; font-weight: 700; }
+.user .role { color: #2d6eae; }
+.reply .role { color: #b4537c; }
+.content { color: #29384f; font-size: 16px; line-height: 1.72; white-space: pre-wrap; overflow-wrap: anywhere; }
+.footer { margin: 18px 4px 0; color: #8991a4; font-size: 12px; text-align: right; }
+"""
+
+
+@dataclass(frozen=True)
+class HistoryRound:
+    number: int
+    question: str
+    answer: str
+    continuation: str = ""
+
+
+@dataclass(frozen=True)
+class HistoryPage:
+    index: int
+    total: int
+    rounds: tuple[HistoryRound, ...]
+    markdown: str
+    html: str
 
 
 def _split_block(block: str, limit: int) -> list[str]:
@@ -78,29 +118,123 @@ def build_history_markdown_pages(
     history: Iterable[dict[str, str]],
     value: str = "",
     *,
-    page_limit: int = 4200,
+    page_limit: int = 6000,
 ) -> tuple[str, ...]:
-    """按问答轮次构造历史记录；异常长的单条内容会带续页标题拆分。"""
+    """保留历史 Markdown 投影，供文本回退与兼容调用使用。"""
+    return tuple(page.markdown for page in build_history_pages(history, value, page_limit=page_limit))
+
+
+def _history_rounds(
+    history: Iterable[dict[str, str]],
+    value: str,
+    *,
+    page_limit: int,
+) -> list[HistoryRound]:
+    """将历史拆成可独立绘制的轮次，极长内容保留明确的续页标签。"""
     entries = list(history)
     start, end = parse_history_range(value, len(entries))
     selected = entries[start:end]
-    blocks: list[str] = []
+    rounds: list[HistoryRound] = []
+    part_limit = max(page_limit - 560, 180)
     for index, item in enumerate(selected, start=start + 1):
         question = strip_group_speaker_prompt(str(item.get("Q") or item.get("input") or "")).strip()
         answer = str(item.get("A") or item.get("output") or "").strip()
         question = question or "（空消息）"
         answer = answer or "（无回复）"
-        whole_round = f"## 第 {index} 轮\n\n### 用户\n\n{question}\n\n### 回复\n\n{answer}"
-        if len(whole_round) <= page_limit - 180:
-            blocks.append(whole_round)
+        if len(question) + len(answer) <= part_limit:
+            rounds.append(HistoryRound(index, question, answer))
             continue
 
-        for part, content in (("用户", question), ("回复", answer)):
-            segments = _split_block(content, max(page_limit - 260, 700))
+        for role, content in (("用户", question), ("回复", answer)):
+            segments = _split_block(content, max(part_limit - 180, 120))
             for segment_index, segment in enumerate(segments, start=1):
-                continuation = "" if segment_index == 1 else "（续）"
-                blocks.append(f"## 第 {index} 轮{continuation}\n\n### {part}\n\n{segment}")
-    return build_markdown_pages("聊天记录", blocks, page_limit=page_limit)
+                continuation = f"{role}续 {segment_index}/{len(segments)}" if len(segments) > 1 else role
+                rounds.append(
+                    HistoryRound(
+                        index,
+                        segment if role == "用户" else "",
+                        segment if role == "回复" else "",
+                        continuation,
+                    )
+                )
+    return rounds
+
+
+def _history_markdown(rounds: Iterable[HistoryRound], index: int, total: int) -> str:
+    blocks = ["# 聊天记录"]
+    for round_item in rounds:
+        label = f"第 {round_item.number} 轮"
+        if round_item.continuation:
+            label += f" · {round_item.continuation}"
+        content = [f"## {label}"]
+        if round_item.question:
+            content.append(f"### 用户\n\n{round_item.question}")
+        if round_item.answer:
+            content.append(f"### 回复\n\n{round_item.answer}")
+        blocks.append("\n\n".join(content))
+    blocks.append(f"---\n第 {index} / {total} 页")
+    return "\n\n".join(blocks)
+
+
+def _history_html(rounds: Iterable[HistoryRound], index: int, total: int) -> str:
+    sections = []
+    for round_item in rounds:
+        label = f"第 {round_item.number} 轮"
+        if round_item.continuation:
+            label += f" · {round_item.continuation}"
+        cards = []
+        if round_item.question:
+            cards.append(
+                f'<section class="card user"><p class="role">用户</p><div class="content">'
+                f"{escape(round_item.question)}</div></section>"
+            )
+        if round_item.answer:
+            cards.append(
+                f'<section class="card reply"><p class="role">回复</p><div class="content">'
+                f"{escape(round_item.answer)}</div></section>"
+            )
+        sections.append(f'<section class="round"><div class="round-label">{escape(label)}</div>{"".join(cards)}</section>')
+    return (
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+        f"<style>{_HISTORY_STYLE}</style></head><body><main class=\"sheet\">"
+        '<header class="header"><h1>聊天记录</h1><p class="subtitle">当前逻辑会话的已保存对话</p></header>'
+        f"{''.join(sections)}<footer class=\"footer\">第 {index} / {total} 页</footer>"
+        "</main></body></html>"
+    )
+
+
+def build_history_pages(
+    history: Iterable[dict[str, str]],
+    value: str = "",
+    *,
+    page_limit: int = 6000,
+) -> tuple[HistoryPage, ...]:
+    """构造适合图片卡片展示的聊天历史分页。"""
+    rounds = _history_rounds(history, value, page_limit=page_limit)
+    if not rounds:
+        rounds = [HistoryRound(0, "当前逻辑会话还没有可展示的聊天记录。", "")]
+
+    pages: list[list[HistoryRound]] = [[]]
+    current_length = 0
+    for round_item in rounds:
+        size = len(round_item.question) + len(round_item.answer) + len(round_item.continuation) + 120
+        if pages[-1] and current_length + size > page_limit:
+            pages.append([])
+            current_length = 0
+        pages[-1].append(round_item)
+        current_length += size
+
+    total = len(pages)
+    return tuple(
+        HistoryPage(
+            index=index,
+            total=total,
+            rounds=tuple(page_rounds),
+            markdown=_history_markdown(page_rounds, index, total),
+            html=_history_html(page_rounds, index, total),
+        )
+        for index, page_rounds in enumerate(pages, start=1)
+    )
 
 
 async def render_markdown_pages(pages: Iterable[str]) -> tuple[bytes, ...]:
@@ -115,3 +249,17 @@ async def render_markdown_pages(pages: Iterable[str]) -> tuple[bytes, ...]:
     for page in page_list:
         images.append(await md_to_pic(page, dpi=120, max_width=860))
     return tuple(images)
+
+
+async def render_history_pages(pages: Iterable[HistoryPage]) -> tuple[bytes, ...]:
+    """渲染带角色色彩的聊天历史卡片。"""
+    page_list = tuple(pages)
+    if use_local_font_renderer():
+        return tuple(render_history_page(page) for page in page_list)
+
+    from nonebot_plugin_htmlkit import html_to_pic
+
+    return tuple(
+        await html_to_pic(page.html, dpi=110, max_width=960, device_height=10, default_font_size=16)
+        for page in page_list
+    )

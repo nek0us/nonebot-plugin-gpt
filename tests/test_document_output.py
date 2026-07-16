@@ -54,4 +54,16 @@ class DocumentOutputTests(unittest.TestCase):
         ], page_limit=220)
 
         self.assertGreater(len(pages), 1)
-        self.assertTrue(any("## 第 1 轮（续）" in page for page in pages))
+        self.assertTrue(any("## 第 1 轮 · 回复续" in page for page in pages))
+
+    def test_history_card_pages_keep_roles_and_hide_internal_branding(self):
+        pages = document_output.build_history_pages([
+            {"Q": "你好", "A": "你好呀"},
+        ])
+
+        self.assertEqual(len(pages), 1)
+        self.assertEqual(pages[0].rounds[0].question, "你好")
+        self.assertEqual(pages[0].rounds[0].answer, "你好呀")
+        self.assertIn('class="card user"', pages[0].html)
+        self.assertIn('class="card reply"', pages[0].html)
+        self.assertNotIn("NONEBOT PLUGIN", pages[0].html)

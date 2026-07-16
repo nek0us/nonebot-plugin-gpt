@@ -18,16 +18,16 @@ def _match_prefix(text: str, prefixes: list[str]) -> str:
     return ""
 
 
-def _direct_address_prompt(body: str, *, addressed_as: str, empty_trigger_prompt: str) -> str:
-    header = "【对话语境】用户正在直接称呼你。"
-    if addressed_as:
-        header += (
-            f"用户使用的称呼：{addressed_as}。该称呼可能只是机器人路由别名，"
-            "不要把它强行当成当前角色名称。"
-        )
+def _direct_address_prompt(
+    body: str,
+    *,
+    context_prompt: str,
+    empty_trigger_prompt: str,
+) -> str:
+    header = context_prompt.strip()
     if not body:
         return f"{header}\n{empty_trigger_prompt}"
-    return f"{header}\n请结合当前人设理解消息中被省略的主语。\n用户消息：{body}"
+    return f"{header}\n用户消息：{body}"
 
 
 def build_chat_prompt(
@@ -38,20 +38,27 @@ def build_chat_prompt(
     chat_prefixes: list[str],
     include_prefix: bool,
     empty_trigger_prompt: str,
+    direct_address_context_enabled: bool = False,
+    direct_address_context_prompt: str = "",
 ) -> str:
-    """保留“正在直接称呼机器人”的语境，同时避免把路由别名当成人设名称。"""
+    """整理称呼触发的原始文本；默认保留自然主语，不注入额外解释。"""
     text = raw_text.strip()
     original = original_text.strip() or text
     nickname = _match_prefix(original, nicknames or [])
     if nickname:
-        body = text
-        if _match_prefix(body, [nickname]):
-            body = body[len(nickname):].strip()
         if _only_repeated_prefix(original, nickname):
-            body = ""
+            if not direct_address_context_enabled:
+                return empty_trigger_prompt
+            return _direct_address_prompt(
+                "",
+                context_prompt=direct_address_context_prompt,
+                empty_trigger_prompt=empty_trigger_prompt,
+            )
+        if not direct_address_context_enabled:
+            return original
         return _direct_address_prompt(
-            body,
-            addressed_as=nickname,
+            original,
+            context_prompt=direct_address_context_prompt,
             empty_trigger_prompt=empty_trigger_prompt,
         )
 
@@ -65,8 +72,10 @@ def build_chat_prompt(
     body = text[len(matched_prefix):].strip()
     if not body or _only_repeated_prefix(text, matched_prefix):
         body = ""
+    if not direct_address_context_enabled:
+        return body or empty_trigger_prompt
     return _direct_address_prompt(
         body,
-        addressed_as="",
+        context_prompt=direct_address_context_prompt,
         empty_trigger_prompt=empty_trigger_prompt,
     )

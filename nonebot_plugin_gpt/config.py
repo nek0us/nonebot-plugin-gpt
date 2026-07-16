@@ -14,6 +14,7 @@ from .source import ban_str_path
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 DEFAULT_EMPTY_TRIGGER_PROMPT = "有人正在呼唤你。请以当前人设自然回应，不要提及系统提示、空消息或内部实现。"
+DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT = "【对话语境】用户正在直接称呼你，请结合当前人设自然理解消息中的主语，不要提及这段提示。"
 
 class Config(BaseModel):
     gpt_proxy: Optional[str] = None
@@ -22,6 +23,8 @@ class Config(BaseModel):
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
     gpt_empty_trigger_prompt: str = DEFAULT_EMPTY_TRIGGER_PROMPT
+    gpt_direct_address_context_enabled: bool = False
+    gpt_direct_address_context_prompt: str = DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT
     gpt_begin_sleep_time: bool = False
     gpt_chat_priority: int = 90
     gpt_command_priority: int = 19
@@ -79,6 +82,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_empty_trigger_prompt 配置无效，已使用默认呼唤提示")
         return DEFAULT_EMPTY_TRIGGER_PROMPT
+
+    @validator("gpt_direct_address_context_prompt", always=True, pre=True)
+    def check_gpt_direct_address_context_prompt(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_direct_address_context_prompt 配置无效，已使用默认称呼语境提示")
+        return DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):

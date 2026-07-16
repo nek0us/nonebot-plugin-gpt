@@ -12,19 +12,19 @@ from .image_fallback import render_table_page, use_local_font_renderer
 
 _STYLE = """
 * { box-sizing: border-box; }
-body { margin: 0; color: #172b4d; background: #f4f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
-.sheet { width: 920px; padding: 32px; background: #f4f7fb; }
-.header { padding: 25px 28px; color: #ffffff; background: #12344d; border-radius: 8px 8px 0 0; }
-.eyebrow { margin: 0 0 7px; color: #b7d9d6; font-size: 13px; font-weight: 700; letter-spacing: 1px; }
-h1 { margin: 0; color: inherit; font-size: 29px; line-height: 1.25; }
-.subtitle { margin: 8px 0 0; color: #d7e5ed; font-size: 14px; line-height: 1.55; }
-.table-wrap { overflow: hidden; border: 1px solid #d9e2ec; border-top: 0; border-radius: 0 0 8px 8px; background: #ffffff; }
+body { margin: 0; color: #29384f; background: #f6f7fb; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+.sheet { width: 960px; padding: 30px; background: #f6f7fb; }
+.header { padding: 24px 28px; border: 1px solid #e3e6f0; border-left: 7px solid #75a8d9; border-radius: 10px 10px 0 0; background: #ffffff; }
+h1 { margin: 0; color: #2c3654; font-size: 30px; line-height: 1.25; }
+.subtitle { margin: 8px 0 0; color: #737b91; font-size: 14px; line-height: 1.55; }
+.table-wrap { overflow: hidden; border: 1px solid #e3e6f0; border-top: 0; border-radius: 0 0 10px 10px; background: #ffffff; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-th { padding: 12px 14px; color: #486581; background: #eef3f8; border-bottom: 1px solid #d9e2ec; font-size: 13px; text-align: left; }
-td { padding: 13px 14px; color: #243b53; border-bottom: 1px solid #e8eef5; font-size: 14px; line-height: 1.55; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
+th { padding: 12px 14px; color: #6149ad; background: #eee9ff; border-bottom: 1px solid #ddd5fb; font-size: 13px; text-align: left; }
+td { padding: 13px 14px; color: #29384f; border-bottom: 1px solid #edf0f5; font-size: 14px; line-height: 1.55; vertical-align: top; overflow-wrap: anywhere; white-space: pre-wrap; }
+tbody tr:nth-child(even) td { background: #fafbfe; }
 tr:last-child td { border-bottom: 0; }
-.empty { padding: 32px; color: #627d98; text-align: center; }
-.footer { margin: 14px 4px 0; color: #829ab1; font-size: 12px; text-align: right; }
+.empty { padding: 32px; color: #737b91; text-align: center; }
+.footer { margin: 14px 4px 0; color: #8991a4; font-size: 12px; text-align: right; }
 """
 
 
@@ -49,7 +49,7 @@ def build_table_pages(
     rows: Iterable[Sequence[Any]],
     *,
     subtitle: str = "",
-    rows_per_page: int = 12,
+    rows_per_page: int = 18,
 ) -> tuple[TablePage, ...]:
     """将结构化行分页为可换行、可阅读的 HTML 表格。"""
     normalized_rows = [tuple(_as_text(value) for value in row) for row in rows]
@@ -72,8 +72,8 @@ def build_table_pages(
         html = (
             "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
             f"<style>{_STYLE}</style></head><body><main class=\"sheet\">"
-            f"<header class=\"header\"><p class=\"eyebrow\">NONEBOT PLUGIN</p>"
-            f"<h1>{escape(title)}</h1><p class=\"subtitle\">{escape(page_subtitle)}</p></header>"
+            f"<header class=\"header\"><h1>{escape(title)}</h1>"
+            f"<p class=\"subtitle\">{escape(page_subtitle)}</p></header>"
             f"<section class=\"table-wrap\">{table}</section>"
             f"<footer class=\"footer\">第 {index} / {total} 页</footer></main></body></html>"
         )
@@ -136,7 +136,7 @@ def cdk_table_pages(records: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
             record.get("note") or "-",
             record.get("created_at") or "-",
         ))
-    return build_table_pages("CDK 列表", ("CDK", "状态", "授权", "来源", "创建时间"), rows, subtitle="一次性授权码及其当前状态", rows_per_page=8)
+    return build_table_pages("CDK 列表", ("CDK", "状态", "授权", "来源", "创建时间"), rows, subtitle="一次性授权码及其当前状态", rows_per_page=14)
 
 
 def session_table_pages(sessions: Iterable[Any], active_logical_id: str) -> tuple[str, ...]:

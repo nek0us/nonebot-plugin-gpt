@@ -59,7 +59,13 @@ from .message_output import finish_image_pages, finish_message
 from .failure_diagnostics import ChatFailureDiagnostics
 from .access_views import format_bans, format_whitelist, parse_access_target
 from .paged_output import paginate_text
-from .document_output import build_history_markdown_pages, markdown_pages_from_text, render_markdown_pages
+from .document_output import (
+    HistoryPage,
+    build_history_pages,
+    markdown_pages_from_text,
+    render_history_pages,
+    render_markdown_pages,
+)
 from .table_documents import (
     blacklist_table_pages,
     cdk_table_pages,
@@ -170,6 +176,29 @@ async def _finish_management_document(
         event,
         images,
         title=title,
+        recall_after=config_gpt.gpt_management_recall_after,
+    )
+
+
+async def _finish_history_document(
+    matcher: Matcher,
+    event: Event,
+    *,
+    pages: tuple[HistoryPage, ...],
+    fallback: str,
+) -> None:
+    """以区分发言角色的卡片样式发送聊天历史。"""
+    try:
+        images = await render_history_pages(pages)
+    except Exception as error:
+        logger.warning(f"聊天记录图片渲染失败，已回退文本输出：{error}")
+        await _finish_management_message(matcher, event, paginate_text(fallback))
+        return
+    await finish_image_pages(
+        matcher,
+        event,
+        images,
+        title="聊天记录",
         recall_after=config_gpt.gpt_management_recall_after,
     )
 
@@ -307,6 +336,8 @@ if isinstance(config_gpt.gpt_session,list):
             chat_prefixes=config_gpt.gpt_chat_start,
             include_prefix=config_gpt.gpt_chat_start_in_msg,
             empty_trigger_prompt=config_gpt.gpt_empty_trigger_prompt,
+            direct_address_context_enabled=config_gpt.gpt_direct_address_context_enabled,
+            direct_address_context_prompt=config_gpt.gpt_direct_address_context_prompt,
         )
         if config_gpt.gpt_group_chat and _is_group_context(event):
             prompt = format_group_speaker_prompt(event, prompt)
@@ -547,11 +578,10 @@ if isinstance(config_gpt.gpt_session,list):
         value = _argument_text(argument)
         history = await chat_runtime.get_history(ConversationKey.from_event(event))
         fallback = format_history(history, value)
-        await _finish_management_document(
+        await _finish_history_document(
             matcher,
             event,
-            title="聊天记录",
-            pages=build_history_markdown_pages(history, value),
+            pages=build_history_pages(history, value),
             fallback=fallback,
         )
 
