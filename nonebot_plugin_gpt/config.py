@@ -42,6 +42,7 @@ class Config(BaseModel):
     gpt_free_image: bool = False
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
+    gpt_chat_image_template: str = "native"
     gpt_management_recall_after: int = Field(default=0, ge=0, le=3600)
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
@@ -89,6 +90,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_direct_address_context_prompt 配置无效，已使用默认称呼语境提示")
         return DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT
+
+    @validator("gpt_chat_image_template", always=True, pre=True)
+    def check_gpt_chat_image_template(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_chat_image_template 配置无效，已使用 native 聊天图片主题")
+        return "native"
     
     @validator("gpt_manage_ids", always=True, pre=True)
     def check_gpt_manage_ids(cls,v):

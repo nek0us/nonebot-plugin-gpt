@@ -36,7 +36,7 @@ from .command_compat import build_legacy_command, command_argument_text
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationKey, ConversationStore
-from .runtime_handlers import chat_reply, persona_reply, restart_persona_reply, rewind_reply
+from .runtime_handlers import create_markdown_renderer, chat_reply, persona_reply, restart_persona_reply, rewind_reply
 from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_image_files
@@ -86,6 +86,7 @@ cdk_registry = CdkRegistry(
     legacy_list_path=legacy_cdk_list_path,
     legacy_source_path=legacy_cdk_source_path,
 )
+chat_markdown_renderer = create_markdown_renderer(config_gpt.gpt_chat_image_template)
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -361,6 +362,7 @@ if isinstance(config_gpt.gpt_session,list):
             prefer_paid_account=prefer_paid_account,
             files=files,
             render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
@@ -391,6 +393,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
@@ -405,6 +408,7 @@ if isinstance(config_gpt.gpt_session,list):
             ConversationKey.from_event(event),
             "-1",
             render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
@@ -420,6 +424,7 @@ if isinstance(config_gpt.gpt_session,list):
             ConversationKey.from_event(event),
             reference,
             render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,
@@ -469,6 +474,7 @@ if isinstance(config_gpt.gpt_session,list):
             prefer_paid_account=prefer_paid_account,
             continue_existing=continue_existing,
             render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             failure_diagnostics=failure_diagnostics,

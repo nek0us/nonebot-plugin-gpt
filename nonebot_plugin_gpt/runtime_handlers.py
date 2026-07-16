@@ -11,6 +11,7 @@ from nonebot.log import logger
 from nonebot_plugin_alconna.uniseg import UniMessage
 
 from .chat_runtime import ChatRuntime
+from .chat_images import render_chat_markdown
 from .conversation import ConversationKey
 from .failure_diagnostics import ChatFailureDiagnostics
 from .rendering import build_render_plan
@@ -31,10 +32,16 @@ _CONVERSATION_RECOVERY_KINDS = {
 
 
 async def _render_markdown(markdown: str) -> bytes | None:
-    """将复杂 Markdown 交给已安装的 HTML 渲染器处理。"""
-    from nonebot_plugin_htmlkit import md_to_pic
+    """使用默认原生主题渲染复杂 Markdown。"""
+    return await render_chat_markdown(markdown)
 
-    return await md_to_pic(markdown, max_width=720)
+
+def create_markdown_renderer(template: str) -> MarkdownRenderer:
+    """绑定配置后的聊天图片主题，供每次对话渲染复用。"""
+    async def render(markdown: str) -> bytes | None:
+        return await render_chat_markdown(markdown, template=template)
+
+    return render
 
 
 def _error_message(

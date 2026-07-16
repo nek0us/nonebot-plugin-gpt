@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+from nonebot.log import logger
 from nonebot_plugin_alconna.uniseg import UniMessage
 
 from .rendering import RenderPlan
@@ -17,7 +18,11 @@ async def build_unimessage(plan: RenderPlan, render_markdown: MarkdownRenderer |
     message = UniMessage()
     markdown_image = None
     if plan.markdown_image_required and render_markdown:
-        markdown_image = await render_markdown(plan.markdown or plan.text)
+        try:
+            markdown_image = await render_markdown(plan.markdown or plan.text)
+        except Exception as error:
+            # 用户模板可能暂时不可读；此处回退纯文本，不能让正常聊天因此失败。
+            logger.warning(f"聊天 Markdown 图片渲染失败，已回退文本输出：{error}")
     if markdown_image:
         message += UniMessage.image(raw=markdown_image)
     elif plan.text:

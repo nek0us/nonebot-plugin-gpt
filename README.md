@@ -113,6 +113,7 @@ _✨ NoneBot GPT ✨_
 | gpt_free_image| 否 | false | bool | 免费账户使用图像识别（大概每天5次额度） |
 | gpt_force_upgrade_model| 否 | true | bool | 强制升级基础模型 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：自动回退、纯文本、优先图片 |
+| gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式：native 为柔和纵向主题，off 为黑白纵向主题；填写本地 HTML 模板路径可自定义 |
 | gpt_management_recall_after | 否 | 0 | int | 多页管理输出的自动撤回秒数；0 为关闭，适配器不支持时自动忽略 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
@@ -200,6 +201,12 @@ gpt_force_upgrade_model=true
 
 # 富文本输出策略：auto、text、image
 gpt_render_mode="auto"
+
+# 聊天 Markdown 转图主题：
+# native：默认粉蓝紫纵向卡片；off：黑白纵向阅读样式（也兼容“关”）；
+# 也可填自定义 HTML 模板的绝对路径。模板必须包含 {{ content }} 占位符。
+# 可复制 nonebot_plugin_gpt/templates/chat-image-template.html 后自行修改。
+gpt_chat_image_template="native"
 
 # 多页帮助、列表、历史等管理输出在 60 秒后自动撤回；0 表示关闭
 gpt_management_recall_after=60
