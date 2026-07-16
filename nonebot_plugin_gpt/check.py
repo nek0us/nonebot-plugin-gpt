@@ -144,14 +144,42 @@ def _event_plain_text(event: Event) -> str:
     """读取适配器通用的纯文本消息，缺失时安全降级为空字符串。"""
     get_plaintext = getattr(event, "get_plaintext", None)
     if callable(get_plaintext):
-        return str(get_plaintext())
+        try:
+            return str(get_plaintext())
+        except (AttributeError, TypeError, ValueError):
+            return ""
     get_message = getattr(event, "get_message", None)
     if callable(get_message):
-        message = get_message()
+        try:
+            message = get_message()
+        except (AttributeError, TypeError, ValueError):
+            return ""
         extract_plain_text = getattr(message, "extract_plain_text", None)
         if callable(extract_plain_text):
-            return str(extract_plain_text())
+            try:
+                return str(extract_plain_text())
+            except (AttributeError, TypeError, ValueError):
+                return ""
     return ""
+
+
+def _is_message_event(event: Event) -> bool:
+    """仅允许有可读取消息体的事件进入 GPT 的聊天和命令规则。"""
+    get_message = getattr(event, "get_message", None)
+    if callable(get_message):
+        try:
+            return get_message() is not None
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    get_plaintext = getattr(event, "get_plaintext", None)
+    if callable(get_plaintext):
+        try:
+            get_plaintext()
+            return True
+        except (AttributeError, TypeError, ValueError):
+            return False
+    return False
 
 
 def _message_plain_text(message: Any) -> str:
@@ -196,7 +224,7 @@ def _is_explicitly_addressed(event: Event) -> bool:
 async def plus_status(event: Event) -> bool:
     """判断事件是否允许使用付费模型命令。"""
     user_id = get_event_user_id(event)
-    if not user_id or not _is_explicitly_addressed(event):
+    if not user_id or not _is_message_event(event) or not _is_explicitly_addressed(event):
         return False
     if user_id in config_nb.superusers:
         return True
@@ -214,7 +242,7 @@ async def plus_status(event: Event) -> bool:
 
 async def gpt_rule(event: Event) -> bool:
     """聊天事件匹配规则。"""
-    if not get_event_user_id(event):
+    if not get_event_user_id(event) or not _is_message_event(event):
         return False
     if not _is_explicitly_addressed(event):
         return False
@@ -228,7 +256,7 @@ async def gpt_rule(event: Event) -> bool:
 
 async def gpt_command_rule(event: Event) -> bool:
     """已由 Alconna 识别的命令仍需显式称呼机器人后才能执行。"""
-    if not get_event_user_id(event) or not _is_explicitly_addressed(event):
+    if not get_event_user_id(event) or not _is_message_event(event) or not _is_explicitly_addressed(event):
         return False
     bans = _read_json(banpath, {})
     if is_banned(event, bans):
@@ -241,7 +269,7 @@ async def gpt_command_rule(event: Event) -> bool:
 async def gpt_manage_rule(event: Event) -> bool:
     """管理事件匹配。"""
     user_id = get_event_user_id(event)
-    if not user_id or not _is_explicitly_addressed(event):
+    if not user_id or not _is_message_event(event) or not _is_explicitly_addressed(event):
         return False
     return (
         user_id in config_nb.superusers
@@ -262,12 +290,17 @@ async def gpt_operator_command_rule(event: Event) -> bool:
 async def gpt_superuser_rule(event: Event) -> bool:
     """仅允许 NoneBot 超级用户执行高风险的本地运维入口。"""
     user_id = get_event_user_id(event)
-    return bool(user_id and _is_explicitly_addressed(event) and user_id in config_nb.superusers)
+    return bool(
+        user_id
+        and _is_message_event(event)
+        and _is_explicitly_addressed(event)
+        and user_id in config_nb.superusers
+    )
 
 
 async def gpt_cdk_redeem_rule(event: Event) -> bool:
     """允许未入白名单的正常用户兑换 CDK。"""
-    if not get_event_user_id(event) or not _is_explicitly_addressed(event):
+    if not get_event_user_id(event) or not _is_message_event(event) or not _is_explicitly_addressed(event):
         return False
     bans = _read_json(banpath, {})
     return not is_banned(event, bans)

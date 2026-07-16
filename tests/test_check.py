@@ -49,6 +49,23 @@ class AddressedEvent:
 AddressedEvent.__module__ = "nonebot.adapters.onebot.v11.event"
 
 
+class NoticeEvent:
+    def get_user_id(self):
+        return "42"
+
+    def get_plaintext(self):
+        raise ValueError("Event has no message!")
+
+    def get_message(self):
+        raise ValueError("Event has no message!")
+
+    def is_tome(self):
+        return False
+
+
+NoticeEvent.__module__ = "nonebot.adapters.onebot.v11.event"
+
+
 class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_contextless_event_is_ignored_by_all_access_rules(self):
         event = ContextlessEvent()
@@ -56,6 +73,17 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(check.get_event_user_id(event))
         self.assertEqual(check.get_access_session_id(event), "")
         self.assertEqual(check.get_participant_key(event), "")
+        self.assertFalse(await check.gpt_rule(event))
+        self.assertFalse(await check.gpt_command_rule(event))
+        self.assertFalse(await check.gpt_manage_rule(event))
+        self.assertFalse(await check.gpt_superuser_rule(event))
+        self.assertFalse(await check.plus_status(event))
+
+    async def test_notice_event_is_ignored_without_accessing_its_message(self):
+        event = NoticeEvent()
+
+        self.assertEqual(check._event_plain_text(event), "")
+        self.assertFalse(check._is_message_event(event))
         self.assertFalse(await check.gpt_rule(event))
         self.assertFalse(await check.gpt_command_rule(event))
         self.assertFalse(await check.gpt_manage_rule(event))
