@@ -18,7 +18,12 @@ from nonebot_plugin_alconna.uniseg import (
 )
 
 
-def _segment_text(segment: Any) -> str:
+def _segment_text(
+    segment: Any,
+    *,
+    image_upload_enabled: bool,
+    file_upload_enabled: bool,
+) -> str:
     if isinstance(segment, Text):
         return segment.text
     if isinstance(segment, At):
@@ -35,19 +40,29 @@ def _segment_text(segment: Any) -> str:
     if isinstance(segment, AtAll):
         return "@全体成员"
     if isinstance(segment, Image):
-        return f"【图片附件：{segment.name or '未命名图片'}】"
+        state = "已附加" if image_upload_enabled else "未上传，无法读取"
+        return f"【图片附件：{segment.name or '未命名图片'}，{state}】"
     if isinstance(segment, (Audio, Voice)):
-        return f"【音频附件：{segment.name or '未命名音频'}，暂不支持解析】"
+        state = "已附加" if file_upload_enabled else "未上传，无法读取"
+        return f"【音频附件：{segment.name or '未命名音频'}，{state}】"
     if isinstance(segment, Video):
-        return f"【视频附件：{segment.name or '未命名视频'}，暂不支持解析】"
+        state = "已附加" if file_upload_enabled else "未上传，无法读取"
+        return f"【视频附件：{segment.name or '未命名视频'}，{state}】"
     if isinstance(segment, File):
-        return f"【文件附件：{segment.name or '未命名文件'}，暂不支持读取】"
+        state = "已附加" if file_upload_enabled else "未上传，无法读取"
+        return f"【文件附件：{segment.name or '未命名文件'}，{state}】"
     if isinstance(segment, Emoji):
         return f"【表情：{segment.name or segment.id}】"
     return ""
 
 
-def extract_chat_message(message: Any, *, self_id: str = "") -> str:
+def extract_chat_message(
+    message: Any,
+    *,
+    self_id: str = "",
+    image_upload_enabled: bool = False,
+    file_upload_enabled: bool = False,
+) -> str:
     """保留跨平台消息中的文本与提及语义，移除仅用于唤醒机器人的 @。"""
     if isinstance(message, UniMessage):
         segments = message
@@ -63,7 +78,13 @@ def extract_chat_message(message: Any, *, self_id: str = "") -> str:
     for segment in segments:
         if isinstance(segment, At) and segment.flag == "user" and bot_id and segment.target == bot_id:
             continue
-        parts.append(_segment_text(segment))
+        parts.append(
+            _segment_text(
+                segment,
+                image_upload_enabled=image_upload_enabled,
+                file_upload_enabled=file_upload_enabled,
+            )
+        )
     return "".join(parts)
 
 

@@ -124,6 +124,8 @@ _✨ NoneBot GPT ✨_
 | gpt_control_port | 否 | 无 | int | 控制台端口；留空不开启。设置为 `8765` 时从本机访问 `http://127.0.0.1:8765`。 |
 | gpt_control_api_key | 否 | 自动生成 | str | 控制台 API 密钥。 |
 | gpt_free_image| 否 | false | bool | 允许免费账户上传图片；额度较低且受上游限制，默认关闭。 |
+| gpt_file_upload | 否 | false | bool | 允许上传跨平台消息中的普通文件、音频、语音和视频；默认关闭，开启后会下载适配器提供的 URL 或读取原始附件内容。 |
+| gpt_file_max_size | 否 | 20971520 | int | 单个普通附件的最大字节数，默认 20 MiB，范围为 1 KiB 至 100 MiB；超限附件不会下载或上传。 |
 | gpt_force_upgrade_model| 否 | true | bool | 避免已保存逻辑会话继续选择不适合免费账户的旧模型偏好。 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；渲染异常会回退文本。 |
 | gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式。`native` 是粉蓝紫纵向主题，`off` 是黑白纵向主题；也可填写含 `{{ content }}` 的自定义 HTML 模板路径。 |
@@ -213,6 +215,11 @@ gpt_control_api_key='replace-with-a-long-random-secret'
 
 # 开启免费账户图片识别（大概每天5额度）
 gpt_free_image=false
+
+# 上传文件、音频和视频给当前 ChatGPT 会话；默认关闭以避免自动下载大文件
+gpt_file_upload=false
+# 单个普通附件最大 20 MiB
+gpt_file_max_size=20971520
 
 # 强制升级基础模型，如4o-mini升级到4-1-mini
 gpt_force_upgrade_model=true

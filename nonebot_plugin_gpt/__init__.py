@@ -39,7 +39,7 @@ from .conversation import ConversationKey, ConversationStore
 from .runtime_handlers import create_markdown_renderer, chat_reply, persona_reply, restart_persona_reply, rewind_reply
 from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
-from .attachments import extract_image_files
+from .attachments import extract_upload_files
 from .auto_persona import AutoPersonaInitializer
 from .chat_input import build_chat_prompt, extract_chat_message
 from .persona_views import list_personas, show_persona
@@ -329,9 +329,13 @@ if isinstance(config_gpt.gpt_session,list):
     ):
         if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
+        model, prefer_paid_account = await select_model(event)
+        image_upload_enabled = config_gpt.gpt_free_image or prefer_paid_account
         message_text = extract_chat_message(
             original_message,
             self_id=str(getattr(event, "self_id", "")),
+            image_upload_enabled=image_upload_enabled,
+            file_upload_enabled=config_gpt.gpt_file_upload,
         )
         prompt = build_chat_prompt(
             message_text,
@@ -345,7 +349,6 @@ if isinstance(config_gpt.gpt_session,list):
         )
         if config_gpt.gpt_group_chat and _is_group_context(event):
             prompt = format_group_speaker_prompt(event, prompt)
-        model, prefer_paid_account = await select_model(event)
         auto_result = await auto_persona.ensure_initialized(
             ConversationKey.from_event(event),
             is_shared=_is_group_context(event),
@@ -355,8 +358,14 @@ if isinstance(config_gpt.gpt_session,list):
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
         files = []
-        if config_gpt.gpt_free_image or prefer_paid_account:
-            files = await extract_image_files(original_message, proxy=config_gpt.gpt_proxy)
+        if image_upload_enabled or config_gpt.gpt_file_upload:
+            files = await extract_upload_files(
+                original_message,
+                proxy=config_gpt.gpt_proxy,
+                upload_images=image_upload_enabled,
+                upload_files=config_gpt.gpt_file_upload,
+                max_file_size=config_gpt.gpt_file_max_size,
+            )
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,
             ConversationKey.from_event(event),

@@ -54,10 +54,15 @@ class ChatInputTests(unittest.TestCase):
 
         self.assertEqual(
             chat_input.extract_chat_message(message),
-            "【图片附件：cat.png】"
-            "【音频附件：voice.mp3，暂不支持解析】"
-            "【视频附件：clip.mp4，暂不支持解析】"
-            "【文件附件：notes.pdf，暂不支持读取】",
+            "【图片附件：cat.png，未上传，无法读取】"
+            "【音频附件：voice.mp3，未上传，无法读取】"
+            "【视频附件：clip.mp4，未上传，无法读取】"
+            "【文件附件：notes.pdf，未上传，无法读取】",
+        )
+
+        self.assertIn(
+            "【文件附件：notes.pdf，已附加】",
+            chat_input.extract_chat_message(message, file_upload_enabled=True),
         )
 
     def test_nickname_preserves_the_original_natural_subject_by_default(self):

@@ -40,6 +40,8 @@ class Config(BaseModel):
     gpt_control_port: Optional[int] = Field(default=None, ge=0, le=65535)
     gpt_control_api_key: Optional[str] = None
     gpt_free_image: bool = False
+    gpt_file_upload: bool = False
+    gpt_file_max_size: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_chat_image_template: str = "native"
@@ -321,6 +323,15 @@ class Config(BaseModel):
             else:
                 logger.success("已关闭 gpt_free_image 免费账户上传图片")
             return v  
+
+    @validator("gpt_file_upload", always=True, pre=True)
+    def check_gpt_file_upload(cls,v):
+        if isinstance(v,bool):
+            if v:
+                logger.success("已开启 gpt_file_upload 普通文件上传")
+            else:
+                logger.success("已关闭 gpt_file_upload 普通文件上传")
+            return v
         
     
     @validator("gpt_force_upgrade_model", always=True, pre=True)

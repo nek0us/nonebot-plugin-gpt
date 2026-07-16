@@ -24,6 +24,20 @@ class AttachmentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(files[0].name, "cat.png")
         self.assertEqual(files[0].content, b"image-data")
 
+    async def test_unimessage_file_is_extracted_when_enabled(self):
+        from nonebot_plugin_alconna.uniseg import File, UniMessage
+
+        files = await attachments.extract_upload_files(
+            UniMessage([File(raw=b"document-data", name="notes.txt")]),
+            upload_images=False,
+            upload_files=True,
+            max_file_size=1024,
+        )
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].name, "notes.txt")
+        self.assertEqual(files[0].content, b"document-data")
+
     async def test_segments_without_http_image_urls_are_ignored(self):
         class Segment:
             def __init__(self, segment_type, data):
