@@ -18,11 +18,13 @@ class HelpViewsTests(unittest.TestCase):
         self.assertIn("人设", text)
         self.assertIn("GPT帮助 <主题>", text)
         self.assertIn("兑换 <CDK>", text)
+        self.assertIn("@ 机器人", text)
 
     def test_help_sections_are_selected_by_topic(self):
         self.assertIn("切换会话", help_views.format_help("会话"))
         self.assertIn("工作状态", help_views.format_help("管理"))
         self.assertIn("智能体 计划", help_views.format_help("agent"))
+        self.assertIn("@机器人 兑换", help_views.format_help("授权"))
 
     def test_unknown_topic_is_explained(self):
         self.assertIn("可用主题", help_views.format_help("不存在"))

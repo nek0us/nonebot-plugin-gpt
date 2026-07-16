@@ -240,6 +240,7 @@ __plugin_meta__ = PluginMetadata(
     description="通过浏览器使用 ChatGPT，基于 Alconna 与 UniMessage 提供跨平台聊天能力",
     usage="""
 聊天：@机器人或配置的前缀后发送内容。
+所有命令同样需要先 @机器人，或以 NICKNAME / gpt_chat_start 中配置的名称开头。
 会话：初始化、人设列表、历史聊天、历史会话、切换会话、重置、回到过去。
 管理：工作状态、黑名单列表、解黑、白名单列表、添加白名单、删除白名单、会话标识。
 授权：生成cdk、生成个人cdk、兑换、cdk列表、作废cdk、退出白名单、退出个人白名单。
@@ -709,7 +710,11 @@ if isinstance(config_gpt.gpt_session,list):
             creator_scope=get_access_session_id(event),
         )
         source = note.strip() or "未备注"
-        await matcher.finish(f"已生成 CDK：{code}\n来源：{source}\n请在目标会话发送：兑换 {code}")
+        await matcher.finish(
+            f"已生成 CDK：{code}\n来源：{source}\n"
+            f"请在目标会话发送：@机器人 兑换 {code}\n"
+            "或：<机器人昵称> 兑换 <CDK>"
+        )
 
     create_personal_cdk = legacy_command("生成个人cdk", aliases={"生成个人CDK"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @create_personal_cdk.handle()
@@ -724,7 +729,8 @@ if isinstance(config_gpt.gpt_session,list):
         source = note.strip() or "未备注"
         await matcher.finish(
             f"已生成个人 CDK：{code}\n来源：{source}\n"
-            f"请由目标用户在任意同平台私聊、群聊或频道发送：兑换 {code}"
+            f"请由目标用户在任意同平台私聊、群聊或频道发送：@机器人 兑换 {code}\n"
+            "或：<机器人昵称> 兑换 <CDK>"
         )
 
     redeem_cdk = legacy_command("兑换", aliases={"出现吧"}, rule=gpt_cdk_redeem_rule, priority=config_gpt.gpt_command_priority, block=True)
