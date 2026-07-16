@@ -2,7 +2,7 @@
 
 from collections.abc import Iterable
 
-from arclet.alconna import AllParam, Alconna, Args
+from arclet.alconna import AllParam, Alconna, Args, CommandMeta
 
 
 def command_argument_text(value: object | None) -> str:
@@ -19,8 +19,13 @@ def build_legacy_command(
     aliases: set[str] | None = None,
     address_prefixes: Iterable[str] = (),
 ) -> Alconna:
-    """保留旧命令，并识别“机器人名 命令”的跨平台文字称呼形式。"""
-    command = Alconna(name, Args["argument?", AllParam])
+    """保留旧命令，并兼容称呼、命令和参数的连写形式。"""
+    command = Alconna(
+        name,
+        Args["argument?", AllParam],
+        separators={"", " "},
+        meta=CommandMeta(compact=True),
+    )
     command_names = {name, *(aliases or ())}
     for alias in command_names - {name}:
         command.shortcut(alias, command=name, prefix=True)

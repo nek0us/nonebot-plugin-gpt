@@ -61,3 +61,15 @@ class LegacyCommandTest(unittest.TestCase):
 
         self.assertTrue(result.matched)
         self.assertEqual(command_compat.command_argument_text(result.main_args["argument"]), "猫娘")
+
+    def test_command_and_argument_can_be_written_without_a_space(self):
+        command = command_compat.build_legacy_command("输出模式", set(), ["猪咪"])
+
+        for text in ("输出模式文本", "猪咪 输出模式文本", "猪咪输出模式文本"):
+            with self.subTest(text=text):
+                result = command.parse(text)
+                self.assertTrue(result.matched)
+                self.assertEqual(
+                    command_compat.command_argument_text(result.main_args["argument"]),
+                    "文本",
+                )
