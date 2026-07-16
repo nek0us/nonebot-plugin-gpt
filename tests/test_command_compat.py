@@ -27,6 +27,14 @@ class LegacyCommandTest(unittest.TestCase):
         self.assertTrue(result.matched)
         self.assertIsNone(result.main_args.get("argument"))
 
+    def test_legacy_chat_help_alias_keeps_the_topic(self):
+        command = command_compat.build_legacy_command("gpt_help", {"聊天帮助"})
+
+        result = command.parse("聊天帮助 会话")
+
+        self.assertTrue(result.matched)
+        self.assertEqual(command_compat.command_argument_text(result.main_args["argument"]), "会话")
+
     def test_canonical_command_accepts_an_argument(self):
         command = command_compat.build_legacy_command("添加人设", {"添加人格"})
 

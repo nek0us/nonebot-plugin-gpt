@@ -370,7 +370,7 @@ if isinstance(config_gpt.gpt_session,list):
 
     help_command = legacy_command(
         "gpt_help",
-        aliases={"GPT帮助", "gpt帮助", "帮助GPT"},
+        aliases={"GPT帮助", "gpt帮助", "帮助GPT", "聊天帮助"},
         rule=gpt_operator_command_rule,
         priority=config_gpt.gpt_command_priority,
         block=True,

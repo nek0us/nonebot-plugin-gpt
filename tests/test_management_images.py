@@ -20,6 +20,12 @@ class ManagementImageTests(unittest.TestCase):
         self.assertIn("切换会话", html)
         self.assertIn("NONEBOT PLUGIN", html)
 
+    def test_default_help_image_includes_cdk_onboarding(self):
+        html = management_images.build_help_html()
+
+        self.assertIn("先向机器人管理员领取 CDK", html)
+        self.assertIn("兑换 &lt;CDK&gt;", html)
+
     def test_status_image_has_summary_and_safe_account_details(self):
         html = management_images.build_account_status_html({
             "accounts": [{

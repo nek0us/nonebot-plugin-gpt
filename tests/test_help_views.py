@@ -17,6 +17,7 @@ class HelpViewsTests(unittest.TestCase):
         self.assertIn("会话", text)
         self.assertIn("人设", text)
         self.assertIn("GPT帮助 <主题>", text)
+        self.assertIn("兑换 <CDK>", text)
 
     def test_help_sections_are_selected_by_topic(self):
         self.assertIn("切换会话", help_views.format_help("会话"))
