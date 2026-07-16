@@ -122,3 +122,32 @@ class ConversationStoreTests(unittest.IsolatedAsyncioTestCase):
 
             await reloaded.set_preference(first, "render_mode", None)
             self.assertIsNone(await reloaded.get_preference(first, "render_mode"))
+
+    async def test_unique_legacy_group_member_session_is_promoted_to_shared_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConversationStore(Path(directory) / "sessions.json")
+            shared = ConversationKey("onebot.v11:group:100", "")
+            legacy_member = ConversationKey("onebot.v11:group:100", "onebot.v11:user:alice")
+            legacy_state = await store.create(legacy_member, "群聊旧会话")
+            legacy_state.conversation_id = "conversation-old"
+            await store.save(legacy_member, legacy_state)
+
+            promoted = await store.get(shared)
+
+            self.assertEqual(promoted.conversation_id, "conversation-old")
+            self.assertEqual(promoted.owner_key, shared.value)
+            self.assertEqual(len(await store.list(shared)), 1)
+            self.assertEqual((await store.get(legacy_member)).conversation_id, "")
+
+    async def test_multiple_legacy_group_members_are_not_merged_automatically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ConversationStore(Path(directory) / "sessions.json")
+            shared = ConversationKey("onebot.v11:group:100", "")
+            for name in ("alice", "bob"):
+                member = ConversationKey("onebot.v11:group:100", f"onebot.v11:user:{name}")
+                state = await store.create(member, name)
+                state.conversation_id = f"conversation-{name}"
+                await store.save(member, state)
+
+            self.assertEqual((await store.get(shared)).conversation_id, "")
+            self.assertEqual(await store.list(shared), [])

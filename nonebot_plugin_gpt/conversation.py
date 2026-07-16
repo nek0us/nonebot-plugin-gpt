@@ -170,10 +170,45 @@ class ConversationStore:
         )
         os.replace(temporary_path, self._path)
 
+    @staticmethod
+    def _promote_single_legacy_shared_scope(
+        archive: _ConversationArchive,
+        key: ConversationKey,
+    ) -> ConversationState | None:
+        """将唯一的旧群成员会话提升为当前群共享会话。
+
+        早期版本曾可能将群聊按个人键保存。只有确认同一共享范围下仅有一位
+        旧所有者时才迁移，避免把多个成员各自的历史会话错误合并。
+        """
+        if key.user_id or key.value in archive.bindings:
+            return None
+        prefix = f"{key.session_id}:"
+        legacy_owner_keys = [
+            owner_key
+            for owner_key in archive.bindings
+            if owner_key.startswith(prefix)
+        ]
+        if len(legacy_owner_keys) != 1:
+            return None
+
+        legacy_owner_key = legacy_owner_keys[0]
+        logical_id = archive.bindings.pop(legacy_owner_key)
+        archive.bindings[key.value] = logical_id
+        for state in archive.sessions.values():
+            if state.owner_key == legacy_owner_key:
+                state.owner_key = key.value
+                state.updated_at = _now()
+        return archive.sessions.get(logical_id)
+
     async def get(self, key: ConversationKey) -> ConversationState:
         async with self._lock:
             archive = self._read_unlocked()
             logical_id = archive.bindings.get(key.value, "")
+            if not logical_id:
+                promoted = self._promote_single_legacy_shared_scope(archive, key)
+                if promoted is not None:
+                    self._write_unlocked(archive)
+                    return promoted
             return archive.sessions.get(logical_id, ConversationState(owner_key=key.value))
 
     async def save(self, key: ConversationKey, state: ConversationState) -> ConversationState:
