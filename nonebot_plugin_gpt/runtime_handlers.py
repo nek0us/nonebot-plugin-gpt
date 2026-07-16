@@ -226,7 +226,7 @@ async def rewind_reply(
     if not reference.strip():
         return UniMessage.text("请输入要回退到的对话序号或消息标识。")
     try:
-        result = await runtime.rewind(key, reference)
+        result = await runtime.rewind_visible(key, reference)
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:

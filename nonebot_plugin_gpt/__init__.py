@@ -51,7 +51,7 @@ from .persona_editor import (
     validate_name,
     validate_value,
 )
-from .history_views import format_history, format_history_tree
+from .history_views import format_history
 from .help_views import format_help
 from .management_views import format_account_status
 from .management_images import build_account_status_html, build_help_html, render_management_image
@@ -582,24 +582,13 @@ if isinstance(config_gpt.gpt_session,list):
     @chat_history.handle()
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
         value = _argument_text(argument)
-        history = await chat_runtime.get_history(ConversationKey.from_event(event))
-        fallback = format_history(history, value)
+        history = await chat_runtime.get_visible_history(ConversationKey.from_event(event))
+        fallback = format_history(history.entries, value)
         await _finish_history_document(
             matcher,
             event,
-            pages=build_history_pages(history, value),
+            pages=build_history_pages(history.entries, value),
             fallback=fallback,
-        )
-
-    chat_history = legacy_command("history_tree",aliases={"历史聊天树","历史记录树"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
-    @chat_history.handle()
-    async def chat_history_handle(event: Event, matcher: Matcher):
-        key = ConversationKey.from_event(event)
-        state = await chat_runtime.get_active_session(key)
-        history = await chat_runtime.get_history(key)
-        text = format_history_tree(state, len(history))
-        await _finish_management_document(
-            matcher, event, title="历史记录树", pages=markdown_pages_from_text("历史记录树", text), fallback=text,
         )
 
     chat_conversations = legacy_command("conversations",aliases={"历史人设","历史会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)

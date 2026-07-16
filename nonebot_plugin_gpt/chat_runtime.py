@@ -17,6 +17,7 @@ from .context_policy import (
     build_summary_prompt,
     decide_context_maintenance,
 )
+from .history_views import HistoryProjection, project_history
 
 
 StreamObserver = Callable[[ChatStreamEvent], None | Awaitable[None]]
@@ -243,6 +244,18 @@ class ChatRuntime:
             return []
         return await self._service.get_history(state.conversation_id)
 
+    async def get_visible_history(self, key: ConversationKey) -> HistoryProjection:
+        """获取可安全展示给会话成员的历史记录。"""
+        state = await self._conversations.get(key)
+        if not state.conversation_id:
+            return HistoryProjection((), ())
+        history = await self._service.get_history(state.conversation_id)
+        return project_history(
+            history,
+            persona_prompt=state.persona_prompt,
+            hide_initial=bool(state.persona_name),
+        )
+
     async def switch_session(self, key: ConversationKey, logical_id: str) -> ConversationState:
         """切换逻辑会话，而不是切到自动压缩产生的检查点。"""
         return await self._conversations.switch(key, logical_id)
@@ -280,3 +293,10 @@ class ChatRuntime:
             state.metadata.update({"account": result.account, "usage": result.usage})
             await self._conversations.save(key, state)
         return result
+
+    async def rewind_visible(self, key: ConversationKey, reference: str) -> ChatResult:
+        """按历史聊天展示的轮次回退，同时兼容关键词和底层消息标识。"""
+        if not reference.strip().isdecimal():
+            return await self.rewind(key, reference)
+        projection = await self.get_visible_history(key)
+        return await self.rewind(key, projection.resolve_rewind_reference(reference))

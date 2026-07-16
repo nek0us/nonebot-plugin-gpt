@@ -188,6 +188,32 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(service.requests[-1].operation.value, "rewind")
             self.assertEqual(service.requests[-1].reference, "-1")
 
+    async def test_visible_rewind_maps_hidden_persona_rounds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            state = await store.create(key, "船长")
+            state.conversation_id = "conversation-old"
+            state.parent_message_id = "message-old"
+            state.persona_name = "船长"
+            state.persona_prompt = "你是一位冷静的船长"
+            await store.save(key, state)
+
+            async def get_history(_conversation_id):
+                return [
+                    {"Q": "你是一位冷静的船长", "A": "已就位"},
+                    {"Q": "下一站去哪里？", "A": "去港口"},
+                ]
+
+            service.get_history = get_history
+
+            result = await runtime.rewind_visible(key, "1")
+
+            self.assertTrue(result.ok)
+            self.assertEqual(service.requests[-1].reference, "2")
+
     async def test_chat_keeps_uploaded_files_on_the_request(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")
