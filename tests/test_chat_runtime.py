@@ -255,3 +255,20 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(state.model, "gpt-5")
             self.assertTrue(state.metadata["prefer_paid_account"])
+
+    async def test_render_mode_is_scoped_separately_from_logical_sessions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            runtime = chat_runtime.ChatRuntime(FakeService(), store)
+            first = conversation.ConversationKey("onebot.v11:group:100", "")
+            second = conversation.ConversationKey("satori:channel:100", "")
+
+            self.assertEqual(await runtime.get_render_mode(first, "auto"), ("auto", False))
+            await runtime.set_render_mode(first, "image")
+            await runtime.create_session(first, "新会话")
+
+            self.assertEqual(await runtime.get_render_mode(first, "auto"), ("image", True))
+            self.assertEqual(await runtime.get_render_mode(second, "text"), ("text", False))
+
+            await runtime.set_render_mode(first, None)
+            self.assertEqual(await runtime.get_render_mode(first, "text"), ("text", False))

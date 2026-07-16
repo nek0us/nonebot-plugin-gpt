@@ -106,3 +106,19 @@ class ConversationStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state.conversation_id, "conversation-new")
             self.assertEqual(len(state.checkpoints), 1)
             self.assertEqual((await store.get(key)).logical_id, state.logical_id)
+
+    async def test_scope_preference_persists_without_affecting_other_scopes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.json"
+            store = ConversationStore(path)
+            first = ConversationKey("onebot.v11:group:100", "")
+            second = ConversationKey("telegram:group:100", "")
+
+            await store.set_preference(first, "render_mode", "image")
+
+            reloaded = ConversationStore(path)
+            self.assertEqual(await reloaded.get_preference(first, "render_mode"), "image")
+            self.assertIsNone(await reloaded.get_preference(second, "render_mode"))
+
+            await reloaded.set_preference(first, "render_mode", None)
+            self.assertIsNone(await reloaded.get_preference(first, "render_mode"))

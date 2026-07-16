@@ -320,6 +320,14 @@ if isinstance(config_gpt.gpt_session,list):
             await asyncio.gather(start_task, return_exceptions=True)
         await chatbot.close()
 
+    async def get_current_render_mode(event: Event) -> str:
+        """优先使用当前适配器会话范围的输出偏好。"""
+        mode, _overridden = await chat_runtime.get_render_mode(
+            ConversationKey.from_event(event),
+            config_gpt.gpt_render_mode,
+        )
+        return mode
+
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
     async def chat_handle(
@@ -329,6 +337,7 @@ if isinstance(config_gpt.gpt_session,list):
     ):
         if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
+        key = ConversationKey.from_event(event)
         model, prefer_paid_account = await select_model(event)
         image_upload_enabled = config_gpt.gpt_free_image or prefer_paid_account
         message_text = extract_chat_message(
@@ -350,7 +359,7 @@ if isinstance(config_gpt.gpt_session,list):
         if config_gpt.gpt_group_chat and _is_group_context(event):
             prompt = format_group_speaker_prompt(event, prompt)
         auto_result = await auto_persona.ensure_initialized(
-            ConversationKey.from_event(event),
+            key,
             is_shared=_is_group_context(event),
             model=model,
             prefer_paid_account=prefer_paid_account,
@@ -368,12 +377,12 @@ if isinstance(config_gpt.gpt_session,list):
             )
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,
-            ConversationKey.from_event(event),
+            key,
             prompt,
             model=model,
             prefer_paid_account=prefer_paid_account,
             files=files,
-            render_mode=config_gpt.gpt_render_mode,
+            render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
@@ -397,6 +406,41 @@ if isinstance(config_gpt.gpt_session,list):
             fallback=format_help(topic),
         )
 
+    render_mode_command = legacy_command(
+        "输出模式",
+        aliases={"富文本模式", "渲染模式"},
+        rule=gpt_operator_command_rule,
+        priority=config_gpt.gpt_command_priority,
+        block=True,
+    )
+    @render_mode_command.handle()
+    async def render_mode_handle(event: Event, argument: Match[str], matcher: Matcher):
+        key = ConversationKey.from_event(event)
+        raw_mode = _argument_text(argument).strip().lower()
+        aliases = {
+            "自动": "auto",
+            "auto": "auto",
+            "文本": "text",
+            "纯文本": "text",
+            "text": "text",
+            "图片": "image",
+            "图像": "image",
+            "image": "image",
+        }
+        labels = {"auto": "自动", "text": "文本", "image": "图片"}
+        if not raw_mode:
+            mode, overridden = await chat_runtime.get_render_mode(key, config_gpt.gpt_render_mode)
+            source = "当前会话" if overridden else "全局默认"
+            await matcher.finish(f"当前富文本输出：{labels[mode]}（{source}）。\n可发送：输出模式 自动、文本、图片、默认。")
+        if raw_mode in {"默认", "全局", "default"}:
+            await chat_runtime.set_render_mode(key, None)
+            await matcher.finish(f"已恢复全局默认输出策略：{labels[config_gpt.gpt_render_mode]}。")
+        mode = aliases.get(raw_mode)
+        if mode is None:
+            await matcher.finish("可用输出模式：自动、文本、图片、默认。")
+        await chat_runtime.set_render_mode(key, mode)
+        await matcher.finish(f"已将当前会话的富文本输出切换为：{labels[mode]}。")
+
                         
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
@@ -404,7 +448,7 @@ if isinstance(config_gpt.gpt_session,list):
         await finish_message(matcher, event, await restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
-            render_mode=config_gpt.gpt_render_mode,
+            render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
@@ -419,7 +463,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             "-1",
-            render_mode=config_gpt.gpt_render_mode,
+            render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
@@ -435,7 +479,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             reference,
-            render_mode=config_gpt.gpt_render_mode,
+            render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
@@ -485,7 +529,7 @@ if isinstance(config_gpt.gpt_session,list):
             model=model,
             prefer_paid_account=prefer_paid_account,
             continue_existing=continue_existing,
-            render_mode=config_gpt.gpt_render_mode,
+            render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,

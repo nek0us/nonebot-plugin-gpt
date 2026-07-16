@@ -74,6 +74,7 @@ class ConversationState:
 class _ConversationArchive:
     bindings: dict[str, str] = field(default_factory=dict)
     sessions: dict[str, ConversationState] = field(default_factory=dict)
+    preferences: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class ConversationStore:
@@ -132,7 +133,16 @@ class ConversationStore:
                 for key, logical_id in raw["bindings"].items()
                 if isinstance(key, str) and isinstance(logical_id, str) and logical_id in sessions
             }
-            return _ConversationArchive(bindings=bindings, sessions=sessions)
+            preferences = {
+                key: value.copy()
+                for key, value in raw.get("preferences", {}).items()
+                if isinstance(key, str) and isinstance(value, dict)
+            }
+            return _ConversationArchive(
+                bindings=bindings,
+                sessions=sessions,
+                preferences=preferences,
+            )
 
         # 兼容第一版仓库：每个键只有一个活动物理会话。
         archive = _ConversationArchive()
@@ -149,9 +159,10 @@ class ConversationStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
         payload = {
-            "version": 2,
+            "version": 3,
             "bindings": archive.bindings,
             "sessions": {logical_id: asdict(state) for logical_id, state in archive.sessions.items()},
+            "preferences": archive.preferences,
         }
         temporary_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
@@ -228,4 +239,29 @@ class ConversationStore:
             logical_id = archive.bindings.pop(key.value, "")
             if logical_id:
                 archive.sessions.pop(logical_id, None)
+            self._write_unlocked(archive)
+
+    async def get_preference(self, key: ConversationKey, name: str) -> Any | None:
+        """读取当前访问范围的偏好，不依附于某一条逻辑会话。"""
+        async with self._lock:
+            archive = self._read_unlocked()
+            return archive.preferences.get(key.value, {}).get(name)
+
+    async def set_preference(
+        self,
+        key: ConversationKey,
+        name: str,
+        value: Any | None,
+    ) -> None:
+        """写入访问范围偏好；传入 None 时恢复全局默认行为。"""
+        async with self._lock:
+            archive = self._read_unlocked()
+            if value is None:
+                values = archive.preferences.get(key.value)
+                if values is not None:
+                    values.pop(name, None)
+                    if not values:
+                        archive.preferences.pop(key.value, None)
+            else:
+                archive.preferences.setdefault(key.value, {})[name] = value
             self._write_unlocked(archive)

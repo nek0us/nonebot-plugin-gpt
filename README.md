@@ -127,7 +127,7 @@ _✨ NoneBot GPT ✨_
 | gpt_file_upload | 否 | false | bool | 允许上传跨平台消息中的普通文件、音频、语音和视频；默认关闭，开启后会下载适配器提供的 URL 或读取原始附件内容。 |
 | gpt_file_max_size | 否 | 20971520 | int | 单个普通附件的最大字节数，默认 20 MiB，范围为 1 KiB 至 100 MiB；超限附件不会下载或上传。 |
 | gpt_force_upgrade_model| 否 | true | bool | 避免已保存逻辑会话继续选择不适合免费账户的旧模型偏好。 |
-| gpt_render_mode | 否 | auto | auto/text/image | 富文本输出策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；渲染异常会回退文本。 |
+| gpt_render_mode | 否 | auto | auto/text/image | 富文本输出全局默认策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；可用“输出模式”在当前聊天范围单独覆盖，`默认`恢复此配置；渲染异常会回退文本。 |
 | gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式。`native` 是粉蓝紫纵向主题，`off` 是黑白纵向主题；也可填写含 `{{ content }}` 的自定义 HTML 模板路径。 |
 | gpt_history_anonymize | 否 | false | bool | 历史聊天是否隐藏群聊发言者昵称；默认 false，历史图片会显示当时记录的昵称，开启后统一显示为“用户”。 |
 | gpt_management_recall_after | 否 | 0 | int | 多页帮助、列表、历史等管理输出的自动撤回秒数；`0` 关闭，适配器不支持撤回时自动忽略。 |
@@ -327,6 +327,7 @@ SUPERUSERS=["admin user id"]
 - 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
 - `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。
 - `gpt_render_mode=auto` 会根据内容复杂度与适配器能力选择文本或图片。长帮助、历史、名单等管理内容优先分页图片；多页时优先以合并引用消息发送。
+- `输出模式 [自动/文本/图片/默认]` 只影响当前适配器内的当前群聊、私聊或频道。该偏好独立于逻辑会话，因此重置、初始化人设或切换逻辑会话后仍会保留；发送“输出模式 默认”即可恢复 `gpt_render_mode` 的全局默认策略。
 
 ### 自定义聊天图片模板
 

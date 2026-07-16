@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Literal
 
 from ChatGPTWeb import ChatRequest, ChatResult, ChatService, ConversationOperation
 from ChatGPTWeb.api import ChatStreamEvent
@@ -21,6 +21,8 @@ from .history_views import HistoryProjection, project_history
 
 
 StreamObserver = Callable[[ChatStreamEvent], None | Awaitable[None]]
+RenderMode = Literal["auto", "text", "image"]
+_RENDER_MODES = frozenset({"auto", "text", "image"})
 
 
 class ChatRuntime:
@@ -223,6 +225,21 @@ class ChatRuntime:
     async def get_active_session(self, key: ConversationKey) -> ConversationState:
         """获取当前会话范围绑定的逻辑会话。"""
         return await self._conversations.get(key)
+
+    async def get_render_mode(
+        self,
+        key: ConversationKey,
+        default_mode: RenderMode,
+    ) -> tuple[RenderMode, bool]:
+        """读取当前访问范围的输出偏好，并在未覆盖时回退到全局默认值。"""
+        value = await self._conversations.get_preference(key, "render_mode")
+        if value in _RENDER_MODES:
+            return value, True
+        return default_mode, False
+
+    async def set_render_mode(self, key: ConversationKey, mode: RenderMode | None) -> None:
+        """设置当前访问范围的输出偏好；None 表示恢复全局默认值。"""
+        await self._conversations.set_preference(key, "render_mode", mode)
 
     async def set_model_preference(
         self,
