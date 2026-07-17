@@ -32,7 +32,7 @@ from .agent_runtime import create_agent_runtime
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
-from .command_compat import build_legacy_command, command_argument_text
+from .command_compat import build_legacy_command, command_argument_text, preferred_address_prefix
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationKey, ConversationStore
@@ -112,6 +112,12 @@ def _argument_text(argument: Match[object]) -> str:
     if not argument.available:
         return ""
     return command_argument_text(argument.result)
+
+
+def _redeem_command(code: str) -> str:
+    """生成可直接复制的 CDK 兑换命令。"""
+    nickname = preferred_address_prefix(getattr(config_nb, "nickname", []))
+    return f"{nickname} 兑换 {code}" if nickname else f"@机器人 兑换 {code}"
 
 
 def _is_reply_event(event: Event) -> bool:
@@ -710,10 +716,11 @@ if isinstance(config_gpt.gpt_session,list):
             creator_scope=get_access_session_id(event),
         )
         source = note.strip() or "未备注"
+        redeem_command = _redeem_command(code)
         await matcher.finish(
             f"已生成 CDK：{code}\n来源：{source}\n"
-            f"请在目标会话发送：@机器人 兑换 {code}\n"
-            "或：<机器人昵称> 兑换 <CDK>"
+            "请复制以下命令并在目标会话发送：\n"
+            f"{redeem_command}"
         )
 
     create_personal_cdk = legacy_command("生成个人cdk", aliases={"生成个人CDK"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
@@ -727,10 +734,11 @@ if isinstance(config_gpt.gpt_session,list):
             grant_kind="participant",
         )
         source = note.strip() or "未备注"
+        redeem_command = _redeem_command(code)
         await matcher.finish(
             f"已生成个人 CDK：{code}\n来源：{source}\n"
-            f"请由目标用户在任意同平台私聊、群聊或频道发送：@机器人 兑换 {code}\n"
-            "或：<机器人昵称> 兑换 <CDK>"
+            "请由目标用户复制以下命令，并在任意同平台私聊、群聊或频道发送：\n"
+            f"{redeem_command}"
         )
 
     redeem_cdk = legacy_command("兑换", aliases={"出现吧"}, rule=gpt_cdk_redeem_rule, priority=config_gpt.gpt_command_priority, block=True)

@@ -11,6 +11,13 @@ SPEC.loader.exec_module(command_compat)
 
 
 class LegacyCommandTest(unittest.TestCase):
+    def test_preferred_address_prefix_uses_the_first_valid_nickname(self):
+        self.assertEqual(
+            command_compat.preferred_address_prefix(["", "  ", "猪咪", "备用名"]),
+            "猪咪",
+        )
+        self.assertEqual(command_compat.preferred_address_prefix([]), "")
+
     def test_alias_keeps_following_argument(self):
         command = command_compat.build_legacy_command("backloop", {"回到过去"})
 

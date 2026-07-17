@@ -14,6 +14,15 @@ def command_argument_text(value: object | None) -> str:
     return str(value)
 
 
+def preferred_address_prefix(values: Iterable[object]) -> str:
+    """选取可复制到命令文本中的首个有效机器人昵称。"""
+    for value in values:
+        prefix = str(value).strip()
+        if prefix:
+            return prefix
+    return ""
+
+
 def build_legacy_command(
     name: str,
     aliases: set[str] | None = None,
