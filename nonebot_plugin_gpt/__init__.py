@@ -33,7 +33,7 @@ from .source import (
 from .agent_runtime import AgentAccess, create_agent_runtime
 from .agent_commands import CommandRunner
 from .agent_filesystem import AgentFilesystemScanner
-from .agent_skills import load_command_skills
+from .agent_skills import load_command_skill_sources
 from .agent_scheduler import AgentScheduler, ScheduledReminder
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_agent_rule, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
@@ -455,14 +455,19 @@ if isinstance(config_gpt.gpt_session,list):
             default_timeout_seconds=config_gpt.gpt_agent_command_timeout,
             working_directory=config_gpt.gpt_agent_command_workdir,
         )
-        command_skills = load_command_skills(config_gpt.gpt_agent_command_skills, command_runner)
+        skill_load = load_command_skill_sources(
+            config_gpt.gpt_agent_command_skills,
+            config_gpt.gpt_agent_skill_files,
+            command_runner,
+        )
+        command_skills = skill_load.skills
         logger.warning("已启用智能体系统命令工具；每次执行仍需要超级用户在原聊天范围确认")
         if command_skills:
             logger.warning(f"已加载 {len(command_skills)} 个管理员配置的智能体命令技能")
-        if len(command_skills) != len(config_gpt.gpt_agent_command_skills):
-            logger.warning("部分 gpt_agent_command_skills 配置无效或名称重复，已跳过")
-    elif config_gpt.gpt_agent_command_skills:
-        logger.warning("已配置 gpt_agent_command_skills，但 gpt_agent_command_enabled 为 false，技能不会注册")
+        for issue in skill_load.issues:
+            logger.warning(f"智能体命令技能配置：{issue}")
+    elif config_gpt.gpt_agent_command_skills or config_gpt.gpt_agent_skill_files:
+        logger.warning("已配置智能体命令技能，但 gpt_agent_command_enabled 为 false，技能不会注册")
     filesystem_scanner = None
     if config_gpt.gpt_agent_filesystem_scan_enabled:
         filesystem_scanner = AgentFilesystemScanner(config_gpt.gpt_agent_filesystem_roots)

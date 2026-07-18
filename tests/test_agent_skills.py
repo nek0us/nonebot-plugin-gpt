@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from ChatGPTWeb import AgentDecision, AgentState, AgentTurn
 
@@ -70,6 +71,19 @@ class AgentSkillTests(unittest.IsolatedAsyncioTestCase):
                 "program": "echo",
                 "arguments": ["{未知}"],
             }, runner)
+
+    def test_local_skill_file_loads_and_reports_invalid_sources(self):
+        runner = agent_commands.CommandRunner()
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "skills.json"
+            source.write_text('[{"name":"文件技能","description":"来自本地文件","program":"echo","arguments":["ok"]}]', encoding="utf-8")
+
+            result = agent_skills.load_command_skill_sources([], [source, root / "missing.json"], runner)
+
+            self.assertEqual([skill.name for skill in result.skills], ["文件技能"])
+            self.assertEqual(len(result.issues), 1)
+            self.assertIn("不存在", result.issues[0])
 
     async def test_configured_skill_is_model_selected_and_requires_confirmation(self):
         runner = agent_commands.CommandRunner()

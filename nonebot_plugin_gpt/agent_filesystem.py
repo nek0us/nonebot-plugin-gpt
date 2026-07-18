@@ -6,6 +6,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 MAX_SCAN_DEPTH = 6
@@ -20,6 +21,7 @@ class FilesystemScanError(ValueError):
 @dataclass(frozen=True)
 class ScanResult:
     root: Path
+    root_name: str
     total_bytes: int
     scanned_nodes: int
     skipped_entries: int
@@ -38,7 +40,7 @@ class ScanResult:
 
     def format(self) -> str:
         lines = [
-            f"目录占用扫描：{self.root}",
+            f"目录占用扫描：{self.root_name}（{self.root}）",
             f"已扫描：{self.scanned_nodes} 项；总计（受扫描边界限制）：{self._size(self.total_bytes)}",
         ]
         if self.entries:
@@ -56,13 +58,24 @@ class ScanResult:
 class AgentFilesystemScanner:
     """只扫描管理员明确列出的目录，且永不跟随符号链接。"""
 
-    def __init__(self, roots: list[Path]) -> None:
+    def __init__(self, roots: list[Any]) -> None:
         configured: dict[str, Path] = {}
         for item in roots:
-            root = item.expanduser().resolve()
+            if isinstance(item, dict):
+                name = item.get("name", "")
+                raw_path = item.get("path", "")
+            else:
+                name = ""
+                raw_path = item
+            if not isinstance(raw_path, (str, Path)):
+                continue
+            root = Path(raw_path).expanduser().resolve()
             if not root.is_dir():
                 continue
-            configured[str(root)] = root
+            label = name.strip() if isinstance(name, str) else ""
+            label = label or str(root)
+            if label not in configured:
+                configured[label] = root
         self._roots = configured
 
     @property
@@ -79,9 +92,13 @@ class AgentFilesystemScanner:
             raise FilesystemScanError(f"{label}必须在 {minimum} 到 {maximum} 之间。")
         return parsed
 
+    @staticmethod
+    def _selected_root(arguments: dict[str, str]) -> str:
+        return arguments.get("扫描目录", arguments.get("根目录", "")).strip()
+
     def validate(self, arguments: dict[str, str]) -> str:
-        if arguments.get("根目录", "") not in self._roots:
-            return "根目录不在管理员配置的可扫描目录中。"
+        if self._selected_root(arguments) not in self._roots:
+            return "扫描目录不在管理员配置的允许目录中。"
         try:
             self._integer(arguments.get("最大深度", "3"), label="最大深度", minimum=1, maximum=MAX_SCAN_DEPTH)
             self._integer(arguments.get("结果数量", "20"), label="结果数量", minimum=1, maximum=MAX_RESULT_ENTRIES)
@@ -93,7 +110,8 @@ class AgentFilesystemScanner:
         error = self.validate(arguments)
         if error:
             raise FilesystemScanError(error)
-        root = self._roots[arguments["根目录"]]
+        root_name = self._selected_root(arguments)
+        root = self._roots[root_name]
         max_depth = self._integer(arguments.get("最大深度", "3"), label="最大深度", minimum=1, maximum=MAX_SCAN_DEPTH)
         max_results = self._integer(arguments.get("结果数量", "20"), label="结果数量", minimum=1, maximum=MAX_RESULT_ENTRIES)
         sizes: dict[Path, int] = defaultdict(int)
@@ -144,6 +162,7 @@ class AgentFilesystemScanner:
         )[:max_results]
         return ScanResult(
             root=root,
+            root_name=root_name,
             total_bytes=sizes[root],
             scanned_nodes=scanned_nodes,
             skipped_entries=skipped_entries,

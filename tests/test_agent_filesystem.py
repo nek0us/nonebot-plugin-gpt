@@ -23,7 +23,7 @@ class AgentFilesystemTests(unittest.TestCase):
             (root / "small" / "payload.bin").write_bytes(b"a" * 128)
             scanner = agent_filesystem.AgentFilesystemScanner([root])
 
-            result = scanner.scan({"根目录": str(root.resolve()), "最大深度": "2", "结果数量": "5"})
+            result = scanner.scan({"扫描目录": str(root.resolve()), "最大深度": "2", "结果数量": "5"})
 
             self.assertIn("large", result)
             self.assertIn("4.0 KiB", result)
@@ -34,5 +34,13 @@ class AgentFilesystemTests(unittest.TestCase):
             root = Path(temporary)
             scanner = agent_filesystem.AgentFilesystemScanner([root])
 
-            self.assertIn("不在管理员配置", scanner.validate({"根目录": str(root.parent), "最大深度": "2"}))
-            self.assertIn("1 到", scanner.validate({"根目录": str(root.resolve()), "最大深度": "99"}))
+            self.assertIn("不在管理员配置", scanner.validate({"扫描目录": str(root.parent), "最大深度": "2"}))
+            self.assertIn("1 到", scanner.validate({"扫描目录": str(root.resolve()), "最大深度": "99"}))
+
+    def test_named_root_hides_absolute_path_from_tool_parameter_choices(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scanner = agent_filesystem.AgentFilesystemScanner([{"name": "机器人目录", "path": str(root)}])
+
+            self.assertEqual(scanner.root_choices, ("机器人目录",))
+            self.assertEqual(scanner.validate({"扫描目录": "机器人目录"}), "")

@@ -242,8 +242,12 @@ class AgentRuntime:
             ])
         return "\n".join(lines)
 
-    def _core_tools(self) -> list[CoreAgentTool]:
-        return [tool.core_definition() for tool in self._tools.values()]
+    def _core_tools(self, run: AgentRun | None = None) -> list[CoreAgentTool]:
+        tools = self._tools.values()
+        if run is not None and run.mentioned_user_ids and "安排指定提醒" in self._tools:
+            # 有真实 @ 目标时，不能让模型误用“提醒自己”的工具。
+            tools = (tool for tool in tools if tool.name != "安排提醒")
+        return [tool.core_definition() for tool in tools]
 
     def _discard_expired(self) -> None:
         now = self._clock()
@@ -358,14 +362,14 @@ class AgentRuntime:
             return await self._agent_turn(
                 key=run.conversation_key,
                 task=task,
-                tools=self._core_tools(),
+                tools=self._core_tools(run),
                 state=state,
                 tool_result=tool_result,
                 model=run.model,
             )
         return await self._agent_service.turn(
             task,
-            self._core_tools(),
+            self._core_tools(run),
             state=state,
             tool_result=tool_result,
             model=run.model if run is not None else self._model,
@@ -793,11 +797,11 @@ def create_agent_runtime(
             AgentApproval.CONFIRM,
             scan_filesystem,
             (
-                AgentToolParameter("根目录", "管理员配置的可扫描根目录", choices=filesystem_scanner.root_choices),
+                AgentToolParameter("扫描目录", "管理员配置的允许扫描目录", choices=filesystem_scanner.root_choices),
                 AgentToolParameter("最大深度", f"可选整数，1 到 6；默认 3", required=False),
                 AgentToolParameter("结果数量", f"可选整数，1 到 {200}；默认 20", required=False),
             ),
-            lambda arguments: f"扫描目录占用：{arguments['根目录']}（最大深度 {arguments.get('最大深度', '3')}，最多显示 {arguments.get('结果数量', '20')} 项）",
+            lambda arguments: f"扫描目录占用：{arguments['扫描目录']}（最大深度 {arguments.get('最大深度', '3')}，最多显示 {arguments.get('结果数量', '20')} 项）",
             argument_validator=validate_filesystem_scan,
         ))
     def validate_reminder(arguments: dict[str, str]) -> str:

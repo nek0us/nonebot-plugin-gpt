@@ -160,8 +160,9 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_command_timeout | 否 | 30 | 1-600 | 通用系统命令的默认超时秒数。 |
 | gpt_agent_command_workdir | 否 | 空 | Path | 通用系统命令允许使用的工作目录根；设置后，模型指定的工作目录不得离开该路径。它不是文件参数的系统级沙箱，确认前仍须核对完整 argv。 |
 | gpt_agent_command_skills | 否 | `[]` | JSON List[Dict] | 管理员声明的命令技能。每项固定 `program` 与 `arguments` 模板，模型只能填写已声明并经本地校验的变量；仅在 `gpt_agent_command_enabled=true` 时注册，且逐次确认。 |
+| gpt_agent_skill_files | 否 | `[]` | JSON List[Path] | 本地 UTF-8 JSON 技能文件列表，可与 `gpt_agent_command_skills` 合并加载。出于供应链安全考虑，不接受会在启动时自动拉取的 GitHub 或其他远端 URL。 |
 | gpt_agent_filesystem_scan_enabled | 否 | false | bool | 注册“扫描目录占用”工具。只扫描管理员列出的根目录，不读取文件正文、不跟随符号链接；每次扫描需要原聊天范围确认。 |
-| gpt_agent_filesystem_roots | 否 | `[]` | JSON List[Path] | 允许“扫描目录占用”访问的绝对根目录列表，例如 Linux 的 `["]/"]` 或 Windows 的 `["C:\\\\"]`。空列表不会注册扫描工具。 |
+| gpt_agent_filesystem_roots | 否 | `[]` | JSON List[Path/Dict] | 允许“扫描目录占用”访问的目录。推荐使用 `{ "name": "机器人目录", "path": "/opt/bot" }` 为目录命名；模型只能选择名称，不能填写任意路径。空列表不会注册扫描工具。 |
 | gpt_agent_managed_services | 否 | `[]` | JSON List[Dict] | 管理员预先声明的 `pid_file` 或 `tcp` 服务；模型不能传入任意进程、端口或 shell 命令。 |
 
 > `gpt_init_group_pernal_name` 与 `gpt_init_friend_pernal_name` 是历史拼写，仅保留兼容读取；新配置请使用带 `persona` 的字段。`begin_sleep_time`、`gpt_lgr_markdown`、`gpt_httpx`、`gpt_url_replace` 已废弃，分别迁移为 `gpt_begin_sleep_time`、`gpt_render_mode`，或直接删除。

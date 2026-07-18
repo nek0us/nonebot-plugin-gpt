@@ -278,6 +278,28 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scheduled, [("admin", "member-2", 120, "吃饭啦")])
         self.assertEqual(completed, "提醒已经安排好啦。")
 
+    async def test_mentioned_target_hides_personal_reminder_tool_from_model(self):
+        service = _AgentService([
+            AgentDecision("final", answer="等待安排。"),
+        ])
+        runtime = agent_runtime.create_agent_runtime(
+            _Service(),
+            agent_service=service,
+            schedule_reminder=lambda *_: None,
+            schedule_target_reminder=lambda *_: None,
+        )
+
+        await runtime.execute(
+            "30 秒后提醒 @成员 吃饭",
+            operator_id="admin",
+            scope_id="onebot.v11:group:1",
+            mentioned_user_ids=("member-2",),
+        )
+
+        tool_names = {tool.name for tool in service.calls[0]["tools"]}
+        self.assertNotIn("安排提醒", tool_names)
+        self.assertIn("安排指定提醒", tool_names)
+
     async def test_target_reminder_rejects_a_user_not_mentioned_in_the_source_message(self):
         scheduled = []
 

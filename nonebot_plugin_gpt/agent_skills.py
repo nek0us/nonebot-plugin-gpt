@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from string import Formatter
 from typing import Any
 
@@ -12,6 +13,9 @@ from .agent_commands import CommandRunner, CommandValidationError
 
 class AgentSkillError(ValueError):
     """技能配置或模型提交的技能参数不符合安全约束。"""
+
+
+MAX_SKILL_FILE_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)
@@ -158,17 +162,63 @@ class DeclarativeCommandSkill:
         return ""
 
 
-def load_command_skills(values: list[dict[str, Any]], runner: CommandRunner) -> tuple[DeclarativeCommandSkill, ...]:
-    """加载管理员配置的技能；任一无效条目只被跳过，不影响机器人启动。"""
+@dataclass(frozen=True)
+class SkillLoadResult:
+    skills: tuple[DeclarativeCommandSkill, ...]
+    issues: tuple[str, ...]
+
+
+def _load_skill_file(value: Path) -> list[dict[str, Any]]:
+    path = value.expanduser().resolve()
+    if path.suffix.casefold() != ".json":
+        raise AgentSkillError("技能文件仅支持 UTF-8 JSON 文件。")
+    if not path.is_file():
+        raise AgentSkillError("技能文件不存在或不是普通文件。")
+    if path.stat().st_size > MAX_SKILL_FILE_BYTES:
+        raise AgentSkillError(f"技能文件超过 {MAX_SKILL_FILE_BYTES // 1024} KiB。")
+    try:
+        content = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AgentSkillError("技能文件不是有效的 UTF-8 JSON。") from error
+    if isinstance(content, dict):
+        content = content.get("skills")
+    if not isinstance(content, list):
+        raise AgentSkillError("技能文件顶层必须是技能数组，或包含 skills 数组的对象。")
+    if not all(isinstance(item, dict) for item in content):
+        raise AgentSkillError("技能文件中的每一项必须是对象。")
+    return content
+
+
+def load_command_skill_sources(
+    values: list[dict[str, Any]],
+    files: list[Path],
+    runner: CommandRunner,
+) -> SkillLoadResult:
+    """加载内联和本地 JSON 技能；坏条目被记录但不阻断机器人启动。"""
     skills: list[DeclarativeCommandSkill] = []
     names: set[str] = set()
-    for value in values:
+    issues: list[str] = []
+    sources: list[tuple[str, list[dict[str, Any]]]] = [("内联配置", values)]
+    for file in files:
         try:
-            skill = DeclarativeCommandSkill.from_config(value, runner)
-        except AgentSkillError:
-            continue
-        if skill.name in names:
-            continue
-        names.add(skill.name)
-        skills.append(skill)
-    return tuple(skills)
+            sources.append((str(file), _load_skill_file(file)))
+        except AgentSkillError as error:
+            issues.append(f"技能文件 {file}：{error}")
+    for source_name, entries in sources:
+        for value in entries:
+            try:
+                skill = DeclarativeCommandSkill.from_config(value, runner)
+            except AgentSkillError as error:
+                issues.append(f"{source_name}：{error}")
+                continue
+            if skill.name in names:
+                issues.append(f"{source_name}：技能“{skill.name}”名称重复，已跳过。")
+                continue
+            names.add(skill.name)
+            skills.append(skill)
+    return SkillLoadResult(tuple(skills), tuple(issues))
+
+
+def load_command_skills(values: list[dict[str, Any]], runner: CommandRunner) -> tuple[DeclarativeCommandSkill, ...]:
+    """兼容仅使用内联配置的旧调用。"""
+    return load_command_skill_sources(values, [], runner).skills
