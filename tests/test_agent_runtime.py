@@ -104,6 +104,79 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((root / "hello.txt").read_text(encoding="utf-8"), "hello from agent")
             self.assertIn("文件已创建", completed)
 
+    async def test_confirmation_message_uses_configured_command_prefix(self):
+        async def change(_):
+            return "changed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="变更", arguments={}),
+        ], [agent_runtime.AgentTool(
+            "变更", "受控变更", agent_runtime.AgentPermission.WRITE_LOCAL,
+            agent_runtime.AgentApproval.CONFIRM, change,
+        )], command_prefix="猪咪 智能体")
+
+        pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("猪咪 智能体 确认 plan", pending)
+        self.assertIn("猪咪 智能体 取消 plan", pending)
+
+    async def test_delegate_mode_runs_workspace_writes_without_confirmation(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            service = _AgentService([
+                AgentDecision("tool_call", tool="写入工作区文件", arguments={
+                    "路径": "hello.txt",
+                    "内容": "hello from agent",
+                }),
+                AgentDecision("final", answer="文件已创建。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                workspace=root,
+                approval_mode=agent_runtime.AgentApprovalMode.DELEGATE,
+                agent_service=service,
+            )
+
+            completed = await runtime.execute("创建 hello.txt", operator_id="admin", scope_id="private:1")
+
+            self.assertEqual((root / "hello.txt").read_text(encoding="utf-8"), "hello from agent")
+            self.assertIn("文件已创建", completed)
+
+    async def test_delegate_mode_keeps_non_delegable_change_pending(self):
+        async def change(_):
+            return "changed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="变更", arguments={}),
+        ], [agent_runtime.AgentTool(
+            "变更", "受控变更", agent_runtime.AgentPermission.WRITE_LOCAL,
+            agent_runtime.AgentApproval.CONFIRM, change,
+        )], approval_mode=agent_runtime.AgentApprovalMode.DELEGATE)
+
+        pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("确认 plan", pending)
+
+    async def test_full_mode_runs_registered_change_without_confirmation(self):
+        called = []
+
+        async def change(_):
+            called.append(True)
+            return "changed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="变更", arguments={}),
+            AgentDecision("final", answer="完成。"),
+        ], [agent_runtime.AgentTool(
+            "变更", "受控变更", agent_runtime.AgentPermission.WRITE_LOCAL,
+            agent_runtime.AgentApproval.CONFIRM, change,
+        )], approval_mode=agent_runtime.AgentApprovalMode.FULL)
+
+        completed = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
+
+        self.assertEqual(called, [True])
+        self.assertIn("完成", completed)
+
     async def test_workspace_image_is_attached_after_model_finishes(self):
         class _Renderer:
             async def render(self, source, output):

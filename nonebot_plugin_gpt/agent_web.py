@@ -51,10 +51,11 @@ class WorkspaceWebRenderer:
 
         image = await html_to_pic(
             content,
-            dpi=120,
+            dpi=96,
             max_width=960,
-            device_height=10,
+            device_height=640,
             default_font_size=16,
+            allow_refit=False,
         )
         try:
             self.workspace.write_bytes(image_path.relative_to(self.workspace.root).as_posix(), image)

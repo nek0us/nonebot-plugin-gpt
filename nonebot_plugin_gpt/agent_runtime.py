@@ -54,6 +54,14 @@ class AgentApproval(str, Enum):
     CONFIRM = "confirm"
 
 
+class AgentApprovalMode(str, Enum):
+    """管理员为超级用户 Agent 选择的整体确认策略。"""
+
+    STRICT = "strict"
+    DELEGATE = "delegate"
+    FULL = "full"
+
+
 class AgentAccess(str, Enum):
     """智能体入口可见的工具档位。"""
 
@@ -98,6 +106,7 @@ class AgentTool:
     argument_validator: Callable[[dict[str, str]], str] | None = None
     run_argument_validator: AgentRunArgumentValidator | None = None
     minimum_access: AgentAccess = AgentAccess.SUPERUSER
+    delegable: bool = False
 
     def core_definition(self) -> CoreAgentTool:
         properties: dict[str, Any] = {}
@@ -215,6 +224,8 @@ class AgentRuntime:
         reminder_operation: ReminderOperationHandler | None = None,
         final_renderer: AgentFinalRenderer | None = None,
         access: AgentAccess = AgentAccess.SUPERUSER,
+        approval_mode: AgentApprovalMode | str = AgentApprovalMode.STRICT,
+        command_prefix: str = "智能体",
     ):
         self._tools = {tool.name: tool for tool in tools}
         if len(self._tools) != len(tools):
@@ -224,6 +235,8 @@ class AgentRuntime:
         self._schedule_target_reminder = schedule_target_reminder
         self._final_renderer = final_renderer
         self._access = access
+        self._approval_mode = AgentApprovalMode(approval_mode)
+        self._command_prefix = command_prefix.strip() or "智能体"
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._plan_ttl_seconds = plan_ttl_seconds
@@ -240,7 +253,7 @@ class AgentRuntime:
         heading = "智能体工具（成员安全模式）" if self._access is AgentAccess.MEMBER else "智能体工具（超级用户）"
         lines = [heading]
         for tool in self._tools.values():
-            approval = "需要确认" if tool.approval is AgentApproval.CONFIRM else "自动执行"
+            approval = self._tool_approval_label(tool)
             lines.append(f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{approval}）")
         lines.extend([
             "",
@@ -253,6 +266,24 @@ class AgentRuntime:
                 "可用：智能体 审计 [数量] / 智能体 授权 本机只读 / 智能体 授权列表 / 智能体 撤销授权。",
             ])
         return "\n".join(lines)
+
+    def _tool_approval_label(self, tool: AgentTool) -> str:
+        if tool.approval is AgentApproval.AUTOMATIC:
+            return "自动执行"
+        if self._approval_mode is AgentApprovalMode.FULL:
+            return "完全访问模式自动执行"
+        if self._approval_mode is AgentApprovalMode.DELEGATE and tool.delegable:
+            return "代为审批模式自动执行"
+        return "需要确认"
+
+    def _requires_confirmation(self, tool: AgentTool, operator_id: str, scope_id: str) -> bool:
+        if tool.approval is AgentApproval.AUTOMATIC:
+            return False
+        if self._approval_mode is AgentApprovalMode.FULL:
+            return False
+        if self._approval_mode is AgentApprovalMode.DELEGATE and tool.delegable:
+            return False
+        return not self._has_session_approval(tool.permission, operator_id, scope_id)
 
     def _core_tools(self, run: AgentRun | None = None) -> list[CoreAgentTool]:
         tools = self._tools.values()
@@ -311,7 +342,7 @@ class AgentRuntime:
             f"智能体准备执行：{description}",
             f"权限：{_PERMISSION_NAMES[action.tool.permission]}",
             f"参数：{self._format_arguments(action.tool, action.arguments)}",
-            f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {action.token}”，或发送“智能体 取消 {action.token}”。",
+            f"请在 {self._confirmation_ttl_seconds} 秒内发送“{self._command_prefix} 确认 {action.token}”，或发送“{self._command_prefix} 取消 {action.token}”。",
         ])
 
     def _queue_confirmation(
@@ -422,7 +453,7 @@ class AgentRuntime:
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
         run.steps += 1
-        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(tool.permission, run.operator_id, run.scope_id):
+        if self._requires_confirmation(tool, run.operator_id, run.scope_id):
             return self._queue_confirmation(tool, arguments, run, run.operator_id, run.scope_id)
         return await self._continue_after_result(run, await self._call_tool(tool, arguments, run))
 
@@ -485,7 +516,7 @@ class AgentRuntime:
                 f"工具：{tool.name}",
                 f"权限：{_PERMISSION_NAMES[tool.permission]}",
                 f"参数：{self._format_arguments(tool, arguments)}",
-                f"发送“智能体 执行 {token}”开始执行；计划 {self._plan_ttl_seconds} 秒内有效。",
+                f"发送“{self._command_prefix} 执行 {token}”开始执行；计划 {self._plan_ttl_seconds} 秒内有效。",
             ])
         return await self._handle_turn(turn, run)
 
@@ -580,7 +611,7 @@ class AgentRuntime:
             return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
         if tool.parameters:
             return "该工具需要由模型根据任务填写参数；请直接描述任务，例如“智能体 在工作区创建 hello.txt”。"
-        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(tool.permission, operator_id, scope_id):
+        if self._requires_confirmation(tool, operator_id, scope_id):
             return self._queue_confirmation(tool, {}, None, operator_id, scope_id, direct=True)
         return (await self._call_tool(tool, {})).output
 
@@ -725,6 +756,8 @@ def create_agent_runtime(
     reminder_operation: ReminderOperationHandler | None = None,
     final_renderer: AgentFinalRenderer | None = None,
     access: AgentAccess = AgentAccess.SUPERUSER,
+    approval_mode: AgentApprovalMode | str = AgentApprovalMode.STRICT,
+    command_prefix: str = "智能体",
     token_factory: Callable[[], str] = lambda: token_urlsafe(6),
 ) -> AgentRuntime:
     """创建默认本地工具集；工具执行始终受本文件的边界限制。"""
@@ -970,9 +1003,9 @@ def create_agent_runtime(
             return f"已登记工作区图片 {path}，会在任务完成时回传当前聊天。"
 
         tools.extend([
-            AgentTool("列出工作区文件", "列出受限工作目录内的文件和目录", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, list_files, (AgentToolParameter("路径", "工作目录内相对目录，可省略", required=False),)),
-            AgentTool("读取工作区文件", "读取受限工作目录内的一个 UTF-8 文本文件", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, read_file, (AgentToolParameter("路径", "工作目录内相对文件路径"),), lambda arguments: f"读取工作目录文件 {arguments['路径']}"),
-            AgentTool("写入工作区文件", "以 UTF-8 原子写入受限工作目录内的一个文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, write_file, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True)), lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）"),
+            AgentTool("列出工作区文件", "列出受限工作目录内的文件和目录", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, list_files, (AgentToolParameter("路径", "工作目录内相对目录，可省略", required=False),), delegable=True),
+            AgentTool("读取工作区文件", "读取受限工作目录内的一个 UTF-8 文本文件", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, read_file, (AgentToolParameter("路径", "工作目录内相对文件路径"),), lambda arguments: f"读取工作目录文件 {arguments['路径']}", delegable=True),
+            AgentTool("写入工作区文件", "以 UTF-8 原子写入受限工作目录内的一个文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, write_file, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True)), lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）", delegable=True),
         ])
         if workspace_sandbox is not None and workspace_sandbox.enabled:
             backend_label = "Docker 隔离容器" if workspace_sandbox.backend == "docker" else "本机开发执行（未隔离）"
@@ -1004,6 +1037,7 @@ def create_agent_runtime(
                 lambda arguments: f"渲染工作区网页 {arguments['HTML文件']} 为截图 {arguments['截图文件']}",
                 run_handler=render_workspace_web,
                 argument_validator=validate_web_render,
+                delegable=True,
             ))
         tools.append(AgentTool(
             "回传工作区图片",
@@ -1015,6 +1049,7 @@ def create_agent_runtime(
             lambda arguments: f"回传工作区图片 {arguments['图片文件']}",
             run_handler=attach_workspace_image,
             argument_validator=validate_workspace_image,
+            delegable=True,
         ))
     if registry.process_names or registry.tcp_names:
         async def service_overview(_: dict[str, str]) -> str:
@@ -1092,5 +1127,7 @@ def create_agent_runtime(
         reminder_operation=reminder_operation,
         final_renderer=final_renderer,
         access=access,
+        approval_mode=approval_mode,
+        command_prefix=command_prefix,
         token_factory=token_factory,
     )

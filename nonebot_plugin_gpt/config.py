@@ -57,6 +57,7 @@ class Config(BaseModel):
     gpt_agent_sensitive_task_message: str = DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE
     gpt_agent_sensitive_terms: list[str] = Field(default_factory=list)
     gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
+    gpt_agent_approval_mode: Literal["strict", "delegate", "full"] = "strict"
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
     gpt_agent_plan_timeout: int = Field(default=300, ge=30, le=3600)
     gpt_agent_max_steps: int = Field(default=8, ge=1, le=20)

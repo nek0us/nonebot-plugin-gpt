@@ -147,12 +147,13 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_sensitive_task_message | 否 | 默认提示 | str | Agent 任务触及内建敏感范围或自定义敏感词时的面向用户提示；仅影响智能体，不影响普通聊天。 |
 | gpt_agent_sensitive_terms | 否 | `[]` | JSON List[str] | 额外拒绝的 Agent 任务词语。内建的法律、政治及其他高风险敏感范围始终保留，不能通过此项移除。 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 单次待确认操作的有效秒数；超时后需要重新计划或重新执行。 |
-| gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数；写入、网络和进程控制始终逐次确认。 |
+| gpt_agent_approval_mode | 否 | strict | strict/delegate/full | 超级用户 Agent 的审批档位。`strict` 每个需确认步骤都停下；`delegate` 自动执行已标为可委托的受限工作区读写、静态网页截图和图片回传，命令、脚本、网络、服务和跨成员投递仍需确认；`full` 自动执行已注册工具，仅适合完全自用且已理解风险的环境。工具白名单、路径校验和敏感任务预检始终有效。 |
+| gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数。`strict` 模式下写入、网络和进程控制仍逐次确认；其他档位按 `gpt_agent_approval_mode` 执行。 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
 | gpt_agent_max_steps | 否 | 8 | 1-20 | 单个智能体任务可连续执行的最大工具步数；达到上限会停止，避免模型循环消耗额度。 |
 | gpt_agent_model | 否 | auto | str | 智能体模型决策使用的模型别名；保持 `auto` 会按核心账户能力选择。 |
 | gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
-| gpt_agent_workspace_web_render_enabled | 否 | false | bool | 是否启用工作区静态 HTML 截图。仅允许本地 UTF-8 HTML，拒绝脚本、嵌入页面及远程 HTTP 资源；截图需超级用户确认。 |
+| gpt_agent_workspace_web_render_enabled | 否 | false | bool | 是否启用工作区静态 HTML 截图。仅允许本地 UTF-8 HTML，拒绝脚本、嵌入页面及远程 HTTP 资源；以 960×640 桌面视口渲染。`strict` 下截图需超级用户确认，`delegate` 可自动执行。 |
 | gpt_agent_workspace_execution_backend | 否 | disabled | disabled / local / docker | 工作区 Python 脚本执行后端。`disabled` 不注册执行工具；`local` 直接运行宿主机 Python，仅限开发；`docker` 使用无网络受限容器，推荐生产。 |
 | gpt_agent_workspace_execution_image | 否 | 空 | str | Docker 执行镜像。必须由管理员预先审查、拉取并固定版本；运行时禁止自动拉取。仅在 `docker` 后端生效。 |
 | gpt_agent_workspace_execution_timeout | 否 | 60 | 1-600 | 工作区脚本单次最长运行秒数，超时后终止容器或进程。 |
@@ -297,6 +298,8 @@ gpt_agent_sensitive_task_guard=true
 gpt_agent_sensitive_task_message="这个请求不适合交给智能体处理咩。"
 gpt_agent_sensitive_terms='["生产数据库", "内部密钥轮换"]'
 gpt_agent_confirm_timeout=60
+# strict：逐步确认（默认）；delegate：仅自动放行受限工作区的低风险链路；full：超级用户完全访问。
+gpt_agent_approval_mode="strict"
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
 gpt_agent_max_steps=8

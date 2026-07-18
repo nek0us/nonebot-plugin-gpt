@@ -472,7 +472,7 @@ if isinstance(config_gpt.gpt_session,list):
             command_runner,
         )
         command_skills = skill_load.skills
-        logger.warning("已启用智能体系统命令工具；每次执行仍需要超级用户在原聊天范围确认")
+        logger.warning("已启用智能体系统命令工具；是否逐次确认由 gpt_agent_approval_mode 决定")
         if command_skills:
             logger.warning(f"已加载 {len(command_skills)} 个管理员配置的智能体命令技能")
         for issue in skill_load.issues:
@@ -503,7 +503,7 @@ if isinstance(config_gpt.gpt_session,list):
                     memory_mb=config_gpt.gpt_agent_workspace_execution_memory_mb,
                 )
                 backend = config_gpt.gpt_agent_workspace_execution_backend
-                logger.warning(f"已启用智能体工作区脚本执行后端：{backend}；每次运行仍需要超级用户确认")
+                logger.warning(f"已启用智能体工作区脚本执行后端：{backend}；是否逐次确认由 gpt_agent_approval_mode 决定")
             except SandboxError as error:
                 logger.warning(f"智能体工作区脚本执行未启用：{error}")
     elif (
@@ -513,6 +513,8 @@ if isinstance(config_gpt.gpt_session,list):
         logger.warning("已配置智能体工作区渲染或执行能力，但 gpt_agent_workspace 为空，相关工具不会注册")
     agent_runtime_options = {
         "confirmation_ttl_seconds": config_gpt.gpt_agent_confirm_timeout,
+        "approval_mode": config_gpt.gpt_agent_approval_mode,
+        "command_prefix": f"{preferred_address_prefix(getattr(config_nb, 'nickname', []))} 智能体".strip(),
         "session_approval_ttl_seconds": config_gpt.gpt_agent_session_approval_timeout,
         "plan_ttl_seconds": config_gpt.gpt_agent_plan_timeout,
         "max_steps": config_gpt.gpt_agent_max_steps,
@@ -530,6 +532,8 @@ if isinstance(config_gpt.gpt_session,list):
         "schedule_target_reminder": schedule_target_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
         "reminder_operation": operate_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
     }
+    if config_gpt.gpt_agent_enabled:
+        logger.warning(f"智能体审批模式：{config_gpt.gpt_agent_approval_mode}")
     agent_runtime = create_agent_runtime(
         chat_service,
         **agent_runtime_options,
