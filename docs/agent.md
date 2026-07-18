@@ -24,8 +24,8 @@ gpt_agent_workspace=./data/agent-workspace
 gpt_agent_workspace_web_render_enabled=true
 # 默认 disabled。生产环境推荐 docker；local 仅用于开发调试，会直接在宿主机启动 Python。
 gpt_agent_workspace_execution_backend=docker
-# 必须由管理员预先拉取并固定版本的镜像，Docker 后端不会自动拉取镜像。
-gpt_agent_workspace_execution_image="your-pinned-python-image"
+# 必须由管理员预先构建或拉取并固定版本的镜像，Docker 后端不会自动拉取镜像。
+gpt_agent_workspace_execution_image="nonebot-gpt-agent-playwright:1.60.0"
 gpt_agent_workspace_execution_timeout=60
 gpt_agent_workspace_execution_memory_mb=512
 gpt_agent_schedule_enabled=true
@@ -194,7 +194,21 @@ gpt_agent_filesystem_roots='[
 
 例如，`@机器人 智能体 在工作区制作一张介绍猪咪能力的网页截图并发给我` 的正常链路是：模型先写入 HTML，再申请确认渲染截图，读取到截图结果后决定最终文案；插件会用当前人设组织最后回复，并将 PNG 作为同一条消息的附件发回。模型并不需要预先知道“介绍猪咪”是一个硬编码工具。
 
-如果任务需要代码，模型可先写入 Python 脚本、申请确认执行，再调用“回传工作区图片”发送产物。`docker` 后端只挂载工作区到 `/workspace`，关闭网络、移除 Linux capabilities、限制 CPU/内存/PID/超时；镜像必须由管理员预先审查、拉取并固定版本，运行时使用 `--pull never`，不会因模型任务自动下载镜像。`local` 后端会直接在机器人宿主机运行当前 Python，仅适合开发测试，生产环境不要启用。
+如果任务需要代码，模型可先写入 Python 脚本、申请确认执行，再调用“回传工作区图片”发送产物。仓库提供了 `docker/agent-playwright/Dockerfile`，用于构建带 Python、Playwright 与浏览器运行时的固定镜像：
+
+```bash
+docker build -t nonebot-gpt-agent-playwright:1.60.0 -f docker/agent-playwright/Dockerfile .
+docker image inspect nonebot-gpt-agent-playwright:1.60.0
+```
+
+构建完成后使用：
+
+```env
+gpt_agent_workspace_execution_backend=docker
+gpt_agent_workspace_execution_image="nonebot-gpt-agent-playwright:1.60.0"
+```
+
+`docker` 后端只挂载工作区到 `/workspace`，关闭网络、移除 Linux capabilities、限制 CPU/内存/PID/超时；运行时使用 `--pull never`，不会因模型任务自动下载镜像或安装依赖。镜像升级由管理员审查 Dockerfile 后重新构建。`local` 后端会直接在机器人宿主机运行当前 Python，仅适合开发测试，生产环境不要启用。
 
 静态网页截图不执行 JavaScript，也不加载远程 HTTP 资源，因此适合生成本地报告、卡片或说明页。它不是远程网页浏览器：需要访问外网、登录网站或动态页面时，应后续以单独、受审查的浏览器工具或容器技能实现，不能借由当前截图工具绕过网络边界。
 

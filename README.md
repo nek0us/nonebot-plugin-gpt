@@ -307,8 +307,8 @@ gpt_agent_workspace="./data/agent-workspace"
 gpt_agent_workspace_web_render_enabled=true
 # 默认禁用脚本执行。生产环境建议 docker，local 会直接在宿主机运行 Python，仅用于开发调试。
 gpt_agent_workspace_execution_backend="docker"
-# 使用管理员预先拉取、审查并固定版本的镜像；运行时不会自动拉取镜像。
-gpt_agent_workspace_execution_image="your-pinned-python-image"
+# 使用管理员预先构建、审查并固定版本的镜像；仓库提供 docker/agent-playwright/Dockerfile，构建命令见 docs/agent.md；运行时不会自动拉取镜像。
+gpt_agent_workspace_execution_image="nonebot-gpt-agent-playwright:1.60.0"
 gpt_agent_workspace_execution_timeout=60
 gpt_agent_workspace_execution_memory_mb=512
 # 异步提醒会在重启后恢复；设为 false 则不注册该工具。
