@@ -129,6 +129,7 @@ _✨ NoneBot GPT ✨_
 | gpt_force_upgrade_model| 否 | true | bool | 避免已保存逻辑会话继续选择不适合免费账户的旧模型偏好。 |
 | gpt_render_mode | 否 | auto | auto/text/image | 富文本输出全局默认策略：`auto` 按内容和适配器能力选择，`text` 始终文本，`image` 优先图片；可用“输出模式”在当前聊天范围单独覆盖，`默认`恢复此配置；渲染异常会回退文本。 |
 | gpt_chat_image_template | 否 | native | native/off/路径 | 聊天 Markdown 转图样式。`native` 是粉蓝紫纵向主题，`off` 是黑白纵向主题；也可填写含 `{{ content }}` 的自定义 HTML 模板路径。 |
+| gpt_image_font_scale | 否 | 1.0 | 0.85-1.25 | 内置聊天图片、历史聊天、帮助和列表图片的阅读字号缩放。默认 `1.0` 已按手机竖屏优化；`1.1` 适合偏好稍大字体的场景，`0.9` 可在信息密集时略微缩小。自定义聊天 HTML 模板需自行控制字体，不受此项影响。 |
 | gpt_history_anonymize | 否 | false | bool | 历史聊天是否隐藏群聊发言者昵称；默认 false，历史图片会显示当时记录的昵称，开启后统一显示为“用户”。 |
 | gpt_management_recall_after | 否 | 0 | int | 多页帮助、列表、历史等管理输出的自动撤回秒数；`0` 关闭，适配器不支持撤回时自动忽略。 |
 | gpt_context_compaction_mode | 否 | summarize_restart | off/reinforce/summarize_restart | 接近上下文上限时：关闭、仅补发人设、或摘要后迁移到新逻辑会话。 |
@@ -234,6 +235,10 @@ gpt_render_mode="auto"
 # 可复制 nonebot_plugin_gpt/templates/chat-image-template.html 后自行修改。
 gpt_chat_image_template="native"
 
+# 图片阅读字号缩放：默认值适合手机竖屏；可在 0.85-1.25 之间微调
+# 仅影响内置聊天主题、历史聊天与管理长图；自定义 HTML 模板请直接修改模板 CSS
+gpt_image_font_scale=1.0
+
 # 接近上下文上限时，摘要后迁移到新逻辑会话；长期角色扮演建议保留默认值。
 gpt_context_compaction_mode="summarize_restart"
 gpt_context_compaction_threshold=0.6
@@ -334,7 +339,7 @@ SUPERUSERS=["admin user id"]
 
 ### 自定义聊天图片模板
 
-`gpt_chat_image_template` 仅控制聊天 Markdown 转图片的主题，不影响纯文本输出或管理页面。内置值：`native`/`原生` 为粉蓝紫纵向卡片，`off`/`关`/`plain` 为黑白纵向样式。
+`gpt_chat_image_template` 仅控制聊天 Markdown 转图片的主题，不影响纯文本输出或管理页面。内置值：`native`/`原生` 为粉蓝紫纵向卡片，`off`/`关`/`plain` 为黑白纵向样式。内置主题、历史聊天和管理长图默认采用窄一些的纵向阅读栏，并由 `gpt_image_font_scale` 统一调整阅读字号。
 
 也可以复制 [`nonebot_plugin_gpt/templates/chat-image-template.html`](nonebot_plugin_gpt/templates/chat-image-template.html) 后自行修改：
 
@@ -342,7 +347,7 @@ SUPERUSERS=["admin user id"]
 gpt_chat_image_template="./data/gpt/chat-template.html"
 ```
 
-模板必须包含 `{{ content }}` 占位符，插件会把 Markdown 转换后的 HTML 注入其中。模板不存在、缺少占位符或渲染失败时会自动回退为文本，不会中断聊天。
+模板必须包含 `{{ content }}` 占位符，插件会把 Markdown 转换后的 HTML 注入其中。自定义模板由其自身 CSS 完全控制，因此不会自动应用 `gpt_image_font_scale`；需要更大字体或更窄正文时，请直接调整模板中的 `.sheet` 与 `.content`。模板不存在、缺少占位符或渲染失败时会自动回退为文本，不会中断聊天。
 
 > 白名单分为会话授权与个人授权：会话授权使用访问范围标识，会将同一群或频道的不同用户归为同一授权范围；个人授权使用“适配器 + 平台（适用时）+ 用户 ID”，仅在同一平台生效。Satori 会额外纳入其 `login.platform`，不会混淆它承载的不同平台。旧版 `group/private/qqgroup/qqguild` 数据会保留兼容读取，其中旧版 `private` 白名单继续按 OneBot 用户在群聊和私聊中生效。
 

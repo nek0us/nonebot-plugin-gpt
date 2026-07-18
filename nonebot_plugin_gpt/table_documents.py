@@ -160,15 +160,31 @@ def session_table_pages(sessions: Iterable[Any], active_logical_id: str) -> tupl
     return build_table_pages("逻辑会话", ("序号", "状态", "名称", "人设", "模型", "检查点"), rows, subtitle="按最近使用排序；用“切换会话 序号”切换")
 
 
-async def render_table_pages(pages: Iterable[TablePage]) -> tuple[bytes, ...]:
+def _reading_style(font_scale: float) -> str:
+    return f"""
+:root {{ --gpt-image-font-scale: {font_scale:.2f}; }}
+.sheet {{ width: 820px; padding: 22px; }}
+h1 {{ font-size: calc(30px * var(--gpt-image-font-scale)); }}
+.subtitle {{ font-size: calc(15px * var(--gpt-image-font-scale)); }}
+th {{ font-size: calc(15px * var(--gpt-image-font-scale)); }}
+td {{ font-size: calc(16px * var(--gpt-image-font-scale)); line-height: 1.6; }}
+"""
+
+
+async def render_table_pages(
+    pages: Iterable[TablePage],
+    *,
+    font_scale: float = 1.0,
+) -> tuple[bytes, ...]:
     """延迟渲染表格，避免 htmlkit 缺失时影响插件启动。"""
     page_list = tuple(pages)
     if use_local_font_renderer():
-        return tuple(render_table_page(page) for page in page_list)
+        return tuple(render_table_page(page, font_scale=font_scale) for page in page_list)
 
     from nonebot_plugin_htmlkit import html_to_pic
 
     images = []
     for page in page_list:
-        images.append(await html_to_pic(page.html, dpi=120, max_width=920, device_height=10, default_font_size=15))
+        html = page.html.replace("</style>", _reading_style(font_scale) + "</style>", 1)
+        images.append(await html_to_pic(html, dpi=120, max_width=860, device_height=10, default_font_size=16))
     return tuple(images)

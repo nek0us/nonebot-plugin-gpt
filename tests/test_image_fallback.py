@@ -1,4 +1,5 @@
 import importlib
+from io import BytesIO
 import sys
 import types
 import unittest
@@ -34,3 +35,14 @@ class ImageFallbackTests(unittest.TestCase):
         image = fallback.render_history_page(page)
 
         self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_local_renderers_use_mobile_reading_width(self):
+        from PIL import Image
+
+        markdown_image = fallback.render_markdown_page("# 标题\n\n一段用于检查宽度的内容。")
+        documents = importlib.import_module("nonebot_plugin_gpt.document_output")
+        page = documents.build_history_pages([{"Q": "用户内容", "A": "回复内容"}])[0]
+        history_image = fallback.render_history_page(page, font_scale=1.1)
+
+        self.assertEqual(Image.open(BytesIO(markdown_image)).width, 820)
+        self.assertEqual(Image.open(BytesIO(history_image)).width, 820)

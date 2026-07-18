@@ -86,7 +86,10 @@ cdk_registry = CdkRegistry(
     legacy_list_path=legacy_cdk_list_path,
     legacy_source_path=legacy_cdk_source_path,
 )
-chat_markdown_renderer = create_markdown_renderer(config_gpt.gpt_chat_image_template)
+chat_markdown_renderer = create_markdown_renderer(
+    config_gpt.gpt_chat_image_template,
+    font_scale=config_gpt.gpt_image_font_scale,
+)
 
 
 def legacy_command(name, aliases=None, rule=None, priority=1, block=False):
@@ -155,7 +158,7 @@ async def _finish_management_image(
 ) -> None:
     """优先发送管理图片；渲染器异常时保留跨平台文本降级。"""
     try:
-        image = await render_management_image(html)
+        image = await render_management_image(html, font_scale=config_gpt.gpt_image_font_scale)
     except Exception as error:
         logger.warning(f"管理图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
@@ -173,7 +176,7 @@ async def _finish_management_document(
 ) -> None:
     """将较长的管理信息渲染为 Markdown 图片，保留文本降级路径。"""
     try:
-        images = await render_markdown_pages(pages)
+        images = await render_markdown_pages(pages, font_scale=config_gpt.gpt_image_font_scale)
     except Exception as error:
         logger.warning(f"管理文档图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
@@ -196,7 +199,7 @@ async def _finish_history_document(
 ) -> None:
     """以区分发言角色的卡片样式发送聊天历史。"""
     try:
-        images = await render_history_pages(pages)
+        images = await render_history_pages(pages, font_scale=config_gpt.gpt_image_font_scale)
     except Exception as error:
         logger.warning(f"聊天记录图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
@@ -220,7 +223,7 @@ async def _finish_management_table(
 ) -> None:
     """将结构化管理数据渲染为分页表格图片。"""
     try:
-        images = await render_table_pages(pages)
+        images = await render_table_pages(pages, font_scale=config_gpt.gpt_image_font_scale)
     except Exception as error:
         logger.warning(f"管理表格图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
@@ -660,6 +663,7 @@ if isinstance(config_gpt.gpt_session,list):
                 value,
                 anonymize=config_gpt.gpt_history_anonymize,
                 reverse_order=reverse_order,
+                font_scale=config_gpt.gpt_image_font_scale,
             ),
             fallback=fallback,
         )

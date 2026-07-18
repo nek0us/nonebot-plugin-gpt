@@ -61,14 +61,18 @@ def _wrap(draw: Any, text: str, font: Any, width: int) -> list[str]:
     return lines or [""]
 
 
-def render_markdown_page(markdown: str) -> bytes:
+def _scaled_size(size: int, font_scale: float) -> int:
+    return max(10, round(size * font_scale))
+
+
+def render_markdown_page(markdown: str, *, font_scale: float = 1.0) -> bytes:
     """以基础 Markdown 层级渲染一页中文文档。"""
     from io import BytesIO
 
     from PIL import Image, ImageDraw
 
-    width = 1104
-    margin = 44
+    width = 820
+    margin = 34
     content_width = width - margin * 2
     probe = Image.new("RGB", (width, 10), "white")
     draw = ImageDraw.Draw(probe)
@@ -80,23 +84,23 @@ def render_markdown_page(markdown: str) -> bytes:
     for raw in source_lines:
         stripped = raw.strip()
         if stripped.startswith("### "):
-            font, color, gap, text = _font(20, bold=True), "#1d2939", 9, stripped[4:]
+            font, color, gap, text = _font(_scaled_size(22, font_scale), bold=True), "#1d2939", 10, stripped[4:]
         elif stripped.startswith("## "):
-            font, color, gap, text = _font(24, bold=True), "#5d4aa3", 15, stripped[3:]
+            font, color, gap, text = _font(_scaled_size(26, font_scale), bold=True), "#5d4aa3", 16, stripped[3:]
         elif stripped == "---":
-            font, color, gap, text = _font(14), "#829ab1", 12, ""
+            font, color, gap, text = _font(_scaled_size(15, font_scale)), "#829ab1", 12, ""
         else:
-            font, color, gap, text = _font(17), "#243b53", 7, raw
+            font, color, gap, text = _font(_scaled_size(19, font_scale)), "#243b53", 9, raw
         for line in _wrap(draw, text, font, content_width):
             rendered.append((line, font, color, gap))
 
-    header_height = 126
+    header_height = 122
     height = header_height + margin + sum(font.size + gap for _, font, _, gap in rendered) + margin
     image = Image.new("RGB", (width, max(height, 240)), "#f6f7fb")
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((margin, 20, width - margin, header_height), radius=14, fill="#ffffff", outline="#e3e6f0")
     draw.rounded_rectangle((margin + 18, 43, margin + 24, 98), radius=3, fill="#8c75d9")
-    draw.text((margin + 42, 43), title, font=_font(31, bold=True), fill="#2c3654")
+    draw.text((margin + 38, 41), title, font=_font(_scaled_size(29, font_scale), bold=True), fill="#2c3654")
     y = header_height + 28
     for line, font, color, gap in rendered:
         if not line and color == "#829ab1":
@@ -109,21 +113,22 @@ def render_markdown_page(markdown: str) -> bytes:
     return result.getvalue()
 
 
-def render_history_page(page: Any) -> bytes:
+def render_history_page(page: Any, *, font_scale: float = 1.0) -> bytes:
     """将聊天历史绘制为区分用户与回复的柔和色彩卡片。"""
     from io import BytesIO
 
     from PIL import Image, ImageDraw
 
-    width = 1104
-    margin = 44
+    width = 820
+    margin = 34
     content_width = width - margin * 2
     probe = Image.new("RGB", (width, 10), "white")
     probe_draw = ImageDraw.Draw(probe)
-    title_font = _font(31, bold=True)
-    round_font = _font(19, bold=True)
-    role_font = _font(16, bold=True)
-    body_font = _font(17)
+    title_font = _font(_scaled_size(29, font_scale), bold=True)
+    round_font = _font(_scaled_size(18, font_scale), bold=True)
+    role_font = _font(_scaled_size(17, font_scale), bold=True)
+    body_font = _font(_scaled_size(19, font_scale))
+    line_height = body_font.size + 10
     prepared: list[tuple[Any, list[str], list[str]]] = []
     content_height = 0
     for round_item in page.rounds:
@@ -132,19 +137,19 @@ def render_history_page(page: Any) -> bytes:
         prepared.append((round_item, user_lines, reply_lines))
         content_height += 47
         if user_lines:
-            content_height += 50 + len(user_lines) * 27
+            content_height += 50 + len(user_lines) * line_height
         if reply_lines:
-            content_height += 50 + len(reply_lines) * 27
+            content_height += 50 + len(reply_lines) * line_height
         content_height += 16
 
-    header_height = 132
+    header_height = 126
     height = header_height + content_height + margin
     image = Image.new("RGB", (width, max(height, 260)), "#f6f7fb")
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((margin, 20, width - margin, 112), radius=14, fill="#ffffff", outline="#e3e6f0")
     draw.rounded_rectangle((margin + 18, 43, margin + 24, 96), radius=3, fill="#8c75d9")
-    draw.text((margin + 42, 40), "聊天记录", font=title_font, fill="#2c3654")
-    draw.text((margin + 42, 80), "当前逻辑会话的已保存对话", font=_font(14), fill="#737b91")
+    draw.text((margin + 38, 38), "聊天记录", font=title_font, fill="#2c3654")
+    draw.text((margin + 38, 78), "当前逻辑会话的已保存对话", font=_font(_scaled_size(15, font_scale)), fill="#737b91")
 
     y = header_height
     for round_item, user_lines, reply_lines in prepared:
@@ -161,31 +166,32 @@ def render_history_page(page: Any) -> bytes:
         ):
             if not lines:
                 continue
-            card_height = 48 + len(lines) * 27
+            card_height = 48 + len(lines) * line_height
             draw.rounded_rectangle((margin, y, width - margin, y + card_height), radius=12, fill=fill, outline=border)
             draw.text((margin + 18, y + 13), role, font=role_font, fill=role_color)
             text_y = y + 42
             for line in lines:
                 draw.text((margin + 18, text_y), line, font=body_font, fill="#29384f")
-                text_y += 27
+                text_y += line_height
             y += card_height + 10
         y += 6
 
     footer = f"第 {page.index} / {page.total} 页"
-    draw.text((width - margin - int(draw.textlength(footer, font=_font(14))), y + 5), footer, font=_font(14), fill="#8991a4")
+    footer_font = _font(_scaled_size(15, font_scale))
+    draw.text((width - margin - int(draw.textlength(footer, font=footer_font)), y + 5), footer, font=footer_font, fill="#8991a4")
     result = BytesIO()
     image.save(result, format="PNG", optimize=True)
     return result.getvalue()
 
 
-def render_table_page(page: Any) -> bytes:
+def render_table_page(page: Any, *, font_scale: float = 1.0) -> bytes:
     """用系统中文字体渲染结构化表格，避免 Windows Fontconfig 缺失。"""
     from io import BytesIO
 
     from PIL import Image, ImageDraw
 
-    width = 1104
-    margin = 38
+    width = 920
+    margin = 32
     content_width = width - margin * 2
     probe = Image.new("RGB", (width, 10), "white")
     probe_draw = ImageDraw.Draw(probe)
@@ -198,22 +204,23 @@ def render_table_page(page: Any) -> bytes:
     total_weight = sum(weights) or 1
     widths = [int(content_width * weight / total_weight) for weight in weights]
     widths[-1] += content_width - sum(widths)
-    body_font = _font(16)
-    header_font = _font(15, bold=True)
+    body_font = _font(_scaled_size(17, font_scale))
+    header_font = _font(_scaled_size(16, font_scale), bold=True)
+    line_height = body_font.size + 9
     cell_lines = [
         [_wrap(probe_draw, str(value), body_font, max(widths[index] - 22, 40)) for index, value in enumerate(row)]
         for row in rows
     ]
-    row_heights = [max((len(lines) for lines in row), default=1) * 25 + 20 for row in cell_lines]
-    header_height = 132
-    table_header_height = 44
+    row_heights = [max((len(lines) for lines in row), default=1) * line_height + 20 for row in cell_lines]
+    header_height = 126
+    table_header_height = 46
     height = header_height + table_header_height + sum(row_heights) + 58
     image = Image.new("RGB", (width, max(height, 260)), "#f6f7fb")
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((margin, 20, width - margin, header_height - 12), radius=14, fill="#ffffff", outline="#e3e6f0")
     draw.rounded_rectangle((margin + 18, 44, margin + 24, 99), radius=3, fill="#8c75d9")
-    draw.text((margin + 42, 40), str(page.title), font=_font(31, bold=True), fill="#2c3654")
-    draw.text((margin + 42, 82), str(page.subtitle), font=_font(15), fill="#737b91")
+    draw.text((margin + 38, 38), str(page.title), font=_font(_scaled_size(29, font_scale), bold=True), fill="#2c3654")
+    draw.text((margin + 38, 78), str(page.subtitle), font=_font(_scaled_size(15, font_scale)), fill="#737b91")
 
     y = header_height
     draw.rectangle((margin, y, width - margin, y + table_header_height), fill="#eef2ff")
@@ -228,10 +235,10 @@ def render_table_page(page: Any) -> bytes:
         x = margin
         for index, lines in enumerate(cells):
             for line_index, line in enumerate(lines):
-                draw.text((x + 11, y + 10 + line_index * 25), line, font=body_font, fill="#29384f")
+                draw.text((x + 11, y + 10 + line_index * line_height), line, font=body_font, fill="#29384f")
             x += widths[index]
         y += row_height
-    draw.text((width - margin - 120, y + 18), f"第 {page.index} / {page.total} 页", font=_font(14), fill="#8991a4")
+    draw.text((width - margin - 120, y + 18), f"第 {page.index} / {page.total} 页", font=_font(_scaled_size(15, font_scale)), fill="#8991a4")
     result = BytesIO()
     image.save(result, format="PNG", optimize=True)
     return result.getvalue()

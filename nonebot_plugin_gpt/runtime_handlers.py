@@ -36,10 +36,10 @@ async def _render_markdown(markdown: str) -> bytes | None:
     return await render_chat_markdown(markdown)
 
 
-def create_markdown_renderer(template: str) -> MarkdownRenderer:
+def create_markdown_renderer(template: str, *, font_scale: float = 1.0) -> MarkdownRenderer:
     """绑定配置后的聊天图片主题，供每次对话渲染复用。"""
     async def render(markdown: str) -> bytes | None:
-        return await render_chat_markdown(markdown, template=template)
+        return await render_chat_markdown(markdown, template=template, font_scale=font_scale)
 
     return render
 

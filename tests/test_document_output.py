@@ -1,4 +1,5 @@
 import importlib
+import asyncio
 import sys
 import types
 import unittest
@@ -82,9 +83,30 @@ class DocumentOutputTests(unittest.TestCase):
         )
 
     def test_management_document_uses_the_shared_light_theme(self):
-        html = document_output.build_document_html("# 人设详情\n\n## 说明\n\n- 一条内容")
+        html = document_output.build_document_html(
+            "# 人设详情\n\n## 说明\n\n- 一条内容",
+            font_scale=1.1,
+        )
 
         self.assertIn('class="document"', html)
         self.assertIn("#8c75d9", html)
         self.assertIn("#e58ab0", html)
+        self.assertIn("width: 760px", html)
+        self.assertIn("--gpt-image-font-scale: 1.10", html)
         self.assertNotIn("NONEBOT PLUGIN", html)
+
+    def test_history_renderer_passes_font_scale_to_local_renderer(self):
+        pages = document_output.build_history_pages([{"Q": "你好", "A": "你好呀"}])
+        original = document_output.use_local_font_renderer
+        original_renderer = document_output.render_history_page
+        received = []
+        try:
+            document_output.use_local_font_renderer = lambda: True
+            document_output.render_history_page = lambda page, *, font_scale: received.append(font_scale) or b"image"
+            images = asyncio.run(document_output.render_history_pages(pages, font_scale=1.15))
+        finally:
+            document_output.use_local_font_renderer = original
+            document_output.render_history_page = original_renderer
+
+        self.assertEqual(images, (b"image",))
+        self.assertEqual(received, [1.15])

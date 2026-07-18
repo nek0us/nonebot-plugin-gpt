@@ -120,15 +120,28 @@ def build_account_status_html(status: dict[str, Any], *, failure_summary: str = 
     return _document("工作状态", "账户、浏览器和模型能力概览", metrics + notice + "".join(cards))
 
 
-async def render_management_image(html: str) -> UniMessage:
+def _reading_style(font_scale: float) -> str:
+    return f"""
+:root {{ --gpt-image-font-scale: {font_scale:.2f}; }}
+.sheet {{ width: 760px; padding: 22px; }}
+h1 {{ font-size: calc(30px * var(--gpt-image-font-scale)); }}
+.subtitle, .metric-label, .notice, .runtime, .action {{ font-size: calc(15px * var(--gpt-image-font-scale)); }}
+.metric-value {{ font-size: calc(27px * var(--gpt-image-font-scale)); }}
+.email {{ font-size: calc(18px * var(--gpt-image-font-scale)); }}
+.details, p, li {{ font-size: calc(17px * var(--gpt-image-font-scale)); line-height: 1.7; }}
+h2 {{ font-size: calc(23px * var(--gpt-image-font-scale)); }}
+"""
+
+
+async def render_management_image(html: str, *, font_scale: float = 1.0) -> UniMessage:
     """使用 htmlkit 渲染管理视图，并封装为跨平台图片消息。"""
     from nonebot_plugin_htmlkit import html_to_pic
 
     image = await html_to_pic(
-        html,
+        html.replace("</style>", _reading_style(font_scale) + "</style>", 1),
         dpi=120,
-        max_width=920,
+        max_width=800,
         device_height=10,
-        default_font_size=15,
+        default_font_size=16,
     )
     return UniMessage.image(raw=image, name="gpt-management.png")

@@ -15,7 +15,8 @@ class ChatImageTests(unittest.TestCase):
     def test_native_template_is_a_narrow_vertical_card(self):
         html = chat_images.build_chat_html("# 标题\n\n- 第一项", template="native")
 
-        self.assertIn("width: 760px", html)
+        self.assertIn("width: 680px", html)
+        self.assertIn("--gpt-image-font-scale: 1.00", html)
         self.assertIn("#8a72d6", html)
         self.assertIn("<h1>标题</h1>", html)
         self.assertIn("<li>第一项</li>", html)
@@ -25,6 +26,11 @@ class ChatImageTests(unittest.TestCase):
 
         self.assertIn("background: #ffffff", html)
         self.assertIn("border-left: 4px solid #333333", html)
+
+    def test_builtin_template_accepts_font_scale(self):
+        html = chat_images.build_chat_html("你好", template="native", font_scale=1.15)
+
+        self.assertIn("--gpt-image-font-scale: 1.15", html)
 
     def test_custom_template_requires_and_replaces_content_placeholder(self):
         with tempfile.TemporaryDirectory() as directory:

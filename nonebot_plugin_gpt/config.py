@@ -45,6 +45,7 @@ class Config(BaseModel):
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_chat_image_template: str = "native"
+    gpt_image_font_scale: float = Field(default=1.0, ge=0.85, le=1.25)
     gpt_management_recall_after: int = Field(default=0, ge=0, le=3600)
     gpt_history_anonymize: bool = False
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
