@@ -103,6 +103,32 @@ gpt_agent_command_workdir=./data/agent-command-workdir
 
 例如模型可以先读取“环境”工具，再提出一个适合当前 Windows 或 Linux 环境的命令。确认消息会完整展示程序、参数、工作目录和超时；看不懂或不符合预期就取消。建议配置 `gpt_agent_command_workdir` 将命令的默认工作目录收窄到专用目录，但它不是对命令参数路径的系统级沙箱。
 
+### 配置式技能
+
+如果某类任务会反复使用，不要让模型每次自由提出 argv。可通过 `gpt_agent_command_skills` 预先声明“程序 + 固定参数模板 + 受限变量”。模型会把它当作一个具名技能选择，无法更换程序、插入 Shell 片段或提交未声明参数；每次执行仍需要超级用户确认。
+
+```env
+gpt_agent_command_enabled=true
+gpt_agent_command_skills='[
+  {
+    "name": "查看机器人服务日志",
+    "description": "查看最近 100 行机器人服务日志",
+    "program": "journalctl",
+    "arguments": ["-u", "{服务}", "-n", "100", "--no-pager"],
+    "parameters": [
+      {
+        "name": "服务",
+        "description": "管理员允许查看的 systemd 服务",
+        "choices": ["nonebot"]
+      }
+    ],
+    "timeout_seconds": 20
+  }
+]'
+```
+
+模板变量只能使用 `{参数名}`；变量不能以 `-` 或 `/` 开头，并可用 `choices` 收窄为固定候选值。建议为每个技能配置最小化参数和明确候选值，而不是把目录、服务名或命令选项完全交给模型。
+
 ## 目录占用扫描
 
 对于“看看磁盘为什么满了”“列出某个目录最大的子目录”这类只读需求，优先使用受限的“扫描目录占用”工具，而不是通用命令。它默认关闭；必须同时显式打开开关并列出允许扫描的根目录：

@@ -16,6 +16,7 @@ from nonebot.log import logger
 from .agent_audit import AgentAuditLog
 from .agent_commands import CommandRunner, CommandValidationError
 from .agent_filesystem import AgentFilesystemScanner
+from .agent_skills import AgentSkillError, DeclarativeCommandSkill
 from .agent_workspace import AgentWorkspace, WorkspaceError
 from .conversation import ConversationKey
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
@@ -697,6 +698,7 @@ def create_agent_runtime(
     managed_services: ManagedServiceRegistry | None = None,
     command_runner: CommandRunner | None = None,
     filesystem_scanner: AgentFilesystemScanner | None = None,
+    command_skills: Iterable[DeclarativeCommandSkill] = (),
     tool_providers: Iterable[AgentToolProvider] = (),
     agent_service: AgentService | None = None,
     agent_turn: AgentTurnHandler | None = None,
@@ -750,6 +752,33 @@ def create_agent_runtime(
             lambda arguments: command_runner.parse(arguments).display(),
             argument_validator=validate_command,
         ))
+        for skill in command_skills:
+            async def run_command_skill(arguments: dict[str, str], *, definition: DeclarativeCommandSkill = skill) -> str:
+                return await command_runner.run(definition.command_arguments(arguments))
+
+            def validate_command_skill(arguments: dict[str, str], *, definition: DeclarativeCommandSkill = skill) -> str:
+                if error := definition.validate(arguments):
+                    return error
+                try:
+                    command_runner.parse(definition.command_arguments(arguments))
+                except (AgentSkillError, CommandValidationError) as error:
+                    return str(error)
+                return ""
+
+            parameters = tuple(
+                AgentToolParameter(parameter.name, parameter.description, parameter.required, parameter.choices)
+                for parameter in skill.parameters
+            )
+            tools.append(AgentTool(
+                f"技能：{skill.name}",
+                f"管理员配置的受控技能：{skill.description}。程序和 argv 结构固定，参数会在本地校验；每次执行需超级用户确认。",
+                AgentPermission.PROCESS_CONTROL,
+                AgentApproval.CONFIRM,
+                run_command_skill,
+                parameters,
+                lambda arguments, definition=skill: f"技能：{definition.name}\n{command_runner.parse(definition.command_arguments(arguments)).display()}",
+                argument_validator=validate_command_skill,
+            ))
     if filesystem_scanner is not None and filesystem_scanner.root_choices:
         async def scan_filesystem(arguments: dict[str, str]) -> str:
             return await asyncio.to_thread(filesystem_scanner.scan, arguments)

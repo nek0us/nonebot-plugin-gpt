@@ -69,6 +69,7 @@ class Config(BaseModel):
     gpt_agent_command_enabled: bool = False
     gpt_agent_command_timeout: int = Field(default=30, ge=1, le=600)
     gpt_agent_command_workdir: Path | None = None
+    gpt_agent_command_skills: list[dict] = Field(default_factory=list)
     gpt_agent_filesystem_scan_enabled: bool = False
     gpt_agent_filesystem_roots: list[Path] = Field(default_factory=list)
     gpt_agent_managed_services: list[dict] = Field(default_factory=list)
