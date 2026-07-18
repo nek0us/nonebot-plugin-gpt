@@ -14,6 +14,19 @@ _MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<url>[^\s)]+)(?:\s
 _MARKDOWN_EMPHASIS = re.compile(r"(?<!\\)(?:\*\*|__)(?P<value>.+?)(?<!\\)(?:\*\*|__)")
 _MARKDOWN_CODE = re.compile(r"`(?P<value>[^`]+)`")
 _AGENT_PROTOCOL_MARKER = "【ChatGPTWeb Agent Protocol】"
+_AGENT_PRESENTATION_MARKER = "【已完成的受控任务】"
+_AGENT_PRESENTATION_TASK = re.compile(
+    r"(?:^|\n)用户原任务：(?P<task>.*?)(?=\n完成结果：|\Z)",
+    re.DOTALL,
+)
+
+
+def _agent_presentation_task(value: str) -> str:
+    """从人设化 Agent 结果的内部提示中恢复用户最初提出的任务。"""
+    if _AGENT_PRESENTATION_MARKER not in value:
+        return ""
+    match = _AGENT_PRESENTATION_TASK.search(value)
+    return match.group("task").strip().lstrip("，,：:").strip() if match else ""
 
 
 def normalize_history_markdown(value: str) -> str:
@@ -80,6 +93,7 @@ def project_history(
     normalized_prompt = persona_prompt.strip()
     for index, item in enumerate(history):
         question = str(item.get("Q") or item.get("input") or "").strip()
+        presentation_task = _agent_presentation_task(question)
         # 人设会作为物理会话首轮发送；强化人设或自动摘要重启时，正文
         # 也可能再次出现在后续轮次中，因此不能只依赖固定的第一轮。
         is_private_setup = (hide_initial and index == 0) or (
@@ -89,7 +103,17 @@ def project_history(
         # 群成员既破坏人设，也可能泄露工具描述，因此和私有人设一并隐藏。
         if is_private_setup or _AGENT_PROTOCOL_MARKER in question:
             continue
-        entries.append(item)
+        if presentation_task:
+            # 角色化最终答复必须作为原聊天会话的一轮继续，才能继承人设和
+            # 上下文；这里仅在展示层还原用户任务，避免暴露内部控制提示。
+            visible_item = dict(item)
+            if "Q" in visible_item or "input" not in visible_item:
+                visible_item["Q"] = presentation_task
+            else:
+                visible_item["input"] = presentation_task
+            entries.append(visible_item)
+        else:
+            entries.append(item)
         source_indexes.append(index)
     return HistoryProjection(tuple(entries), tuple(source_indexes))
 

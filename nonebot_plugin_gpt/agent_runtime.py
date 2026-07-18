@@ -628,7 +628,9 @@ class AgentRuntime:
         agent_context: str = "",
     ) -> Any:
         """处理 Bot 命令文本；所有自然语言任务走核心多轮 Agent 协议。"""
-        normalized = value.strip()
+        # 中文聊天里常见“昵称智能体，任务”的写法；Alconna 会把逗号保留在
+        # 参数开头，不应让它进入模型任务或历史展示。
+        normalized = value.strip().lstrip("，,：:").strip()
         self._discard_expired()
         if normalized in {"", "帮助", "工具"}:
             return self.help_text()

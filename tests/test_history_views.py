@@ -76,6 +76,21 @@ class HistoryViewTests(unittest.TestCase):
         self.assertEqual(projection.resolve_rewind_reference("1"), "2")
         self.assertEqual(projection.resolve_rewind_reference("2"), "4")
 
+    def test_agent_presentation_round_shows_original_task_not_control_prompt(self):
+        history = [{
+            "Q": "【已完成的受控任务】\n下面是可信的任务完成结果。请按当前人设自然回复用户，\n"
+                 "不要提及 JSON、协议、工具调用或内部执行过程；不要重复执行任务。\n"
+                 "用户原任务：，再画一个你觉得好看的前端登录页面，截图给我看看\n"
+                 "完成结果：登录页面设计已完成并生成截图。",
+            "A": "页面已经准备好啦咩！",
+        }]
+
+        projection = history_views.project_history(history)
+
+        self.assertEqual(projection.entries[0]["Q"], "再画一个你觉得好看的前端登录页面，截图给我看看")
+        self.assertEqual(projection.resolve_rewind_reference("1"), "1")
+        self.assertNotIn("已完成的受控任务", projection.entries[0]["Q"])
+
     def test_history_shows_group_speaker_name_by_default(self):
         history = [
             {
