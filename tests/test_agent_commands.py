@@ -26,6 +26,21 @@ class AgentCommandTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(agent_commands.CommandValidationError):
                 runner.parse({"程序": "python", "参数": "[]", "工作目录": str(root.parent)})
 
+    def test_parse_rejects_shell_privilege_and_directly_destructive_programs(self):
+        runner = agent_commands.CommandRunner()
+        for program in ("powershell", "PowerShell.exe", "bash", "sudo", "rm", "mkfs.ext4"):
+            with self.subTest(program=program):
+                with self.assertRaises(agent_commands.CommandValidationError):
+                    runner.parse({"程序": program, "参数": "[]"})
+
+    def test_parse_marks_interpreter_and_service_control_as_high_risk(self):
+        runner = agent_commands.CommandRunner()
+        interpreter = runner.parse({"程序": sys.executable, "参数": '["-c", "print(1)"]'})
+        service = runner.parse({"程序": "systemctl", "参数": '["restart", "bot"]'})
+
+        self.assertIn("解释器", interpreter.display())
+        self.assertIn("进程或服务", service.display())
+
     async def test_runner_uses_argv_and_returns_bounded_result(self):
         runner = agent_commands.CommandRunner(default_timeout_seconds=5)
         result = await runner.run({

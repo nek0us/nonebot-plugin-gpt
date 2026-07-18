@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from secrets import token_urlsafe
@@ -14,6 +15,7 @@ from nonebot.log import logger
 
 from .agent_audit import AgentAuditLog
 from .agent_commands import CommandRunner, CommandValidationError
+from .agent_filesystem import AgentFilesystemScanner
 from .agent_workspace import AgentWorkspace, WorkspaceError
 from .conversation import ConversationKey
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
@@ -118,6 +120,19 @@ class AgentTool:
                 "additionalProperties": False,
             },
         )
+
+
+# 外部插件可在加载阶段注册受控工具提供者。提供者只能交回本模块的
+# AgentTool；权限、参数校验与确认仍由 AgentRuntime 统一执行。
+AgentToolProvider = Callable[["AgentAccess"], Iterable[AgentTool]]
+_TOOL_PROVIDERS: list[AgentToolProvider] = []
+
+
+def register_agent_tool_provider(provider: AgentToolProvider) -> AgentToolProvider:
+    """注册一个附加工具提供者，并返回它以便用作装饰器。"""
+    if provider not in _TOOL_PROVIDERS:
+        _TOOL_PROVIDERS.append(provider)
+    return provider
 
 
 @dataclass
@@ -681,6 +696,8 @@ def create_agent_runtime(
     workspace: Any = None,
     managed_services: ManagedServiceRegistry | None = None,
     command_runner: CommandRunner | None = None,
+    filesystem_scanner: AgentFilesystemScanner | None = None,
+    tool_providers: Iterable[AgentToolProvider] = (),
     agent_service: AgentService | None = None,
     agent_turn: AgentTurnHandler | None = None,
     schedule_reminder: ReminderScheduleHandler | None = None,
@@ -732,6 +749,27 @@ def create_agent_runtime(
             ),
             lambda arguments: command_runner.parse(arguments).display(),
             argument_validator=validate_command,
+        ))
+    if filesystem_scanner is not None and filesystem_scanner.root_choices:
+        async def scan_filesystem(arguments: dict[str, str]) -> str:
+            return await asyncio.to_thread(filesystem_scanner.scan, arguments)
+
+        def validate_filesystem_scan(arguments: dict[str, str]) -> str:
+            return filesystem_scanner.validate(arguments)
+
+        tools.append(AgentTool(
+            "扫描目录占用",
+            "在管理员明确配置的目录中扫描文件与子目录占用；不跟随符号链接，不会读取文件正文或修改任何数据。",
+            AgentPermission.READ_LOCAL,
+            AgentApproval.CONFIRM,
+            scan_filesystem,
+            (
+                AgentToolParameter("根目录", "管理员配置的可扫描根目录", choices=filesystem_scanner.root_choices),
+                AgentToolParameter("最大深度", f"可选整数，1 到 6；默认 3", required=False),
+                AgentToolParameter("结果数量", f"可选整数，1 到 {200}；默认 20", required=False),
+            ),
+            lambda arguments: f"扫描目录占用：{arguments['根目录']}（最大深度 {arguments.get('最大深度', '3')}，最多显示 {arguments.get('结果数量', '20')} 项）",
+            argument_validator=validate_filesystem_scan,
         ))
     def validate_reminder(arguments: dict[str, str]) -> str:
         try:
@@ -884,6 +922,11 @@ def create_agent_runtime(
                 minimum_access=AgentAccess.MEMBER,
             ),
         ])
+    for provider in (*_TOOL_PROVIDERS, *tool_providers):
+        try:
+            tools.extend(provider(access))
+        except Exception as error:
+            raise RuntimeError("智能体附加工具提供者初始化失败。") from error
     visible_tools = [tool for tool in tools if tool.minimum_access is AgentAccess.MEMBER or access is AgentAccess.SUPERUSER]
     return AgentRuntime(
         service,

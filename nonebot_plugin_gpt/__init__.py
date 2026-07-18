@@ -32,6 +32,7 @@ from .source import (
 )
 from .agent_runtime import AgentAccess, create_agent_runtime
 from .agent_commands import CommandRunner
+from .agent_filesystem import AgentFilesystemScanner
 from .agent_scheduler import AgentScheduler, ScheduledReminder
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_agent_rule, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
@@ -453,6 +454,13 @@ if isinstance(config_gpt.gpt_session,list):
             working_directory=config_gpt.gpt_agent_command_workdir,
         )
         logger.warning("已启用智能体系统命令工具；每次执行仍需要超级用户在原聊天范围确认")
+    filesystem_scanner = None
+    if config_gpt.gpt_agent_filesystem_scan_enabled:
+        filesystem_scanner = AgentFilesystemScanner(config_gpt.gpt_agent_filesystem_roots)
+        if filesystem_scanner.root_choices:
+            logger.warning("已启用智能体目录占用扫描；每次扫描仍需要超级用户在原聊天范围确认")
+        else:
+            logger.warning("已启用 gpt_agent_filesystem_scan_enabled，但未找到有效的 gpt_agent_filesystem_roots")
     agent_runtime_options = {
         "confirmation_ttl_seconds": config_gpt.gpt_agent_confirm_timeout,
         "session_approval_ttl_seconds": config_gpt.gpt_agent_session_approval_timeout,
@@ -462,6 +470,7 @@ if isinstance(config_gpt.gpt_session,list):
         "workspace": config_gpt.gpt_agent_workspace,
         "managed_services": managed_services,
         "command_runner": command_runner,
+        "filesystem_scanner": filesystem_scanner,
         "agent_turn": chat_runtime.agent_turn,
         "final_renderer": render_agent_final,
         "schedule_reminder": schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,

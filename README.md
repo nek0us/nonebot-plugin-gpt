@@ -156,9 +156,11 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_member_enabled | 否 | false | bool | 向已授权的普通用户开放成员安全智能体；当前只提供当前聊天范围内的个人提醒及其查看、取消能力，不提供主机、文件、网络或服务工具。 |
 | gpt_agent_member_reminder_limit | 否 | 5 | 1-50 | 单个普通用户在同一聊天范围内允许保留的未到期提醒上限。 |
 | gpt_agent_member_scope_reminder_limit | 否 | 20 | 1-200 | 单个聊天范围内由普通用户创建的未到期提醒总上限，避免群聊提醒刷屏。 |
-| gpt_agent_command_enabled | 否 | false | bool | 注册通用系统命令工具。仅超级用户入口可用，且每次执行都需要原聊天范围确认。 |
+| gpt_agent_command_enabled | 否 | false | bool | 注册通用系统命令工具。仅超级用户入口可用；每次执行均绑定原聊天范围二次确认。拒绝 Shell、提权和直接删除/格式化程序；解释器或服务控制命令会在确认页标为高风险。 |
 | gpt_agent_command_timeout | 否 | 30 | 1-600 | 通用系统命令的默认超时秒数。 |
-| gpt_agent_command_workdir | 否 | 空 | Path | 通用系统命令允许使用的工作目录根；设置后，模型指定的工作目录不得离开该路径。 |
+| gpt_agent_command_workdir | 否 | 空 | Path | 通用系统命令允许使用的工作目录根；设置后，模型指定的工作目录不得离开该路径。它不是文件参数的系统级沙箱，确认前仍须核对完整 argv。 |
+| gpt_agent_filesystem_scan_enabled | 否 | false | bool | 注册“扫描目录占用”工具。只扫描管理员列出的根目录，不读取文件正文、不跟随符号链接；每次扫描需要原聊天范围确认。 |
+| gpt_agent_filesystem_roots | 否 | `[]` | JSON List[Path] | 允许“扫描目录占用”访问的绝对根目录列表，例如 Linux 的 `["]/"]` 或 Windows 的 `["C:\\\\"]`。空列表不会注册扫描工具。 |
 | gpt_agent_managed_services | 否 | `[]` | JSON List[Dict] | 管理员预先声明的 `pid_file` 或 `tcp` 服务；模型不能传入任意进程、端口或 shell 命令。 |
 
 > `gpt_init_group_pernal_name` 与 `gpt_init_friend_pernal_name` 是历史拼写，仅保留兼容读取；新配置请使用带 `persona` 的字段。`begin_sleep_time`、`gpt_lgr_markdown`、`gpt_httpx`、`gpt_url_replace` 已废弃，分别迁移为 `gpt_begin_sleep_time`、`gpt_render_mode`，或直接删除。

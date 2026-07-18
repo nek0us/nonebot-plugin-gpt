@@ -344,3 +344,35 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(member_runtime._tools), {"安排提醒", "查看我的提醒", "取消我的提醒"})
         self.assertEqual(scheduled, [(agent_runtime.AgentAccess.MEMBER, "member", 600, "喝水")])
         self.assertEqual(text, "（轻轻点头）十分钟后提醒你咩。")
+
+    async def test_extra_tool_provider_is_registered_and_keeps_confirmation_boundary(self):
+        calls = []
+
+        async def inspect(_):
+            calls.append(True)
+            return "扩展工具结果"
+
+        def provider(access):
+            self.assertIs(access, agent_runtime.AgentAccess.SUPERUSER)
+            return [agent_runtime.AgentTool(
+                "扩展诊断", "由附加插件提供的受控诊断", agent_runtime.AgentPermission.READ_LOCAL,
+                agent_runtime.AgentApproval.CONFIRM, inspect,
+            )]
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="扩展诊断", arguments={}),
+            AgentDecision("final", answer="诊断完成"),
+        ], [])
+        provided_runtime = agent_runtime.create_agent_runtime(
+            _Service(),
+            agent_service=runtime._agent_service,
+            tool_providers=(provider,),
+            token_factory=iter(("confirm", "next")).__next__,
+        )
+
+        pending = await provided_runtime.execute("执行扩展诊断", operator_id="admin", scope_id="private:1")
+        completed = await provided_runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("本机只读", pending)
+        self.assertEqual(calls, [True])
+        self.assertIn("诊断完成", completed)

@@ -9,6 +9,25 @@ from pathlib import Path
 from typing import Any
 
 
+_SHELL_PROGRAMS = {
+    "cmd", "powershell", "pwsh", "sh", "bash", "zsh", "fish", "nu",
+}
+_PRIVILEGE_PROGRAMS = {"sudo", "su", "doas", "runas"}
+_DESTRUCTIVE_PROGRAMS = {
+    "rm", "del", "erase", "rmdir", "rd", "shred", "truncate", "dd",
+    "format", "mkfs", "diskpart",
+}
+_INTERPRETER_PROGRAMS = {
+    "python", "python3", "python.exe", "python3.exe", "pypy", "pypy3",
+    "node", "node.exe", "perl", "php", "ruby", "lua", "java", "dotnet",
+}
+_MUTATING_ARGUMENTS = {
+    "--delete", "--remove", "--purge", "--force", "--write", "--in-place",
+    "-i", "-rf", "-fr", "/f", "/delete", "restart", "reload", "start", "stop",
+    "kill", "shutdown", "reboot",
+}
+
+
 class CommandValidationError(ValueError):
     """命令提案不满足本地安全边界。"""
 
@@ -19,6 +38,7 @@ class CommandSpec:
     arguments: tuple[str, ...]
     working_directory: Path | None
     timeout_seconds: int
+    risk_notes: tuple[str, ...] = ()
 
     @classmethod
     def from_agent_arguments(
@@ -31,6 +51,14 @@ class CommandSpec:
         program = arguments.get("程序", "").strip()
         if not program or "\x00" in program or len(program) > 512:
             raise CommandValidationError("程序必须是长度不超过 512 的非空字符串。")
+        program_name = Path(program).name.casefold()
+        program_key = program_name.removesuffix(".exe")
+        if program_key in _SHELL_PROGRAMS:
+            raise CommandValidationError("不允许通过 Shell 解释命令；请改用明确的程序名和 JSON 参数数组。")
+        if program_key in _PRIVILEGE_PROGRAMS:
+            raise CommandValidationError("不允许通过智能体命令请求提权；请使用管理员预配置的受管服务。")
+        if program_key in _DESTRUCTIVE_PROGRAMS or program_key.startswith("mkfs."):
+            raise CommandValidationError("不允许通过通用命令直接执行删除、格式化或覆盖性操作。")
         raw_arguments = arguments.get("参数", "[]")
         try:
             parsed = json.loads(raw_arguments)
@@ -63,13 +91,24 @@ class CommandSpec:
             working_directory = candidate
         elif allowed_root is not None:
             working_directory = allowed_root
-        return cls(program, tuple(parsed), working_directory, timeout)
+        risk_notes: list[str] = []
+        normalized_arguments = {item.casefold() for item in parsed}
+        if program_key in _INTERPRETER_PROGRAMS:
+            risk_notes.append("解释器可执行任意代码")
+        if program_key in {"systemctl", "service", "sc", "taskkill", "kill", "pkill"}:
+            risk_notes.append("可能影响进程或服务状态")
+        if normalized_arguments.intersection(_MUTATING_ARGUMENTS):
+            risk_notes.append("参数包含可能改变系统或数据状态的操作")
+        return cls(program, tuple(parsed), working_directory, timeout, tuple(risk_notes))
 
     def display(self) -> str:
         values = [self.program, *self.arguments]
         rendered = " ".join(json.dumps(item, ensure_ascii=False) for item in values)
         directory = str(self.working_directory) if self.working_directory else "继承机器人进程目录"
-        return f"命令：{rendered}\n工作目录：{directory}\n超时：{self.timeout_seconds} 秒"
+        lines = [f"命令：{rendered}", f"工作目录：{directory}", f"超时：{self.timeout_seconds} 秒"]
+        if self.risk_notes:
+            lines.append(f"风险提示：{'；'.join(self.risk_notes)}。仅在确认命令完全符合预期时执行。")
+        return "\n".join(lines)
 
 
 class CommandRunner:
