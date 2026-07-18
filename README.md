@@ -142,6 +142,7 @@ _✨ NoneBot GPT ✨_
 | gpt_init_group_persona_name | 否 | 空 | str | 群聊自动初始化使用的人设名称。配置不存在的人设会跳过自动初始化并创建普通会话。 |
 | gpt_init_friend_persona_name | 否 | 空 | str | 私聊自动初始化使用的人设名称，行为同上。 |
 | gpt_agent_enabled | 否 | false | bool | 启用受控智能体入口。所有入口均要求 @ 或昵称；超级用户可在任意会话使用，普通用户仍遵守白名单。 |
+| gpt_agent_anchor_sessions | 否 | true | bool | 为重复的独立智能体任务复用隔离协议锚点。安全审查与工具决策各自使用独立的静态根会话；每个任务仍从根分支，不会共享用户消息、工具结果或角色扮演历史。关闭后每次内部请求都创建新会话，适合排障。 |
 | gpt_agent_sensitive_task_guard | 否 | true | bool | 是否启用 Agent 敏感任务预检。开启时先做本地规则检查，再以隔离的结构化模型审查意图；模型审查异常按拒绝处理。关闭只影响这层预检，不会放开工具权限、操作确认或上游安全限制。 |
 | gpt_agent_sensitive_task_message | 否 | 默认提示 | str | Agent 任务触及内建敏感范围或自定义敏感词时的面向用户提示；仅影响智能体，不影响普通聊天。 |
 | gpt_agent_sensitive_terms | 否 | `[]` | JSON List[str] | 额外拒绝的 Agent 任务词语。内建的法律、政治及其他高风险敏感范围始终保留，不能通过此项移除。 |
@@ -278,6 +279,8 @@ gpt_init_friend_persona_name="单人"
 
 # 启用智能体；默认只有超级用户拥有本机、文件和服务工具
 gpt_agent_enabled=false
+# 默认开启：复用仅包含静态协议的内存锚点，减少独立任务的上下文；排障时可设为 false。
+gpt_agent_anchor_sessions=true
 # Agent 默认拒绝法律、政治及其他高风险敏感任务：本地规则加隔离模型审查；普通聊天不受影响。
 # 仅完全自用且了解风险时才关闭；关闭不会绕过工具审批、权限或上游限制。
 gpt_agent_sensitive_task_guard=true

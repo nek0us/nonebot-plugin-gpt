@@ -1,4 +1,4 @@
-from ChatGPTWeb import AgentSafetyPolicy, ChatService, chatgpt
+from ChatGPTWeb import AgentAnchorPolicy, AgentSafetyPolicy, ChatService, chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_message
@@ -100,6 +100,9 @@ agent_safety_policy = AgentSafetyPolicy(
     enabled=config_gpt.gpt_agent_sensitive_task_guard,
     extra_blocked_terms=tuple(config_gpt.gpt_agent_sensitive_terms),
     refusal_message=config_gpt.gpt_agent_sensitive_task_message,
+)
+agent_anchor_policy = AgentAnchorPolicy(
+    enabled=config_gpt.gpt_agent_anchor_sessions,
 )
 
 
@@ -338,6 +341,7 @@ if isinstance(config_gpt.gpt_session,list):
             minimum_estimated_tokens=config_gpt.gpt_context_compaction_min_tokens,
         ),
         agent_safety_policy=agent_safety_policy,
+        agent_anchor_policy=agent_anchor_policy,
     )
 
     async def deliver_scheduled_reminder(item: ScheduledReminder) -> None:

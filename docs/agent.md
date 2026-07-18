@@ -6,6 +6,9 @@
 
 ```env
 gpt_agent_enabled=true
+# 安全审查与工具决策各自有独立的静态协议锚点；每个新任务都会从锚点分支，不共享用户或工具历史。
+# 默认开启。若排查上游会话问题，可设为 false 让每个内部请求从新会话开始。
+gpt_agent_anchor_sessions=true
 # 默认开启本地规则和隔离模型审查；仅完全自用且了解风险时才关闭。
 gpt_agent_sensitive_task_guard=true
 # 开关开启时，内建范围与以下自定义词都会拒绝。

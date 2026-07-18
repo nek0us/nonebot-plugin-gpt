@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Awaitable, Callable, Literal
 
-from ChatGPTWeb import AgentSafetyPolicy, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn, ChatRequest, ChatResult, ChatService, ConversationOperation
+from ChatGPTWeb import AgentAnchorPolicy, AgentSafetyPolicy, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn, ChatRequest, ChatResult, ChatService, ConversationOperation
 from ChatGPTWeb.api import ChatStreamEvent
 from ChatGPTWeb.config import IOFile
 
@@ -35,11 +35,13 @@ class ChatRuntime:
         context_policy: ContextPolicy | None = None,
         *,
         agent_safety_policy: AgentSafetyPolicy | None = None,
+        agent_anchor_policy: AgentAnchorPolicy | None = None,
     ):
         self._service = service
         self._conversations = conversations
         self._context_policy = context_policy or ContextPolicy()
         self._agent_safety_policy = agent_safety_policy
+        self._agent_anchor_policy = agent_anchor_policy
         self._conversation_locks: dict[str, asyncio.Lock] = {}
 
     def _conversation_lock(self, key: ConversationKey) -> asyncio.Lock:
@@ -90,7 +92,11 @@ class ChatRuntime:
             conversation = await self._conversations.get(key)
             selected_model = model if model and model != "auto" else (conversation.model or "auto")
             cursor = state or AgentState(model=selected_model)
-            return await AgentService(self._service, safety_policy=self._agent_safety_policy).turn(
+            return await AgentService(
+                self._service,
+                safety_policy=self._agent_safety_policy,
+                anchor_policy=self._agent_anchor_policy,
+            ).turn(
                 task,
                 tools,
                 state=cursor,

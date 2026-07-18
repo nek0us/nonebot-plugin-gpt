@@ -52,6 +52,7 @@ class Config(BaseModel):
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_agent_enabled: bool = False
+    gpt_agent_anchor_sessions: bool = True
     gpt_agent_sensitive_task_guard: bool = True
     gpt_agent_sensitive_task_message: str = DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE
     gpt_agent_sensitive_terms: list[str] = Field(default_factory=list)
