@@ -88,6 +88,47 @@ class RenderingTests(unittest.TestCase):
         self.assertFalse(text_plan.markdown_image_required)
         self.assertTrue(image_plan.markdown_image_required)
 
+    def test_image_rendering_numbers_markdown_links_and_keeps_real_urls_in_a_reference_message(self):
+        content = ChatContent(
+            markdown="# 标题\n\n[百科](https://example.com/a)",
+            plain_text="标题\n百科 (https://example.com/a)",
+        )
+        result = ChatResult(
+            ok=True,
+            text=content.markdown,
+            conversation_id="conversation",
+            message_id="message",
+            content=content,
+        )
+
+        plan = rendering.build_render_plan(result, supports_markdown=False)
+
+        self.assertTrue(plan.markdown_image_required)
+        self.assertFalse(plan.native_markdown)
+        self.assertIn("百科[1]", plan.markdown)
+        self.assertIn("参考链接", plan.markdown)
+        self.assertEqual(plan.reference_text, "参考链接\n[1] 百科\nhttps://example.com/a")
+
+    def test_native_markdown_platforms_keep_original_links_and_skip_image_references(self):
+        content = ChatContent(
+            markdown="**重点** [百科](https://example.com/a)",
+            plain_text="重点 百科 (https://example.com/a)",
+        )
+        result = ChatResult(
+            ok=True,
+            text=content.markdown,
+            conversation_id="conversation",
+            message_id="message",
+            content=content,
+        )
+
+        plan = rendering.build_render_plan(result, supports_markdown=True, render_mode="image")
+
+        self.assertFalse(plan.markdown_image_required)
+        self.assertTrue(plan.native_markdown)
+        self.assertEqual(plan.markdown, content.markdown)
+        self.assertEqual(plan.reference_text, "")
+
 
 if __name__ == "__main__":
     unittest.main()

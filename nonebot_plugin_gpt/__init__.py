@@ -52,6 +52,7 @@ from .persona_editor import (
     validate_value,
 )
 from .history_views import format_history, parse_history_view_argument
+from .native_markdown import supports_native_markdown
 from .help_views import format_help
 from .management_views import format_account_status
 from .management_images import build_account_status_html, build_help_html, render_management_image
@@ -399,6 +400,7 @@ if isinstance(config_gpt.gpt_session,list):
             model=model,
             prefer_paid_account=prefer_paid_account,
             files=files,
+            supports_markdown=supports_native_markdown(event),
             render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
@@ -465,6 +467,7 @@ if isinstance(config_gpt.gpt_session,list):
         await finish_message(matcher, event, await restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
+            supports_markdown=supports_native_markdown(event),
             render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
@@ -480,6 +483,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             "-1",
+            supports_markdown=supports_native_markdown(event),
             render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
@@ -496,6 +500,7 @@ if isinstance(config_gpt.gpt_session,list):
             chat_runtime,
             ConversationKey.from_event(event),
             reference,
+            supports_markdown=supports_native_markdown(event),
             render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,
@@ -546,6 +551,7 @@ if isinstance(config_gpt.gpt_session,list):
             model=model,
             prefer_paid_account=prefer_paid_account,
             continue_existing=continue_existing,
+            supports_markdown=supports_native_markdown(event),
             render_mode=await get_current_render_mode(event),
             render_markdown=chat_markdown_renderer,
             error_message=config_gpt.gpt_error_message,

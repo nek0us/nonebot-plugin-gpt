@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from nonebot.log import logger
 from nonebot_plugin_alconna.uniseg import UniMessage
 
+from .native_markdown import markdown_to_unimessage
 from .rendering import RenderPlan
 
 
@@ -25,6 +26,10 @@ async def build_unimessage(plan: RenderPlan, render_markdown: MarkdownRenderer |
             logger.warning(f"聊天 Markdown 图片渲染失败，已回退文本输出：{error}")
     if markdown_image:
         message += UniMessage.image(raw=markdown_image)
+        if plan.reference_text:
+            message += UniMessage.text(f"\n{plan.reference_text}")
+    elif plan.native_markdown and plan.markdown:
+        message += markdown_to_unimessage(plan.markdown)
     elif plan.text:
         message += UniMessage.text(plan.text)
     for image_url in plan.image_urls:
