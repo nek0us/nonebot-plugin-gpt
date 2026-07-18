@@ -75,6 +75,19 @@ class HistoryViewTests(unittest.TestCase):
         self.assertIn("用户 · 小明：你好", text)
         self.assertNotIn("群聊发言者", text)
 
+    def test_history_reverse_order_keeps_the_original_round_numbers(self):
+        history = [
+            {"Q": "第一问", "A": "第一答"},
+            {"Q": "第二问", "A": "第二答"},
+            {"Q": "第三问", "A": "第三答"},
+        ]
+
+        value, reverse_order = history_views.parse_history_view_argument("2-3 倒序")
+        text = history_views.format_history(history, value, reverse_order=reverse_order)
+
+        self.assertLess(text.index("3. 用户：第三问"), text.index("2. 用户：第二问"))
+        self.assertNotIn("1. 用户：第一问", text)
+
     def test_history_can_anonymize_group_speaker(self):
         history = [
             {

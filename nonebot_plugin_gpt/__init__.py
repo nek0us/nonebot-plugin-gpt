@@ -51,7 +51,7 @@ from .persona_editor import (
     validate_name,
     validate_value,
 )
-from .history_views import format_history
+from .history_views import format_history, parse_history_view_argument
 from .help_views import format_help
 from .management_views import format_account_status
 from .management_images import build_account_status_html, build_help_html, render_management_image
@@ -644,12 +644,13 @@ if isinstance(config_gpt.gpt_session,list):
     chat_history = legacy_command("history",aliases={"历史聊天","历史记录"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @chat_history.handle()
     async def chat_history_handle(event: Event,argument: Match[str], matcher: Matcher):
-        value = _argument_text(argument)
+        value, reverse_order = parse_history_view_argument(_argument_text(argument))
         history = await chat_runtime.get_visible_history(ConversationKey.from_event(event))
         fallback = format_history(
             history.entries,
             value,
             anonymize=config_gpt.gpt_history_anonymize,
+            reverse_order=reverse_order,
         )
         await _finish_history_document(
             matcher,
@@ -658,6 +659,7 @@ if isinstance(config_gpt.gpt_session,list):
                 history.entries,
                 value,
                 anonymize=config_gpt.gpt_history_anonymize,
+                reverse_order=reverse_order,
             ),
             fallback=fallback,
         )

@@ -154,6 +154,7 @@ def build_history_markdown_pages(
     value: str = "",
     *,
     anonymize: bool = False,
+    reverse_order: bool = False,
     page_limit: int = 6000,
 ) -> tuple[str, ...]:
     """保留历史 Markdown 投影，供文本回退与兼容调用使用。"""
@@ -163,6 +164,7 @@ def build_history_markdown_pages(
             history,
             value,
             anonymize=anonymize,
+            reverse_order=reverse_order,
             page_limit=page_limit,
         )
     )
@@ -173,15 +175,19 @@ def _history_rounds(
     value: str,
     *,
     anonymize: bool,
+    reverse_order: bool,
     page_limit: int,
 ) -> list[HistoryRound]:
     """将历史拆成可独立绘制的轮次，极长内容保留明确的续页标签。"""
     entries = list(history)
     start, end = parse_history_range(value, len(entries))
     selected = entries[start:end]
+    numbered_entries = list(enumerate(selected, start=start + 1))
+    if reverse_order:
+        numbered_entries.reverse()
     rounds: list[HistoryRound] = []
     part_limit = max(page_limit - 560, 180)
-    for index, item in enumerate(selected, start=start + 1):
+    for index, item in numbered_entries:
         speaker, question = project_group_speaker_prompt(
             str(item.get("Q") or item.get("input") or ""),
             anonymize=anonymize,
@@ -258,6 +264,7 @@ def build_history_pages(
     value: str = "",
     *,
     anonymize: bool = False,
+    reverse_order: bool = False,
     page_limit: int = 6000,
 ) -> tuple[HistoryPage, ...]:
     """构造适合图片卡片展示的聊天历史分页。"""
@@ -265,6 +272,7 @@ def build_history_pages(
         history,
         value,
         anonymize=anonymize,
+        reverse_order=reverse_order,
         page_limit=page_limit,
     )
     if not rounds:

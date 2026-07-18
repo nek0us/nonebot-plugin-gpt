@@ -69,6 +69,18 @@ class DocumentOutputTests(unittest.TestCase):
         self.assertIn('class="card reply"', pages[0].html)
         self.assertNotIn("NONEBOT PLUGIN", pages[0].html)
 
+    def test_history_card_pages_can_be_reversed_without_renumbering(self):
+        pages = document_output.build_history_pages([
+            {"Q": "第一问", "A": "第一答"},
+            {"Q": "第二问", "A": "第二答"},
+            {"Q": "第三问", "A": "第三答"},
+        ], reverse_order=True)
+
+        self.assertEqual(
+            [round_item.number for round_item in pages[0].rounds],
+            [3, 2, 1],
+        )
+
     def test_management_document_uses_the_shared_light_theme(self):
         html = document_output.build_document_html("# 人设详情\n\n## 说明\n\n- 一条内容")
 

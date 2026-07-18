@@ -69,11 +69,24 @@ def parse_history_range(value: str, total: int) -> tuple[int, int]:
         return 0, total
 
 
+def parse_history_view_argument(value: str) -> tuple[str, bool]:
+    """分离历史范围和展示顺序；“倒序”只影响显示，不改变轮次编号。"""
+    normalized = value.strip()
+    reverse_order = False
+    for marker in ("倒序", "reverse", "desc"):
+        index = normalized.lower().find(marker)
+        if index >= 0:
+            normalized = normalized[:index] + normalized[index + len(marker):]
+            reverse_order = True
+    return normalized.strip(), reverse_order
+
+
 def format_history(
     history: Iterable[dict[str, str]],
     value: str = "",
     *,
     anonymize: bool = False,
+    reverse_order: bool = False,
 ) -> str:
     """生成不包含物理消息标识的问答历史文本。"""
     entries = list(history)
@@ -82,7 +95,10 @@ def format_history(
     if not selected:
         return "当前逻辑会话还没有可展示的聊天记录。"
     lines = ["聊天记录"]
-    for index, item in enumerate(selected, start=start + 1):
+    numbered_entries = list(enumerate(selected, start=start + 1))
+    if reverse_order:
+        numbered_entries.reverse()
+    for index, item in numbered_entries:
         speaker, question = project_group_speaker_prompt(
             str(item.get("Q") or item.get("input") or ""),
             anonymize=anonymize,
