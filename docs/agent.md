@@ -20,6 +20,14 @@ gpt_agent_confirm_timeout=60
 gpt_agent_plan_timeout=300
 gpt_agent_session_approval_timeout=1800
 gpt_agent_workspace=./data/agent-workspace
+# 仅渲染工作区内的静态 HTML；拒绝脚本、嵌入页面和远程 HTTP 资源。
+gpt_agent_workspace_web_render_enabled=true
+# 默认 disabled。生产环境推荐 docker；local 仅用于开发调试，会直接在宿主机启动 Python。
+gpt_agent_workspace_execution_backend=docker
+# 必须由管理员预先拉取并固定版本的镜像，Docker 后端不会自动拉取镜像。
+gpt_agent_workspace_execution_image="your-pinned-python-image"
+gpt_agent_workspace_execution_timeout=60
+gpt_agent_workspace_execution_memory_mb=512
 gpt_agent_schedule_enabled=true
 # 已授权普通用户只获得“安排/查看/取消自己的提醒”能力。
 gpt_agent_member_enabled=false
@@ -174,6 +182,23 @@ gpt_agent_filesystem_roots='[
 设置 `gpt_agent_workspace` 后会注册以下工具：列出工作区文件、读取工作区文件、写入工作区文件。它们只能访问该目录内的相对路径，拒绝绝对路径、`..` 越界和解析后离开工作目录的符号链接。
 
 单个 UTF-8 文件最大 64 KiB；写入先落到临时文件再原子替换。写入正文不会出现在确认消息或审计记录中。
+
+### 自主执行与产物回传
+
+工作区不是单一的“写文件”功能，而是给模型组合步骤的受限环境。启用相应配置后，模型可在同一任务中自行选择以下已注册原子工具：
+
+- 写入、读取工作区文件；
+- 运行工作区内已有的 Python 脚本；
+- 将工作区内的静态 HTML 渲染为 PNG；
+- 将脚本或渲染器生成的 PNG 回传到当前聊天。
+
+例如，`@机器人 智能体 在工作区制作一张介绍猪咪能力的网页截图并发给我` 的正常链路是：模型先写入 HTML，再申请确认渲染截图，读取到截图结果后决定最终文案；插件会用当前人设组织最后回复，并将 PNG 作为同一条消息的附件发回。模型并不需要预先知道“介绍猪咪”是一个硬编码工具。
+
+如果任务需要代码，模型可先写入 Python 脚本、申请确认执行，再调用“回传工作区图片”发送产物。`docker` 后端只挂载工作区到 `/workspace`，关闭网络、移除 Linux capabilities、限制 CPU/内存/PID/超时；镜像必须由管理员预先审查、拉取并固定版本，运行时使用 `--pull never`，不会因模型任务自动下载镜像。`local` 后端会直接在机器人宿主机运行当前 Python，仅适合开发测试，生产环境不要启用。
+
+静态网页截图不执行 JavaScript，也不加载远程 HTTP 资源，因此适合生成本地报告、卡片或说明页。它不是远程网页浏览器：需要访问外网、登录网站或动态页面时，应后续以单独、受审查的浏览器工具或容器技能实现，不能借由当前截图工具绕过网络边界。
+
+所有写入、脚本执行、渲染和图片回传均要求原超级用户在原聊天范围确认；普通成员安全模式不会注册这些工具。
 
 ## 受管服务
 

@@ -62,6 +62,11 @@ class Config(BaseModel):
     gpt_agent_max_steps: int = Field(default=8, ge=1, le=20)
     gpt_agent_model: str = "auto"
     gpt_agent_workspace: Path | None = None
+    gpt_agent_workspace_web_render_enabled: bool = False
+    gpt_agent_workspace_execution_backend: Literal["disabled", "local", "docker"] = "disabled"
+    gpt_agent_workspace_execution_image: str = ""
+    gpt_agent_workspace_execution_timeout: int = Field(default=60, ge=1, le=600)
+    gpt_agent_workspace_execution_memory_mb: int = Field(default=512, ge=64, le=4096)
     gpt_agent_schedule_enabled: bool = True
     gpt_agent_member_enabled: bool = False
     gpt_agent_member_reminder_limit: int = Field(default=5, ge=1, le=50)

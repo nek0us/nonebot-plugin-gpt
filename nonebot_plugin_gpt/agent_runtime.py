@@ -17,6 +17,8 @@ from .agent_audit import AgentAuditLog
 from .agent_commands import CommandRunner, CommandValidationError
 from .agent_filesystem import AgentFilesystemScanner
 from .agent_skills import AgentSkillError, DeclarativeCommandSkill
+from .agent_sandbox import SandboxError, WorkspaceSandbox
+from .agent_web import WebRenderError, WorkspaceWebRenderer
 from .agent_workspace import AgentWorkspace, WorkspaceError
 from .conversation import ConversationKey
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
@@ -31,7 +33,7 @@ AgentRunArgumentValidator = Callable[[dict[str, str], "AgentRun"], str]
 ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
 TargetReminderScheduleHandler = Callable[["AgentRun", int, str, str], Awaitable[str]]
 ReminderOperationHandler = Callable[["AgentRun", str, str], Awaitable[str]]
-AgentFinalRenderer = Callable[["AgentRun", str], Awaitable[str]]
+AgentFinalRenderer = Callable[["AgentRun", str], Awaitable[Any]]
 
 
 class AgentPermission(str, Enum):
@@ -152,6 +154,16 @@ class AgentRun:
     mentioned_user_ids: tuple[str, ...] = ()
     agent_context: str = ""
     access: AgentAccess = AgentAccess.SUPERUSER
+    artifacts: list["AgentArtifact"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AgentArtifact:
+    """已由受限工具生成、会在任务完成时回传的二进制产物。"""
+
+    path: str
+    media_type: str
+    content: bytes
 
 
 @dataclass
@@ -375,12 +387,12 @@ class AgentRuntime:
             model=run.model if run is not None else self._model,
         )
 
-    async def _continue_after_result(self, run: AgentRun, result: AgentToolResult) -> str:
+    async def _continue_after_result(self, run: AgentRun, result: AgentToolResult) -> Any:
         turn = await self._request_turn("", run=run, state=run.state, tool_result=result)
         run.state = turn.state
         return await self._handle_turn(turn, run)
 
-    async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> str:
+    async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> Any:
         if not turn.ok or turn.decision.kind == "error":
             self._audit.record("模型决策失败", "智能体模型")
             return f"智能体未能继续执行：{turn.decision.error or '模型请求失败'}"
@@ -426,7 +438,7 @@ class AgentRuntime:
         delivery_user_id: str = "",
         mentioned_user_ids: tuple[str, ...] = (),
         agent_context: str = "",
-    ) -> str:
+    ) -> Any:
         run = AgentRun(
             task=task,
             state=AgentState(model=self._model),
@@ -477,7 +489,7 @@ class AgentRuntime:
             ])
         return await self._handle_turn(turn, run)
 
-    async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
+    async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> Any:
         plan = self._plans.pop(token, None)
         if plan is None:
             return "未找到可执行的智能体计划，可能已执行、取消或过期。"
@@ -490,7 +502,7 @@ class AgentRuntime:
             return plan.decision.answer
         return await self._handle_turn(AgentTurn(True, plan.run.state, plan.decision), plan.run)
 
-    async def _confirm(self, token: str, operator_id: str, scope_id: str) -> str:
+    async def _confirm(self, token: str, operator_id: str, scope_id: str) -> Any:
         action = self._pending.get(token)
         if action is None:
             return "未找到待确认操作，可能已取消、执行或过期。"
@@ -583,7 +595,7 @@ class AgentRuntime:
         delivery_user_id: str = "",
         mentioned_user_ids: tuple[str, ...] = (),
         agent_context: str = "",
-    ) -> str:
+    ) -> Any:
         """处理 Bot 命令文本；所有自然语言任务走核心多轮 Agent 协议。"""
         normalized = value.strip()
         self._discard_expired()
@@ -699,6 +711,8 @@ def create_agent_runtime(
     max_steps: int = 8,
     model: str = "auto",
     workspace: Any = None,
+    workspace_sandbox: WorkspaceSandbox | None = None,
+    workspace_web_renderer: WorkspaceWebRenderer | None = None,
     managed_services: ManagedServiceRegistry | None = None,
     command_runner: CommandRunner | None = None,
     filesystem_scanner: AgentFilesystemScanner | None = None,
@@ -895,11 +909,113 @@ def create_agent_runtime(
             except WorkspaceError as error:
                 return f"工作目录操作已拒绝：{error}"
 
+        def validate_sandbox_script(arguments: dict[str, str]) -> str:
+            if workspace_sandbox is None:
+                return "工作区脚本执行尚未启用。"
+            try:
+                workspace_sandbox.validate(arguments["脚本"], arguments.get("参数", "[]"))
+            except SandboxError as error:
+                return str(error)
+            return ""
+
+        async def run_sandbox_script(arguments: dict[str, str], _: AgentRun) -> str:
+            if workspace_sandbox is None:
+                return "工作区脚本执行尚未启用。"
+            try:
+                return await workspace_sandbox.run(arguments["脚本"], arguments.get("参数", "[]"))
+            except SandboxError as error:
+                return f"工作区脚本执行已拒绝：{error}"
+
+        def validate_web_render(arguments: dict[str, str]) -> str:
+            if workspace_web_renderer is None:
+                return "工作区网页渲染尚未启用。"
+            try:
+                workspace_web_renderer.validate(arguments["HTML文件"], arguments["截图文件"])
+            except WebRenderError as error:
+                return str(error)
+            return ""
+
+        async def render_workspace_web(arguments: dict[str, str], run: AgentRun) -> str:
+            if workspace_web_renderer is None:
+                return "工作区网页渲染尚未启用。"
+            try:
+                path, image = await workspace_web_renderer.render(arguments["HTML文件"], arguments["截图文件"])
+            except WebRenderError as error:
+                return f"工作区网页渲染已拒绝：{error}"
+            run.artifacts = [artifact for artifact in run.artifacts if artifact.path != path]
+            run.artifacts.append(AgentArtifact(path, "image/png", image))
+            return f"已将工作区 HTML 渲染为截图：{path}。截图会在任务完成时回传当前聊天。"
+
+        def validate_workspace_image(arguments: dict[str, str]) -> str:
+            try:
+                path = agent_workspace.resolve_relative(arguments["图片文件"])
+                if path.suffix.casefold() != ".png":
+                    return "当前仅允许回传工作区内的 PNG 图片。"
+                if not agent_workspace.read_bytes(arguments["图片文件"]).startswith(b"\x89PNG\r\n\x1a\n"):
+                    return "工作区文件不是有效的 PNG 图片。"
+            except WorkspaceError as error:
+                return str(error)
+            return ""
+
+        async def attach_workspace_image(arguments: dict[str, str], run: AgentRun) -> str:
+            path = arguments["图片文件"]
+            try:
+                image = agent_workspace.read_bytes(path)
+            except WorkspaceError as error:
+                return f"工作区图片回传已拒绝：{error}"
+            if not image.startswith(b"\x89PNG\r\n\x1a\n"):
+                return "工作区文件不是有效的 PNG 图片。"
+            run.artifacts = [artifact for artifact in run.artifacts if artifact.path != path]
+            run.artifacts.append(AgentArtifact(path, "image/png", image))
+            return f"已登记工作区图片 {path}，会在任务完成时回传当前聊天。"
+
         tools.extend([
             AgentTool("列出工作区文件", "列出受限工作目录内的文件和目录", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, list_files, (AgentToolParameter("路径", "工作目录内相对目录，可省略", required=False),)),
             AgentTool("读取工作区文件", "读取受限工作目录内的一个 UTF-8 文本文件", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, read_file, (AgentToolParameter("路径", "工作目录内相对文件路径"),), lambda arguments: f"读取工作目录文件 {arguments['路径']}"),
             AgentTool("写入工作区文件", "以 UTF-8 原子写入受限工作目录内的一个文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, write_file, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True)), lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）"),
         ])
+        if workspace_sandbox is not None and workspace_sandbox.enabled:
+            backend_label = "Docker 隔离容器" if workspace_sandbox.backend == "docker" else "本机开发执行（未隔离）"
+            tools.append(AgentTool(
+                "运行工作区Python脚本",
+                f"运行工作区内已有的 Python 脚本，执行后将输出回传模型继续决策。当前后端：{backend_label}。模型不能指定任意程序或 shell。",
+                AgentPermission.PROCESS_CONTROL,
+                AgentApproval.CONFIRM,
+                _raise_direct_only,
+                (
+                    AgentToolParameter("脚本", "工作区内已有的相对 .py 文件路径"),
+                    AgentToolParameter("参数", "可选 JSON 字符串数组；默认 []", required=False),
+                ),
+                lambda arguments: f"运行工作区脚本 {arguments['脚本']}，参数：{arguments.get('参数', '[]')}",
+                run_handler=run_sandbox_script,
+                argument_validator=validate_sandbox_script,
+            ))
+        if workspace_web_renderer is not None:
+            tools.append(AgentTool(
+                "渲染工作区网页",
+                "将工作区内的静态 HTML 渲染为 PNG 截图并在任务完成时发回当前聊天。拒绝脚本、嵌入页面和远程 HTTP 资源。",
+                AgentPermission.WRITE_LOCAL,
+                AgentApproval.CONFIRM,
+                _raise_direct_only,
+                (
+                    AgentToolParameter("HTML文件", "工作区内已有的相对 .html 或 .htm 文件路径"),
+                    AgentToolParameter("截图文件", "工作区内输出的相对 .png 文件路径"),
+                ),
+                lambda arguments: f"渲染工作区网页 {arguments['HTML文件']} 为截图 {arguments['截图文件']}",
+                run_handler=render_workspace_web,
+                argument_validator=validate_web_render,
+            ))
+        tools.append(AgentTool(
+            "回传工作区图片",
+            "将工作区内已有的 PNG 图片作为本轮任务产物，在最终答复后发回当前聊天。可用于隔离脚本自行生成的截图。",
+            AgentPermission.READ_LOCAL,
+            AgentApproval.CONFIRM,
+            _raise_direct_only,
+            (AgentToolParameter("图片文件", "工作区内已有的相对 .png 文件路径"),),
+            lambda arguments: f"回传工作区图片 {arguments['图片文件']}",
+            run_handler=attach_workspace_image,
+            argument_validator=validate_workspace_image,
+        ))
     if registry.process_names or registry.tcp_names:
         async def service_overview(_: dict[str, str]) -> str:
             return await registry.overview()

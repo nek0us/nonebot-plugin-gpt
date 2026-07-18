@@ -8,6 +8,7 @@ from tempfile import NamedTemporaryFile
 
 
 MAX_FILE_BYTES = 64 * 1024
+MAX_ARTIFACT_BYTES = 12 * 1024 * 1024
 MAX_LIST_ENTRIES = 100
 
 
@@ -34,6 +35,10 @@ class AgentWorkspace:
         if not allow_root and target == self.root:
             raise WorkspaceError("请提供工作目录内的文件路径。")
         return target
+
+    def resolve_relative(self, value: str, *, allow_root: bool = False) -> Path:
+        """返回经边界校验的工作区路径，供受限执行器复用。"""
+        return self._path(value, allow_root=allow_root)
 
     def list_files(self, value: str = "") -> str:
         target = self._path(value, allow_root=True)
@@ -76,3 +81,25 @@ class AgentWorkspace:
         finally:
             temporary_path.unlink(missing_ok=True)
         return f"已写入工作目录文件：{target.relative_to(self.root).as_posix()}（{len(encoded)} 字节）"
+
+    def write_bytes(self, value: str, content: bytes) -> str:
+        target = self._path(value)
+        if len(content) > MAX_ARTIFACT_BYTES:
+            raise WorkspaceError(f"二进制产物超过 {MAX_ARTIFACT_BYTES // (1024 * 1024)} MiB，已拒绝写入。")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile("wb", delete=False, dir=target.parent, prefix=".agent-") as temporary:
+            temporary.write(content)
+            temporary_path = Path(temporary.name)
+        try:
+            os.replace(temporary_path, target)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return f"已写入工作目录产物：{target.relative_to(self.root).as_posix()}（{len(content)} 字节）"
+
+    def read_bytes(self, value: str, *, maximum_bytes: int = MAX_ARTIFACT_BYTES) -> bytes:
+        target = self._path(value)
+        if not target.exists() or not target.is_file():
+            raise WorkspaceError("指定产物不存在或不是普通文件。")
+        if target.stat().st_size > maximum_bytes:
+            raise WorkspaceError(f"产物超过 {maximum_bytes // (1024 * 1024)} MiB，拒绝读取。")
+        return target.read_bytes()

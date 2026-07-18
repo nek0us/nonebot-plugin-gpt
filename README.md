@@ -152,6 +152,11 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_max_steps | 否 | 8 | 1-20 | 单个智能体任务可连续执行的最大工具步数；达到上限会停止，避免模型循环消耗额度。 |
 | gpt_agent_model | 否 | auto | str | 智能体模型决策使用的模型别名；保持 `auto` 会按核心账户能力选择。 |
 | gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
+| gpt_agent_workspace_web_render_enabled | 否 | false | bool | 是否启用工作区静态 HTML 截图。仅允许本地 UTF-8 HTML，拒绝脚本、嵌入页面及远程 HTTP 资源；截图需超级用户确认。 |
+| gpt_agent_workspace_execution_backend | 否 | disabled | disabled / local / docker | 工作区 Python 脚本执行后端。`disabled` 不注册执行工具；`local` 直接运行宿主机 Python，仅限开发；`docker` 使用无网络受限容器，推荐生产。 |
+| gpt_agent_workspace_execution_image | 否 | 空 | str | Docker 执行镜像。必须由管理员预先审查、拉取并固定版本；运行时禁止自动拉取。仅在 `docker` 后端生效。 |
+| gpt_agent_workspace_execution_timeout | 否 | 60 | 1-600 | 工作区脚本单次最长运行秒数，超时后终止容器或进程。 |
+| gpt_agent_workspace_execution_memory_mb | 否 | 512 | 64-4096 | Docker 工作区脚本内存上限（MiB）。 |
 | gpt_agent_schedule_enabled | 否 | true | bool | 注册受控异步提醒工具；到时会回到原逻辑会话，由当前人设生成提醒。普通成员只能提醒自己；超级用户可在消息中实际 `@` 一名成员后请求提醒对方，且必须在原聊天范围确认。 |
 | gpt_agent_member_enabled | 否 | false | bool | 向已授权的普通用户开放成员安全智能体；当前只提供当前聊天范围内的个人提醒及其查看、取消能力，不提供主机、文件、网络或服务工具。 |
 | gpt_agent_member_reminder_limit | 否 | 5 | 1-50 | 单个普通用户在同一聊天范围内允许保留的未到期提醒上限。 |
@@ -298,6 +303,14 @@ gpt_agent_max_steps=8
 gpt_agent_model="auto"
 # 文件工具只允许访问此工作目录；不需要文件能力时保持未配置。
 gpt_agent_workspace="./data/agent-workspace"
+# 静态 HTML 可渲染成 PNG 并随智能体最终回复回传；不执行 JavaScript 或加载远程资源。
+gpt_agent_workspace_web_render_enabled=true
+# 默认禁用脚本执行。生产环境建议 docker，local 会直接在宿主机运行 Python，仅用于开发调试。
+gpt_agent_workspace_execution_backend="docker"
+# 使用管理员预先拉取、审查并固定版本的镜像；运行时不会自动拉取镜像。
+gpt_agent_workspace_execution_image="your-pinned-python-image"
+gpt_agent_workspace_execution_timeout=60
+gpt_agent_workspace_execution_memory_mb=512
 # 异步提醒会在重启后恢复；设为 false 则不注册该工具。
 gpt_agent_schedule_enabled=true
 # 向已授权普通用户开放“智能体 10分钟后提醒我喝水”等个人安全能力。
@@ -455,7 +468,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 
 ### 智能体Agent
 
-智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区读写、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
+智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区读写、静态网页截图、可选的 Docker 工作区脚本执行与图片回传、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。模型可以组合这些原子能力完成多步任务，但不能直接获得任意路径、网络、Shell 或主机权限。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
 
 ### 更新日志
 2026.07.16 1.1.3

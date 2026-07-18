@@ -33,8 +33,11 @@ from .source import (
 from .agent_runtime import AgentAccess, create_agent_runtime
 from .agent_commands import CommandRunner
 from .agent_filesystem import AgentFilesystemScanner
+from .agent_sandbox import SandboxError, WorkspaceSandbox
 from .agent_skills import load_command_skill_sources
 from .agent_scheduler import AgentScheduler, ScheduledReminder
+from .agent_web import WorkspaceWebRenderer
+from .agent_workspace import AgentWorkspace
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_agent_rule, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
@@ -435,15 +438,23 @@ if isinstance(config_gpt.gpt_session,list):
             return "提醒已取消。" if cancelled else "未找到可取消的提醒；只能取消你在当前聊天范围创建的未到期提醒。"
         return "不支持的提醒操作。"
 
-    async def render_agent_final(run, answer: str) -> str:
+    async def render_agent_final(run, answer: str):
         if run.conversation_key is None:
-            return answer
-        return await chat_runtime.render_agent_final(
-            run.conversation_key,
-            run.task,
-            answer,
-            model=run.model,
-        )
+            text = answer
+        else:
+            text = await chat_runtime.render_agent_final(
+                run.conversation_key,
+                run.task,
+                answer,
+                model=run.model,
+            )
+        if not run.artifacts:
+            return text
+        message = UniMessage.text(text)
+        for artifact in run.artifacts:
+            if artifact.media_type == "image/png":
+                message += UniMessage.image(raw=artifact.content)
+        return message
 
     managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
     for issue in managed_services.configuration_issues:
@@ -475,6 +486,31 @@ if isinstance(config_gpt.gpt_session,list):
             logger.warning("已启用智能体目录占用扫描；每次扫描仍需要超级用户在原聊天范围确认")
         else:
             logger.warning("已启用 gpt_agent_filesystem_scan_enabled，但未找到有效的 gpt_agent_filesystem_roots")
+    workspace_sandbox = None
+    workspace_web_renderer = None
+    if config_gpt.gpt_agent_workspace:
+        agent_workspace = AgentWorkspace(config_gpt.gpt_agent_workspace)
+        if config_gpt.gpt_agent_workspace_web_render_enabled:
+            workspace_web_renderer = WorkspaceWebRenderer(agent_workspace)
+            logger.warning("已启用智能体工作区静态网页截图；脚本、嵌入页面和远程资源会被拒绝")
+        if config_gpt.gpt_agent_workspace_execution_backend != "disabled":
+            try:
+                workspace_sandbox = WorkspaceSandbox(
+                    agent_workspace,
+                    backend=config_gpt.gpt_agent_workspace_execution_backend,
+                    image=config_gpt.gpt_agent_workspace_execution_image,
+                    timeout_seconds=config_gpt.gpt_agent_workspace_execution_timeout,
+                    memory_mb=config_gpt.gpt_agent_workspace_execution_memory_mb,
+                )
+                backend = config_gpt.gpt_agent_workspace_execution_backend
+                logger.warning(f"已启用智能体工作区脚本执行后端：{backend}；每次运行仍需要超级用户确认")
+            except SandboxError as error:
+                logger.warning(f"智能体工作区脚本执行未启用：{error}")
+    elif (
+        config_gpt.gpt_agent_workspace_web_render_enabled
+        or config_gpt.gpt_agent_workspace_execution_backend != "disabled"
+    ):
+        logger.warning("已配置智能体工作区渲染或执行能力，但 gpt_agent_workspace 为空，相关工具不会注册")
     agent_runtime_options = {
         "confirmation_ttl_seconds": config_gpt.gpt_agent_confirm_timeout,
         "session_approval_ttl_seconds": config_gpt.gpt_agent_session_approval_timeout,
@@ -482,6 +518,8 @@ if isinstance(config_gpt.gpt_session,list):
         "max_steps": config_gpt.gpt_agent_max_steps,
         "model": config_gpt.gpt_agent_model,
         "workspace": config_gpt.gpt_agent_workspace,
+        "workspace_sandbox": workspace_sandbox,
+        "workspace_web_renderer": workspace_web_renderer,
         "managed_services": managed_services,
         "command_runner": command_runner,
         "command_skills": command_skills,
@@ -933,7 +971,7 @@ if isinstance(config_gpt.gpt_session,list):
             original_message,
             self_id=str(getattr(event, "self_id", "")),
         )
-        text = await runtime.execute(
+        result = await runtime.execute(
             value,
             operator_id=event.get_user_id(),
             scope_id=get_access_session_id(event),
@@ -943,7 +981,8 @@ if isinstance(config_gpt.gpt_session,list):
             mentioned_user_ids=mentioned_user_ids,
             agent_context=agent_context if is_superuser else "",
         )
-        await finish_message(matcher, event, UniMessage.text(text))
+        message = result if isinstance(result, UniMessage) else UniMessage.text(str(result))
+        await finish_message(matcher, event, message)
 
     create_cdk = legacy_command("生成cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @create_cdk.handle()

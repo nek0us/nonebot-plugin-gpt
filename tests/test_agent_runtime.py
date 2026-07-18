@@ -104,6 +104,51 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((root / "hello.txt").read_text(encoding="utf-8"), "hello from agent")
             self.assertIn("文件已创建", completed)
 
+    async def test_workspace_image_is_attached_after_model_finishes(self):
+        class _Renderer:
+            async def render(self, source, output):
+                self.source = source
+                self.output = output
+                return output, b"\x89PNG\r\n\x1a\nrendered"
+
+            def validate(self, source, output):
+                if source != "page.html" or output != "screenshots/page.png":
+                    raise ValueError("unexpected path")
+
+        rendered = []
+
+        async def final_renderer(run, answer):
+            rendered.append((answer, run.artifacts))
+            return "任务完成"
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "page.html").write_text("<main>hello</main>", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="渲染工作区网页", arguments={
+                    "HTML文件": "page.html",
+                    "截图文件": "screenshots/page.png",
+                }),
+                AgentDecision("final", answer="网页已完成。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                workspace=root,
+                workspace_web_renderer=_Renderer(),
+                agent_service=service,
+                final_renderer=final_renderer,
+                token_factory=iter(("confirm", "next")).__next__,
+            )
+
+            pending = await runtime.execute("制作网页截图", operator_id="admin", scope_id="private:1")
+            completed = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("确认 confirm", pending)
+        self.assertEqual(completed, "任务完成")
+        self.assertEqual(rendered[0][0], "网页已完成。")
+        self.assertEqual(rendered[0][1][0].path, "screenshots/page.png")
+        self.assertEqual(rendered[0][1][0].content, b"\x89PNG\r\n\x1a\nrendered")
+
     async def test_plan_is_real_first_decision_and_executes_only_after_its_token(self):
         calls = []
 
