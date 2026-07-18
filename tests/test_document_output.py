@@ -82,6 +82,38 @@ class DocumentOutputTests(unittest.TestCase):
             [3, 2, 1],
         )
 
+    def test_history_card_renders_markdown_and_hides_private_citations(self):
+        pages = document_output.build_history_pages([
+            {"Q": "介绍一下", "A": "**王勃**是作者。\ue200cite\ue202turn0search11\ue201\n\n[百科](https://example.com)\n\n---\n\n- 第一项"},
+        ])
+
+        html = pages[0].html
+
+        self.assertIn("<strong>王勃</strong>", html)
+        self.assertIn("百科[1]", html)
+        self.assertIn("参考链接", html)
+        self.assertIn("example.com", html)
+        self.assertNotIn('href="https://example.com"', html)
+        self.assertIn("<hr", html)
+        self.assertIn("<li>第一项</li>", html)
+        self.assertNotIn("turn0search11", html)
+
+    def test_history_references_are_deduplicated_and_exported_as_plain_urls(self):
+        pages = document_output.build_history_pages([
+            {
+                "Q": "问题",
+                "A": "[百科](https://example.com/a) 和 [百科](https://example.com/a)",
+            },
+        ])
+
+        self.assertEqual(len(pages[0].links), 1)
+        self.assertEqual(pages[0].links[0].index, 1)
+        self.assertIn("百科[1]", pages[0].rounds[0].answer)
+        self.assertEqual(
+            document_output.history_reference_text(pages),
+            "参考链接\n[1] 百科\nhttps://example.com/a",
+        )
+
     def test_management_document_uses_the_shared_light_theme(self):
         html = document_output.build_document_html(
             "# 人设详情\n\n## 说明\n\n- 一条内容",

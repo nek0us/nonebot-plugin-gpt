@@ -46,11 +46,13 @@ async def finish_image_pages(
     *,
     title: str,
     recall_after: int = 0,
-) -> None:
+    finish: bool = True,
+) -> bool:
     """优先以跨平台合并引用发送多张文档图片，失败后逐张发送。"""
     if not images:
-        await matcher.finish("暂无可展示内容。")
-        return
+        if finish:
+            await matcher.finish("暂无可展示内容。")
+        return False
 
     if len(images) > 1:
         nodes = [
@@ -75,17 +77,21 @@ async def finish_image_pages(
             logger.warning(
                 f"合并引用消息发送结果不确定，停止逐张重试以避免重复发送：{error}"
             )
-            await matcher.finish()
-            return
+            if finish:
+                await matcher.finish()
+            return False
         else:
             _schedule_recall(receipt, recall_after)
-            await matcher.finish()
-            return
+            if finish:
+                await matcher.finish()
+            return True
 
     for image in images:
         receipt = await UniMessage.image(raw=image, name="gpt-document.png").send(event)
         _schedule_recall(receipt, recall_after)
-    await matcher.finish()
+    if finish:
+        await matcher.finish()
+    return True
 
 
 async def finish_message(

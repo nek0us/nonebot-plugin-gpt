@@ -6,11 +6,12 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from html import escape
+from urllib.parse import urlparse
 
 import markdown
 
 from .event_scope import project_group_speaker_prompt
-from .history_views import parse_history_range
+from .history_views import normalize_history_markdown, parse_history_range, replace_history_links
 from .image_fallback import render_history_page, render_markdown_page, use_local_font_renderer
 
 
@@ -32,6 +33,20 @@ h1 { margin: 0; color: #2c3654; font-size: calc(30px * var(--gpt-image-font-scal
 .user .role { color: #2d6eae; }
 .reply .role { color: #b4537c; }
 .content { color: #29384f; font-size: calc(18px * var(--gpt-image-font-scale)); line-height: 1.74; white-space: pre-wrap; overflow-wrap: anywhere; }
+.content.markdown { white-space: normal; }
+.content.markdown > :first-child { margin-top: 0; }.content.markdown > :last-child { margin-bottom: 0; }
+.content.markdown p { margin: 11px 0; white-space: pre-wrap; }
+.content.markdown ul, .content.markdown ol { margin: 11px 0; padding-left: 1.55em; }
+.content.markdown li { margin: 6px 0; }
+.content.markdown li::marker { color: #b4537c; }
+.content.markdown strong { color: #a34b72; }
+.content.markdown hr { border: 0; border-top: 1px solid #e7c9d7; margin: 18px 0; }
+.content.markdown blockquote { margin: 13px 0; padding: 9px 13px; color: #5d6179; border-left: 4px solid #edbdd0; background: #fff8fb; }
+.content.markdown a { color: #4779ba; overflow-wrap: anywhere; }
+.references { margin: 20px 0 0; padding: 14px 16px; color: #58627b; border: 1px solid #e0e4ee; border-radius: 9px; background: #ffffff; }
+.references-title { margin: 0 0 8px; color: #5d4ca3; font-size: calc(15px * var(--gpt-image-font-scale)); font-weight: 700; }
+.references ol { margin: 0; padding-left: 1.45em; }.references li { margin: 6px 0; font-size: calc(14px * var(--gpt-image-font-scale)); line-height: 1.55; }
+.references .domain { color: #818aa0; }
 .footer { margin: 18px 4px 0; color: #8991a4; font-size: 12px; text-align: right; }
 """
 
@@ -76,6 +91,14 @@ class HistoryRound:
     answer: str
     speaker: str = "用户"
     continuation: str = ""
+    link_indexes: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class HistoryLink:
+    index: int
+    label: str
+    url: str
 
 
 @dataclass(frozen=True)
@@ -83,8 +106,31 @@ class HistoryPage:
     index: int
     total: int
     rounds: tuple[HistoryRound, ...]
+    links: tuple[HistoryLink, ...]
     markdown: str
     html: str
+
+
+class _HistoryLinkRegistry:
+    def __init__(self) -> None:
+        self._indexes: dict[tuple[str, str], int] = {}
+        self.links: list[HistoryLink] = []
+
+    def replace(self, value: str) -> tuple[str, tuple[int, ...]]:
+        used: list[int] = []
+
+        def resolve(label: str, url: str) -> str:
+            key = (label, url)
+            index = self._indexes.get(key)
+            if index is None:
+                index = len(self.links) + 1
+                self._indexes[key] = index
+                self.links.append(HistoryLink(index=index, label=label, url=url))
+            if index not in used:
+                used.append(index)
+            return f"{label}[{index}]"
+
+        return replace_history_links(value, resolve), tuple(used)
 
 
 def _split_block(block: str, limit: int) -> list[str]:
@@ -179,7 +225,7 @@ def _history_rounds(
     anonymize: bool,
     reverse_order: bool,
     page_limit: int,
-) -> list[HistoryRound]:
+) -> tuple[list[HistoryRound], tuple[HistoryLink, ...]]:
     """将历史拆成可独立绘制的轮次，极长内容保留明确的续页标签。"""
     entries = list(history)
     start, end = parse_history_range(value, len(entries))
@@ -188,18 +234,30 @@ def _history_rounds(
     if reverse_order:
         numbered_entries.reverse()
     rounds: list[HistoryRound] = []
+    link_registry = _HistoryLinkRegistry()
     part_limit = max(page_limit - 560, 180)
     for index, item in numbered_entries:
         speaker, question = project_group_speaker_prompt(
             str(item.get("Q") or item.get("input") or ""),
             anonymize=anonymize,
         )
-        question = question.strip()
-        answer = str(item.get("A") or item.get("output") or "").strip()
+        question = normalize_history_markdown(question).strip()
+        answer, link_indexes = link_registry.replace(
+            str(item.get("A") or item.get("output") or "")
+        )
+        answer = answer.strip()
         question = question or "（空消息）"
         answer = answer or "（无回复）"
         if len(question) + len(answer) <= part_limit:
-            rounds.append(HistoryRound(index, question, answer, speaker=speaker))
+            rounds.append(
+                HistoryRound(
+                    index,
+                    question,
+                    answer,
+                    speaker=speaker,
+                    link_indexes=link_indexes,
+                )
+            )
             continue
 
         for is_question, role, content in ((True, speaker, question), (False, "回复", answer)):
@@ -213,12 +271,22 @@ def _history_rounds(
                         segment if not is_question else "",
                         speaker=speaker,
                         continuation=continuation,
+                        link_indexes=tuple(
+                            link_index
+                            for link_index in link_indexes
+                            if f"[{link_index}]" in segment
+                        ),
                     )
                 )
-    return rounds
+    return rounds, tuple(link_registry.links)
 
 
-def _history_markdown(rounds: Iterable[HistoryRound], index: int, total: int) -> str:
+def _history_markdown(
+    rounds: Iterable[HistoryRound],
+    index: int,
+    total: int,
+    links: Iterable[HistoryLink] = (),
+) -> str:
     blocks = ["# 聊天记录"]
     for round_item in rounds:
         label = f"第 {round_item.number} 轮"
@@ -230,6 +298,14 @@ def _history_markdown(rounds: Iterable[HistoryRound], index: int, total: int) ->
         if round_item.answer:
             content.append(f"### 回复\n\n{round_item.answer}")
         blocks.append("\n\n".join(content))
+    reference_links = tuple(links)
+    if reference_links:
+        blocks.append(
+            "### 参考链接\n\n" + "\n".join(
+                f"[{link.index}] {link.label} ({urlparse(link.url).netloc or link.url})"
+                for link in reference_links
+            )
+        )
     blocks.append(f"---\n第 {index} / {total} 页")
     return "\n\n".join(blocks)
 
@@ -240,7 +316,14 @@ def _history_html(
     total: int,
     *,
     font_scale: float,
+    links: Iterable[HistoryLink] = (),
 ) -> str:
+    def answer_html(value: str) -> str:
+        return markdown.markdown(
+            escape(value),
+            extensions=["pymdownx.tasklist", "tables", "fenced_code", "codehilite", "pymdownx.tilde"],
+        )
+
     sections = []
     for round_item in rounds:
         label = f"第 {round_item.number} 轮"
@@ -254,15 +337,24 @@ def _history_html(
             )
         if round_item.answer:
             cards.append(
-                f'<section class="card reply"><p class="role">回复</p><div class="content">'
-                f"{escape(round_item.answer)}</div></section>"
+                f'<section class="card reply"><p class="role">回复</p><div class="content markdown">'
+                f"{answer_html(round_item.answer)}</div></section>"
             )
         sections.append(f'<section class="round"><div class="round-label">{escape(label)}</div>{"".join(cards)}</section>')
+    reference_links = tuple(links)
+    references = ""
+    if reference_links:
+        items = "".join(
+            f'<li><span>[{link.index}] {escape(link.label)}</span> '
+            f'<span class="domain">{escape(urlparse(link.url).netloc or link.url)}</span></li>'
+            for link in reference_links
+        )
+        references = f'<section class="references"><p class="references-title">参考链接</p><ol>{items}</ol></section>'
     return (
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
         f"<style>{_HISTORY_STYLE.replace('{{ font_scale }}', f'{font_scale:.2f}')}</style></head><body><main class=\"sheet\">"
         '<header class="header"><h1>聊天记录</h1><p class="subtitle">当前逻辑会话的已保存对话</p></header>'
-        f"{''.join(sections)}<footer class=\"footer\">第 {index} / {total} 页</footer>"
+        f"{''.join(sections)}{references}<footer class=\"footer\">第 {index} / {total} 页</footer>"
         "</main></body></html>"
     )
 
@@ -277,7 +369,7 @@ def build_history_pages(
     font_scale: float = 1.0,
 ) -> tuple[HistoryPage, ...]:
     """构造适合图片卡片展示的聊天历史分页。"""
-    rounds = _history_rounds(
+    rounds, links = _history_rounds(
         history,
         value,
         anonymize=anonymize,
@@ -298,15 +390,44 @@ def build_history_pages(
         current_length += size
 
     total = len(pages)
-    return tuple(
-        HistoryPage(
-            index=index,
-            total=total,
-            rounds=tuple(page_rounds),
-            markdown=_history_markdown(page_rounds, index, total),
-            html=_history_html(page_rounds, index, total, font_scale=font_scale),
+    result: list[HistoryPage] = []
+    for index, page_rounds in enumerate(pages, start=1):
+        page_link_indexes = {
+            link_index
+            for round_item in page_rounds
+            for link_index in round_item.link_indexes
+        }
+        page_links = tuple(link for link in links if link.index in page_link_indexes)
+        result.append(
+            HistoryPage(
+                index=index,
+                total=total,
+                rounds=tuple(page_rounds),
+                links=page_links,
+                markdown=_history_markdown(page_rounds, index, total, page_links),
+                html=_history_html(
+                    page_rounds,
+                    index,
+                    total,
+                    font_scale=font_scale,
+                    links=page_links,
+                ),
+            )
         )
-        for index, page_rounds in enumerate(pages, start=1)
+    return tuple(result)
+
+
+def history_reference_text(pages: Iterable[HistoryPage]) -> str:
+    """生成图片后补发的可复制链接清单。"""
+    links: dict[int, HistoryLink] = {}
+    for page in pages:
+        for link in page.links:
+            links.setdefault(link.index, link)
+    if not links:
+        return ""
+    return "参考链接\n" + "\n".join(
+        f"[{link.index}] {link.label}\n{link.url}"
+        for link in links.values()
     )
 
 

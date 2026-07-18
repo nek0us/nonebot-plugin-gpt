@@ -9,7 +9,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
 from nonebot_plugin_alconna import Match, on_alconna
-from nonebot_plugin_alconna.uniseg import OriginalUniMsg
+from nonebot_plugin_alconna.uniseg import OriginalUniMsg, UniMessage
 from importlib.metadata import version
 import asyncio
 import json
@@ -62,6 +62,7 @@ from .paged_output import paginate_text
 from .document_output import (
     HistoryPage,
     build_history_pages,
+    history_reference_text,
     markdown_pages_from_text,
     render_history_pages,
     render_markdown_pages,
@@ -204,13 +205,19 @@ async def _finish_history_document(
         logger.warning(f"聊天记录图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
         return
-    await finish_image_pages(
+    sent = await finish_image_pages(
         matcher,
         event,
         images,
         title="聊天记录",
         recall_after=config_gpt.gpt_management_recall_after,
+        finish=False,
     )
+    if sent:
+        references = history_reference_text(pages)
+        if references:
+            await UniMessage.text(references).send(event)
+    await matcher.finish()
 
 
 async def _finish_management_table(

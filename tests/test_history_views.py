@@ -100,3 +100,22 @@ class HistoryViewTests(unittest.TestCase):
 
         self.assertIn("用户：你好", text)
         self.assertNotIn("用户 · 小明", text)
+
+    def test_history_normalizes_private_citations_and_plain_text(self):
+        raw = "王勃是作者。\ue200cite\ue202turn0search11\ue201\n\n**重点**：[百科](https://example.com)"
+
+        markdown = history_views.normalize_history_markdown(raw)
+        plain_text = history_views.history_plain_text(raw)
+
+        self.assertNotIn("turn0search11", markdown)
+        self.assertIn("**重点**", markdown)
+        self.assertNotIn("**", plain_text)
+        self.assertIn("百科 (https://example.com)", plain_text)
+
+    def test_history_link_replacement_keeps_link_metadata_at_the_call_site(self):
+        replaced = history_views.replace_history_links(
+            "[百科](https://example.com)",
+            lambda label, url: f"{label}[1]",
+        )
+
+        self.assertEqual(replaced, "百科[1]")

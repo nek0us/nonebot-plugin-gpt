@@ -2,10 +2,49 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from .event_scope import project_group_speaker_prompt
+
+
+_UPSTREAM_MARKUP = re.compile("\\ue200(?P<body>.*?)\\ue201", re.DOTALL)
+_MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<url>[^\s)]+)(?:\s+['\"][^)]*['\"])?\)")
+_MARKDOWN_EMPHASIS = re.compile(r"(?<!\\)(?:\*\*|__)(?P<value>.+?)(?<!\\)(?:\*\*|__)")
+_MARKDOWN_CODE = re.compile(r"`(?P<value>[^`]+)`")
+
+
+def normalize_history_markdown(value: str) -> str:
+    """移除网页私有富结构标记，保留可独立展示的 Markdown 正文。"""
+    def replace_markup(match: re.Match[str]) -> str:
+        parts = match.group("body").split("\ue202")
+        if len(parts) >= 2 and parts[0] == "url":
+            return parts[1]
+        # cite、genui 等结构依赖网页响应元数据；历史文件未持久化该映射，不能伪造链接。
+        return ""
+
+    normalized = _UPSTREAM_MARKUP.sub(replace_markup, str(value or ""))
+    return normalized.replace("\ue200", "").replace("\ue201", "").replace("\ue202", "")
+
+
+def replace_history_links(value: str, resolve: Callable[[str, str], str]) -> str:
+    """以调用方定义的文本替换普通 Markdown 链接。"""
+    return _MARKDOWN_LINK.sub(
+        lambda match: resolve(match.group("label").strip(), match.group("url").strip()),
+        normalize_history_markdown(value),
+    )
+
+
+def history_plain_text(value: str) -> str:
+    """为文本回退与本地字体渲染生成没有网页标记的可读内容。"""
+    text = normalize_history_markdown(value)
+    text = _MARKDOWN_LINK.sub(lambda match: f"{match.group('label')} ({match.group('url')})", text)
+    text = _MARKDOWN_EMPHASIS.sub(lambda match: match.group("value"), text)
+    text = _MARKDOWN_CODE.sub(lambda match: match.group("value"), text)
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", text)
+    text = re.sub(r"(?m)^\s*---+\s*$", "────────", text)
+    return text
 
 
 @dataclass(frozen=True)
@@ -103,6 +142,8 @@ def format_history(
             str(item.get("Q") or item.get("input") or ""),
             anonymize=anonymize,
         )
-        answer = str(item.get("A") or item.get("output") or "")
-        lines.extend((f"{index}. {speaker}：{question}", f"   回复：{answer}"))
+        lines.extend((
+            f"{index}. {speaker}：{history_plain_text(question)}",
+            f"   回复：{history_plain_text(str(item.get('A') or item.get('output') or ''))}",
+        ))
     return "\n".join(lines)

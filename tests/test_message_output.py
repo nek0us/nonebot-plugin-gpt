@@ -138,3 +138,23 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
 
         send.assert_awaited_once()
         matcher.finish.assert_awaited_once_with()
+
+    async def test_image_pages_can_defer_matcher_finish_for_follow_up_text(self):
+        matcher = _Matcher()
+        original_send = UniMessage.send
+        send = AsyncMock(return_value=object())
+        UniMessage.send = send
+        try:
+            sent = await finish_image_pages(
+                matcher,
+                object(),
+                (b"image",),
+                title="聊天记录",
+                finish=False,
+            )
+        finally:
+            UniMessage.send = original_send
+
+        self.assertTrue(sent)
+        send.assert_awaited_once()
+        matcher.finish.assert_not_awaited()

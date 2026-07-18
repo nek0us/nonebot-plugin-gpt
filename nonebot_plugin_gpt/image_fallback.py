@@ -7,6 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from .history_views import history_plain_text
+
 
 def use_local_font_renderer() -> bool:
     return any(path.exists() for path in _font_candidates())
@@ -128,12 +130,13 @@ def render_history_page(page: Any, *, font_scale: float = 1.0) -> bytes:
     round_font = _font(_scaled_size(18, font_scale), bold=True)
     role_font = _font(_scaled_size(17, font_scale), bold=True)
     body_font = _font(_scaled_size(19, font_scale))
+    reference_font = _font(_scaled_size(15, font_scale))
     line_height = body_font.size + 10
     prepared: list[tuple[Any, list[str], list[str]]] = []
     content_height = 0
     for round_item in page.rounds:
-        user_lines = _wrap(probe_draw, str(round_item.question), body_font, content_width - 52) if round_item.question else []
-        reply_lines = _wrap(probe_draw, str(round_item.answer), body_font, content_width - 52) if round_item.answer else []
+        user_lines = _wrap(probe_draw, history_plain_text(str(round_item.question)), body_font, content_width - 52) if round_item.question else []
+        reply_lines = _wrap(probe_draw, history_plain_text(str(round_item.answer)), body_font, content_width - 52) if round_item.answer else []
         prepared.append((round_item, user_lines, reply_lines))
         content_height += 47
         if user_lines:
@@ -141,6 +144,20 @@ def render_history_page(page: Any, *, font_scale: float = 1.0) -> bytes:
         if reply_lines:
             content_height += 50 + len(reply_lines) * line_height
         content_height += 16
+
+    reference_lines: list[str] = []
+    for link in getattr(page, "links", ()):
+        domain = link.url.split("/", maxsplit=3)[2] if "://" in link.url else link.url
+        reference_lines.extend(
+            _wrap(
+                probe_draw,
+                f"[{link.index}] {link.label} · {domain}",
+                reference_font,
+                content_width - 52,
+            )
+        )
+    if reference_lines:
+        content_height += 48 + len(reference_lines) * (reference_font.size + 8) + 10
 
     header_height = 126
     height = header_height + content_height + margin
@@ -175,6 +192,21 @@ def render_history_page(page: Any, *, font_scale: float = 1.0) -> bytes:
                 text_y += line_height
             y += card_height + 10
         y += 6
+
+    if reference_lines:
+        reference_height = 43 + len(reference_lines) * (reference_font.size + 8)
+        draw.rounded_rectangle(
+            (margin, y, width - margin, y + reference_height),
+            radius=12,
+            fill="#ffffff",
+            outline="#e0e4ee",
+        )
+        draw.text((margin + 18, y + 12), "参考链接", font=role_font, fill="#5d4ca3")
+        text_y = y + 39
+        for line in reference_lines:
+            draw.text((margin + 18, text_y), line, font=reference_font, fill="#58627b")
+            text_y += reference_font.size + 8
+        y += reference_height + 10
 
     footer = f"第 {page.index} / {page.total} 页"
     footer_font = _font(_scaled_size(15, font_scale))
