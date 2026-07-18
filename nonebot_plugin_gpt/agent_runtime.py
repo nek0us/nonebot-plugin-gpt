@@ -705,7 +705,7 @@ def create_agent_runtime(
     tools = [
         AgentTool("状态", "查看 ChatGPT 账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
         AgentTool("模型", "查看已缓存的模型目录", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
-        AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
+        AgentTool("环境", "查看本机实时内存使用率、可用内存、磁盘和系统负载等基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
     ]
     if command_runner is not None:
         async def run_command(arguments: dict[str, str]) -> str:

@@ -19,6 +19,7 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["system"])
         self.assertIn("disk_total", result)
         self.assertIn("memory_total", result)
+        self.assertIn("memory_usage_percent", result)
         self.assertIn("cpu_count", result)
 
     def test_formatter_marks_missing_platform_data_as_unavailable(self):
@@ -29,6 +30,9 @@ class EnvironmentDiagnosticsTests(unittest.TestCase):
             "python": "3.x",
             "cpu_count": None,
             "memory_total": None,
+            "memory_available": None,
+            "memory_used": None,
+            "memory_usage_percent": None,
             "disk_target": "/",
             "disk_total": None,
             "disk_free": None,

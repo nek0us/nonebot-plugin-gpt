@@ -5,6 +5,9 @@ from collections.abc import Iterable
 from arclet.alconna import AllParam, Alconna, Args, CommandMeta
 
 
+_registered_command_names: set[str] = set()
+
+
 def command_argument_text(value: object | None) -> str:
     """将 Alconna 捕获的参数统一为旧处理器所需的文本。"""
     if value is None:
@@ -23,6 +26,23 @@ def preferred_address_prefix(values: Iterable[object]) -> str:
     return ""
 
 
+def is_registered_command_text(
+    value: str,
+    address_prefixes: Iterable[str] = (),
+) -> bool:
+    """判断已显式称呼机器人的文本是否属于本插件已注册命令。"""
+    candidate = value.strip()
+    for prefix in sorted(
+        (str(item).strip() for item in address_prefixes if str(item).strip()),
+        key=len,
+        reverse=True,
+    ):
+        if candidate.startswith(prefix):
+            candidate = candidate[len(prefix):].lstrip(" \t,，:：;；")
+            break
+    return any(candidate.startswith(name) for name in _registered_command_names)
+
+
 def build_legacy_command(
     name: str,
     aliases: set[str] | None = None,
@@ -36,6 +56,7 @@ def build_legacy_command(
         meta=CommandMeta(compact=True),
     )
     command_names = {name, *(aliases or ())}
+    _registered_command_names.update(command_names)
     for alias in command_names - {name}:
         command.shortcut(alias, command=name, prefix=True)
     for address in address_prefixes:

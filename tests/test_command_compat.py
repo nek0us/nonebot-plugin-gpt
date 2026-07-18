@@ -80,3 +80,12 @@ class LegacyCommandTest(unittest.TestCase):
                     command_compat.command_argument_text(result.main_args["argument"]),
                     "文本",
                 )
+
+    def test_registered_command_can_be_excluded_from_normal_chat(self):
+        command_compat.build_legacy_command("智能体", {"agent"}, ["猪咪"])
+
+        self.assertTrue(
+            command_compat.is_registered_command_text("猪咪智能体，查看内存", ["猪咪"])
+        )
+        self.assertTrue(command_compat.is_registered_command_text("智能体查看内存"))
+        self.assertFalse(command_compat.is_registered_command_text("猪咪今天吃什么", ["猪咪"]))

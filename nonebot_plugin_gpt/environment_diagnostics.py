@@ -23,8 +23,8 @@ def _format_bytes(value: int | None) -> str:
     return "不可用"
 
 
-def _windows_memory_total() -> int | None:
-    """通过 Windows API 读取物理内存，不引入额外的系统信息依赖。"""
+def _windows_memory_status() -> tuple[int, int, float] | None:
+    """通过 Windows API 读取物理内存状态，不引入额外系统依赖。"""
 
     class MemoryStatus(ctypes.Structure):
         _fields_ = [
@@ -43,24 +43,48 @@ def _windows_memory_total() -> int | None:
         status = MemoryStatus()
         status.length = ctypes.sizeof(MemoryStatus)
         if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            return int(status.total_physical)
+            return (
+                int(status.total_physical),
+                int(status.available_physical),
+                float(status.memory_load),
+            )
     except (AttributeError, OSError):
         pass
     return None
 
 
-def _memory_total(system: str) -> int | None:
+def _memory_status(system: str) -> tuple[int | None, int | None, float | None]:
     if system == "Windows":
-        return _windows_memory_total()
+        status = _windows_memory_status()
+        return status if status is not None else (None, None, None)
+    if system == "Linux":
+        try:
+            fields = dict(
+                line.split(":", 1)
+                for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+                if ":" in line
+            )
+            total = int(fields["MemTotal"].split()[0]) * 1024
+            available = int(fields["MemAvailable"].split()[0]) * 1024
+            load = round((total - available) * 100 / total, 1) if total else None
+            return total, available, load
+        except (KeyError, OSError, ValueError, IndexError):
+            pass
     try:
-        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES"))
+        return int(os.sysconf("SC_PAGE_SIZE")) * int(os.sysconf("SC_PHYS_PAGES")), None, None
     except (AttributeError, OSError, ValueError):
-        return None
+        return None, None, None
 
 
 def collect_environment_diagnostics() -> dict[str, Any]:
     """收集可安全发送给超级用户的本机基础诊断信息。"""
     system = platform.system() or os.name
+    memory_total, memory_available, memory_usage_percent = _memory_status(system)
+    memory_used = (
+        memory_total - memory_available
+        if memory_total is not None and memory_available is not None
+        else None
+    )
     disk_target = Path.cwd().anchor or os.path.sep
     try:
         disk = shutil.disk_usage(disk_target)
@@ -82,7 +106,10 @@ def collect_environment_diagnostics() -> dict[str, Any]:
         "machine": platform.machine() or "未知",
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
-        "memory_total": _memory_total(system),
+        "memory_total": memory_total,
+        "memory_available": memory_available,
+        "memory_used": memory_used,
+        "memory_usage_percent": memory_usage_percent,
         "disk_target": disk_target,
         "disk_total": disk_total,
         "disk_free": disk_free,
@@ -96,6 +123,19 @@ def format_environment_diagnostics(diagnostics: dict[str, Any]) -> str:
     load_text = " / ".join(str(value) for value in load_average) if load_average else "不适用"
     cpu_count = diagnostics.get("cpu_count")
     cpu_text = f"{cpu_count} 核" if isinstance(cpu_count, int) and cpu_count > 0 else "不可用"
+    memory_total = diagnostics.get("memory_total")
+    memory_used = diagnostics.get("memory_used")
+    memory_available = diagnostics.get("memory_available")
+    memory_usage_percent = diagnostics.get("memory_usage_percent")
+    memory_text = (
+        f"内存：已用 {_format_bytes(memory_used)} / {_format_bytes(memory_total)}"
+        if memory_used is not None and memory_total is not None
+        else f"内存总量：{_format_bytes(memory_total)}"
+    )
+    if isinstance(memory_usage_percent, (int, float)):
+        memory_text += f"（使用率 {memory_usage_percent:.1f}%）"
+    if memory_available is not None:
+        memory_text += f"｜可用 {_format_bytes(memory_available)}"
     return "\n".join([
         "本机环境诊断",
         (
@@ -103,7 +143,7 @@ def format_environment_diagnostics(diagnostics: dict[str, Any]) -> str:
             f"{diagnostics.get('release', '未知')}（{diagnostics.get('machine', '未知')}）"
         ),
         f"Python：{diagnostics.get('python', '未知')}｜CPU：{cpu_text}",
-        f"内存总量：{_format_bytes(diagnostics.get('memory_total'))}",
+        memory_text,
         (
             f"磁盘 {diagnostics.get('disk_target', os.path.sep)}："
             f"可用 {_format_bytes(diagnostics.get('disk_free'))} / 总计 {_format_bytes(diagnostics.get('disk_total'))}"

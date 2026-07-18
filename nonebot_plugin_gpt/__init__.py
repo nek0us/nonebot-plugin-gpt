@@ -36,7 +36,12 @@ from .agent_scheduler import AgentScheduler, ScheduledReminder
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_agent_rule, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
-from .command_compat import build_legacy_command, command_argument_text, preferred_address_prefix
+from .command_compat import (
+    build_legacy_command,
+    command_argument_text,
+    is_registered_command_text,
+    preferred_address_prefix,
+)
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationKey, ConversationStore
@@ -526,6 +531,12 @@ if isinstance(config_gpt.gpt_session,list):
             image_upload_enabled=image_upload_enabled,
             file_upload_enabled=config_gpt.gpt_file_upload,
         )
+        if is_registered_command_text(
+            message_text,
+            [*getattr(config_nb, "nickname", []), *config_gpt.gpt_chat_start],
+        ):
+            logger.debug("已跳过被 Alconna 命令接管的普通聊天消息")
+            await matcher.finish()
         prompt = build_chat_prompt(
             message_text,
             original_text=message_text,
