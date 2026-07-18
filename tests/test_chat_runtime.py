@@ -91,6 +91,14 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
         class AgentService(FakeService):
             async def send(self, request):
                 self.requests.append(request)
+                if "ChatGPTWeb Agent Safety Review" in request.prompt:
+                    return ChatResult(
+                        ok=True,
+                        text='{"blocked":false}',
+                        conversation_id="safety-review",
+                        message_id="safety-message",
+                        used_model="gpt-5",
+                    )
                 return ChatResult(
                     ok=True,
                     text='{"type":"final","answer":"提醒已安排。"}',
@@ -119,8 +127,8 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(turn.ok)
         self.assertEqual(turn.state.conversation_id, "agent-control")
-        self.assertEqual(service.requests[0].conversation_id, "")
-        self.assertEqual(service.requests[0].parent_message_id, "")
+        self.assertEqual(service.requests[1].conversation_id, "safety-review")
+        self.assertEqual(service.requests[1].parent_message_id, "safety-message")
         self.assertEqual(saved.conversation_id, "persona-conversation")
         self.assertEqual(saved.parent_message_id, "persona-message")
 

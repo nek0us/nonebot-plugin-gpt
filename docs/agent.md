@@ -6,6 +6,11 @@
 
 ```env
 gpt_agent_enabled=true
+# 默认开启本地规则和隔离模型审查；仅完全自用且了解风险时才关闭。
+gpt_agent_sensitive_task_guard=true
+# 开关开启时，内建范围与以下自定义词都会拒绝。
+gpt_agent_sensitive_task_message="这个请求不适合交给智能体处理咩。"
+gpt_agent_sensitive_terms='["生产数据库", "内部密钥轮换"]'
 gpt_agent_model=auto
 gpt_agent_max_steps=8
 gpt_agent_confirm_timeout=60
@@ -25,6 +30,10 @@ gpt_agent_command_workdir=./data/agent-command-workdir
 ```
 
 修改后重启机器人。智能体任务、待确认操作、临时授权和审计记录仅保存在内存；重启后会清空。命令同样需要按插件的全局规则 `@机器人` 或带机器人昵称触发。
+
+## 敏感任务边界
+
+默认情况下，智能体会先用本地规则拦截明显的法律、政治和高风险敏感任务，再用与角色扮演会话隔离的结构化模型审查判断改写、拼音、拆字和间接表达；审查异常或非 JSON 回答会按拒绝处理。该限制同时存在于插件入口与 ChatGPTWeb 核心 Agent API，因此 MCP、HTTP 和 Bot 入口都不会绕过；普通聊天不适用这层规则。`gpt_agent_sensitive_task_guard=false` 可关闭这项本地预检，适合完全自用的部署；它不会放开工具白名单、权限确认或上游服务限制。可以用 `gpt_agent_sensitive_terms` 追加本地敏感词。该机制是保守的工程防线，不构成任何地区法律合规判断或法律意见。
 
 ## 任务循环
 

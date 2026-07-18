@@ -1,4 +1,4 @@
-from ChatGPTWeb import ChatService, chatgpt
+from ChatGPTWeb import AgentSafetyPolicy, ChatService, chatgpt
 from ChatGPTWeb.config import Personality
 from nonebot.log import logger
 from nonebot import on_message
@@ -95,6 +95,11 @@ cdk_registry = CdkRegistry(
 chat_markdown_renderer = create_markdown_renderer(
     config_gpt.gpt_chat_image_template,
     font_scale=config_gpt.gpt_image_font_scale,
+)
+agent_safety_policy = AgentSafetyPolicy(
+    enabled=config_gpt.gpt_agent_sensitive_task_guard,
+    extra_blocked_terms=tuple(config_gpt.gpt_agent_sensitive_terms),
+    refusal_message=config_gpt.gpt_agent_sensitive_task_message,
 )
 
 
@@ -332,6 +337,7 @@ if isinstance(config_gpt.gpt_session,list):
             utilization_threshold=config_gpt.gpt_context_compaction_threshold,
             minimum_estimated_tokens=config_gpt.gpt_context_compaction_min_tokens,
         ),
+        agent_safety_policy=agent_safety_policy,
     )
 
     async def deliver_scheduled_reminder(item: ScheduledReminder) -> None:
@@ -871,6 +877,8 @@ if isinstance(config_gpt.gpt_session,list):
         if not is_superuser and not config_gpt.gpt_agent_member_enabled:
             await matcher.finish("智能体当前仅向机器人管理员开放。")
         value = _argument_text(argument)
+        if agent_safety_policy.refusal_for(value):
+            await matcher.finish(config_gpt.gpt_agent_sensitive_task_message)
         key = ConversationKey.from_event(event)
         model, prefer_paid_account = await select_model(event)
         auto_result = await auto_persona.ensure_initialized(
