@@ -127,8 +127,8 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(turn.ok)
         self.assertEqual(turn.state.conversation_id, "agent-control")
-        self.assertEqual(service.requests[1].conversation_id, "safety-review")
-        self.assertEqual(service.requests[1].parent_message_id, "safety-message")
+        self.assertEqual(service.requests[1].conversation_id, "")
+        self.assertEqual(service.requests[1].parent_message_id, "")
         self.assertEqual(saved.conversation_id, "persona-conversation")
         self.assertEqual(saved.parent_message_id, "persona-message")
 
