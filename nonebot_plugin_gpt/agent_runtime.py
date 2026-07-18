@@ -25,6 +25,7 @@ AgentActionHandler = Callable[[dict[str, str]], Awaitable[str]]
 AgentTurnHandler = Callable[..., Awaitable[AgentTurn]]
 AgentRunActionHandler = Callable[[dict[str, str], "AgentRun"], Awaitable[str]]
 ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
+ReminderOperationHandler = Callable[["AgentRun", str, str], Awaitable[str]]
 
 
 class AgentPermission(str, Enum):
@@ -43,6 +44,13 @@ class AgentApproval(str, Enum):
 
     AUTOMATIC = "automatic"
     CONFIRM = "confirm"
+
+
+class AgentAccess(str, Enum):
+    """智能体入口可见的工具档位。"""
+
+    MEMBER = "member"
+    SUPERUSER = "superuser"
 
 
 _PERMISSION_NAMES = {
@@ -80,6 +88,7 @@ class AgentTool:
     describe_action: Callable[[dict[str, str]], str] | None = None
     run_handler: AgentRunActionHandler | None = None
     argument_validator: Callable[[dict[str, str]], str] | None = None
+    minimum_access: AgentAccess = AgentAccess.SUPERUSER
 
     def core_definition(self) -> CoreAgentTool:
         properties: dict[str, Any] = {}
@@ -120,6 +129,7 @@ class AgentRun:
     conversation_key: ConversationKey | None = None
     delivery_target: dict[str, Any] | None = None
     delivery_user_id: str = ""
+    access: AgentAccess = AgentAccess.SUPERUSER
 
 
 @dataclass
@@ -167,13 +177,15 @@ class AgentRuntime:
         agent_service: AgentService | None = None,
         agent_turn: AgentTurnHandler | None = None,
         schedule_reminder: ReminderScheduleHandler | None = None,
+        reminder_operation: ReminderOperationHandler | None = None,
+        access: AgentAccess = AgentAccess.SUPERUSER,
     ):
         self._tools = {tool.name: tool for tool in tools}
         if len(self._tools) != len(tools):
             raise ValueError("智能体工具名称不能重复")
         self._agent_service = agent_service or AgentService(service)
         self._agent_turn = agent_turn
-        self._schedule_reminder = schedule_reminder
+        self._access = access
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._plan_ttl_seconds = plan_ttl_seconds
@@ -187,7 +199,8 @@ class AgentRuntime:
         self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
 
     def help_text(self) -> str:
-        lines = ["智能体工具（仅超级用户）"]
+        heading = "智能体工具（成员安全模式）" if self._access is AgentAccess.MEMBER else "智能体工具（超级用户）"
+        lines = [heading]
         for tool in self._tools.values():
             approval = "需要确认" if tool.approval is AgentApproval.CONFIRM else "自动执行"
             lines.append(f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{approval}）")
@@ -195,9 +208,12 @@ class AgentRuntime:
             "",
             "执行任务：智能体 <任务>。模型会按需多轮调用已注册工具，自动允许的步骤会继续执行。",
             "只看首步计划：智能体 计划 <任务>；再用 智能体 执行 <计划编号> 开始。",
-            "高风险步骤会返回确认编号；仅原超级用户可在原聊天范围使用 智能体 确认 <编号> 或 智能体 取消 <编号>。",
-            "可用：智能体 审计 [数量] / 智能体 授权 本机只读 / 智能体 授权列表 / 智能体 撤销授权。",
         ])
+        if self._access is AgentAccess.SUPERUSER:
+            lines.extend([
+                "高风险步骤会返回确认编号；仅原超级用户可在原聊天范围使用 智能体 确认 <编号> 或 智能体 取消 <编号>。",
+                "可用：智能体 审计 [数量] / 智能体 授权 本机只读 / 智能体 授权列表 / 智能体 撤销授权。",
+            ])
         return "\n".join(lines)
 
     def _core_tools(self) -> list[CoreAgentTool]:
@@ -382,6 +398,7 @@ class AgentRuntime:
             conversation_key=conversation_key,
             delivery_target=delivery_target,
             delivery_user_id=delivery_user_id,
+            access=self._access,
         )
         turn = await self._request_turn(task, run=run)
         run.state = turn.state
@@ -532,16 +549,28 @@ class AgentRuntime:
         if normalized.startswith("取消 "):
             return self._cancel(normalized.removeprefix("取消 ").strip(), operator_id, scope_id)
         if normalized == "授权列表":
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供本机权限授权。"
             return self._authorization_list(operator_id, scope_id)
         if normalized == "授权":
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供本机权限授权。"
             return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
         if normalized.startswith("授权 "):
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供本机权限授权。"
             return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
         if normalized.startswith("撤销授权"):
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供本机权限授权。"
             return self._revoke_authorization(operator_id, scope_id)
         if normalized == "审计":
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供运行审计查询。"
             return self._audit.format()
         if normalized.startswith("审计 "):
+            if self._access is not AgentAccess.SUPERUSER:
+                return "当前安全智能体不提供运行审计查询。"
             try:
                 return self._audit.format(int(normalized.removeprefix("审计 ").strip()))
             except ValueError:
@@ -566,6 +595,16 @@ class AgentRuntime:
                 delivery_target=delivery_target, delivery_user_id=delivery_user_id,
             )
         if normalized in self._tools:
+            if self._tools[normalized].run_handler is not None:
+                return await self._start(
+                    normalized,
+                    operator_id,
+                    scope_id,
+                    plan_only=False,
+                    conversation_key=conversation_key,
+                    delivery_target=delivery_target,
+                    delivery_user_id=delivery_user_id,
+                )
             return await self._direct_tool(normalized, operator_id, scope_id)
         # 除保留的控制子命令外，所有文本都是自然语言任务。不要求用户先
         # 写“执行”，这样“智能体 查看当前 IP”能直接进入模型决策循环。
@@ -614,6 +653,8 @@ def create_agent_runtime(
     agent_service: AgentService | None = None,
     agent_turn: AgentTurnHandler | None = None,
     schedule_reminder: ReminderScheduleHandler | None = None,
+    reminder_operation: ReminderOperationHandler | None = None,
+    access: AgentAccess = AgentAccess.SUPERUSER,
     token_factory: Callable[[], str] = lambda: token_urlsafe(6),
 ) -> AgentRuntime:
     """创建默认本地工具集；工具执行始终受本文件的边界限制。"""
@@ -693,6 +734,7 @@ def create_agent_runtime(
             lambda arguments: f"在 {arguments['延迟秒数']} 秒后提醒：{arguments['内容'][:120]}",
             run_handler=schedule_reminder_tool,
             argument_validator=validate_reminder,
+            minimum_access=AgentAccess.MEMBER,
         ))
     if workspace is not None:
         agent_workspace = AgentWorkspace(workspace)
@@ -746,9 +788,39 @@ def create_agent_runtime(
             return await registry.restart(arguments["服务"])
 
         tools.append(AgentTool("重启受管服务", "使用管理员预配置命令重启指定服务", AgentPermission.PROCESS_CONTROL, AgentApproval.CONFIRM, restart_service, (AgentToolParameter("服务", "允许重启的服务名", choices=registry.restart_names),), lambda arguments: f"重启受管服务 {arguments['服务']}（使用管理员配置）"))
+    if reminder_operation is not None:
+        async def list_reminders(_: dict[str, str], run: AgentRun) -> str:
+            return await reminder_operation(run, "list", "")
+
+        async def cancel_reminder(arguments: dict[str, str], run: AgentRun) -> str:
+            return await reminder_operation(run, "cancel", arguments["编号"])
+
+        tools.extend([
+            AgentTool(
+                "查看我的提醒",
+                "列出当前用户在当前聊天范围创建、尚未到期的提醒。",
+                AgentPermission.MESSAGE_SEND,
+                AgentApproval.AUTOMATIC,
+                _raise_direct_only,
+                run_handler=list_reminders,
+                minimum_access=AgentAccess.MEMBER,
+            ),
+            AgentTool(
+                "取消我的提醒",
+                "取消当前用户在当前聊天范围创建的一条提醒。",
+                AgentPermission.MESSAGE_SEND,
+                AgentApproval.AUTOMATIC,
+                _raise_direct_only,
+                (AgentToolParameter("编号", "要取消的提醒编号"),),
+                lambda arguments: f"取消自己的提醒 {arguments['编号']}",
+                run_handler=cancel_reminder,
+                minimum_access=AgentAccess.MEMBER,
+            ),
+        ])
+    visible_tools = [tool for tool in tools if tool.minimum_access is AgentAccess.MEMBER or access is AgentAccess.SUPERUSER]
     return AgentRuntime(
         service,
-        tools,
+        visible_tools,
         confirmation_ttl_seconds=confirmation_ttl_seconds,
         session_approval_ttl_seconds=session_approval_ttl_seconds,
         plan_ttl_seconds=plan_ttl_seconds,
@@ -757,5 +829,7 @@ def create_agent_runtime(
         agent_service=agent_service,
         agent_turn=agent_turn,
         schedule_reminder=schedule_reminder,
+        reminder_operation=reminder_operation,
+        access=access,
         token_factory=token_factory,
     )

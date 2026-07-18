@@ -58,6 +58,9 @@ class Config(BaseModel):
     gpt_agent_model: str = "auto"
     gpt_agent_workspace: Path | None = None
     gpt_agent_schedule_enabled: bool = True
+    gpt_agent_member_enabled: bool = False
+    gpt_agent_member_reminder_limit: int = Field(default=5, ge=1, le=50)
+    gpt_agent_member_scope_reminder_limit: int = Field(default=20, ge=1, le=200)
     gpt_agent_command_enabled: bool = False
     gpt_agent_command_timeout: int = Field(default=30, ge=1, le=600)
     gpt_agent_command_workdir: Path | None = None

@@ -13,6 +13,7 @@ from nonebot_plugin_alconna.uniseg import OriginalUniMsg, Target, UniMessage, ge
 from importlib.metadata import version
 import asyncio
 import json
+from time import time
 
 
 from .config import config_gpt, config_nb, Config
@@ -29,11 +30,11 @@ from .source import (
     plusstatus,
     whitepath,
 )
-from .agent_runtime import create_agent_runtime
+from .agent_runtime import AgentAccess, create_agent_runtime
 from .agent_commands import CommandRunner
 from .agent_scheduler import AgentScheduler, ScheduledReminder
 from .managed_services import ManagedServiceRegistry
-from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
+from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_agent_rule, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
 from .command_compat import build_legacy_command, command_argument_text, preferred_address_prefix
 from .chat_runtime import ChatRuntime
@@ -333,6 +334,16 @@ if isinstance(config_gpt.gpt_session,list):
     async def schedule_agent_reminder(run, delay_seconds: int, content: str) -> str:
         if run.conversation_key is None or not run.delivery_target:
             return "当前消息没有可用于后续投递的跨平台目标，未安排提醒。"
+        existing = await agent_scheduler.list_for_user(
+            user_id=run.delivery_user_id,
+            conversation_session_id=run.conversation_key.session_id,
+        )
+        if run.access is AgentAccess.MEMBER:
+            if len(existing) >= config_gpt.gpt_agent_member_reminder_limit:
+                return "当前聊天中你尚未到期的提醒较多，请先取消或等待其中一条完成后再安排。"
+            scope_items = await agent_scheduler.list()
+            if sum(item.conversation_session_id == run.conversation_key.session_id for item in scope_items) >= config_gpt.gpt_agent_member_scope_reminder_limit:
+                return "当前聊天范围待投递的提醒较多，请稍后再试。"
         item = await agent_scheduler.schedule(
             delay_seconds=delay_seconds,
             target=run.delivery_target,
@@ -342,6 +353,29 @@ if isinstance(config_gpt.gpt_session,list):
             content=content,
         )
         return f"提醒已安排，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
+
+    async def operate_agent_reminder(run, operation: str, identifier: str) -> str:
+        if run.conversation_key is None or not run.delivery_user_id:
+            return "当前消息没有可用于管理提醒的身份信息。"
+        if operation == "list":
+            items = await agent_scheduler.list_for_user(
+                user_id=run.delivery_user_id,
+                conversation_session_id=run.conversation_key.session_id,
+            )
+            if not items:
+                return "当前聊天范围没有你创建的待提醒事项。"
+            return "\n".join([
+                "你的待提醒事项",
+                *(f"- {item.id}：约 {max(0, int(item.due_at - time()))} 秒后提醒“{item.content[:120]}”" for item in items),
+            ])
+        if operation == "cancel":
+            cancelled = await agent_scheduler.cancel_for_user(
+                identifier,
+                user_id=run.delivery_user_id,
+                conversation_session_id=run.conversation_key.session_id,
+            )
+            return "提醒已取消。" if cancelled else "未找到可取消的提醒；只能取消你在当前聊天范围创建的未到期提醒。"
+        return "不支持的提醒操作。"
 
     managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
     for issue in managed_services.configuration_issues:
@@ -353,18 +387,28 @@ if isinstance(config_gpt.gpt_session,list):
             working_directory=config_gpt.gpt_agent_command_workdir,
         )
         logger.warning("已启用智能体系统命令工具；每次执行仍需要超级用户在原聊天范围确认")
+    agent_runtime_options = {
+        "confirmation_ttl_seconds": config_gpt.gpt_agent_confirm_timeout,
+        "session_approval_ttl_seconds": config_gpt.gpt_agent_session_approval_timeout,
+        "plan_ttl_seconds": config_gpt.gpt_agent_plan_timeout,
+        "max_steps": config_gpt.gpt_agent_max_steps,
+        "model": config_gpt.gpt_agent_model,
+        "workspace": config_gpt.gpt_agent_workspace,
+        "managed_services": managed_services,
+        "command_runner": command_runner,
+        "agent_turn": chat_runtime.agent_turn,
+        "schedule_reminder": schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
+        "reminder_operation": operate_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
+    }
     agent_runtime = create_agent_runtime(
         chat_service,
-        confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
-        session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
-        plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
-        max_steps=config_gpt.gpt_agent_max_steps,
-        model=config_gpt.gpt_agent_model,
-        workspace=config_gpt.gpt_agent_workspace,
-        managed_services=managed_services,
-        command_runner=command_runner,
-        agent_turn=chat_runtime.agent_turn,
-        schedule_reminder=schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
+        **agent_runtime_options,
+        access=AgentAccess.SUPERUSER,
+    )
+    member_agent_runtime = create_agent_runtime(
+        chat_service,
+        **agent_runtime_options,
+        access=AgentAccess.MEMBER,
     )
     auto_persona = AutoPersonaInitializer(
         chat_runtime,
@@ -765,11 +809,14 @@ if isinstance(config_gpt.gpt_session,list):
             fallback=format_account_status(account_status, failure_summary=failure_summary),
         )
 
-    agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
+    agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_agent_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()
     async def agent_handle(event: Event, argument: Match[str], matcher: Matcher):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
+        is_superuser = event.get_user_id() in config_nb.superusers
+        if not is_superuser and not config_gpt.gpt_agent_member_enabled:
+            await matcher.finish("智能体当前仅向机器人管理员开放。")
         value = _argument_text(argument)
         key = ConversationKey.from_event(event)
         model, prefer_paid_account = await select_model(event)
@@ -781,7 +828,8 @@ if isinstance(config_gpt.gpt_session,list):
         )
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
-        text = await agent_runtime.execute(
+        runtime = agent_runtime if is_superuser else member_agent_runtime
+        text = await runtime.execute(
             value,
             operator_id=event.get_user_id(),
             scope_id=get_access_session_id(event),

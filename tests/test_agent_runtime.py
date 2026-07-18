@@ -219,3 +219,39 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(text, "（摇摇尾巴）十分钟后会提醒你喝水咩。")
         self.assertEqual(scheduled, [(key, {"adapter": "OneBot V11", "id": "1"}, "admin", 600, "喝水")])
+
+    async def test_member_runtime_only_exposes_personal_reminder_tools(self):
+        scheduled = []
+
+        async def schedule(run, delay_seconds, content):
+            scheduled.append((run.access, run.operator_id, delay_seconds, content))
+            return "提醒已安排"
+
+        async def operate(run, operation, identifier):
+            return f"{operation}:{identifier}:{run.operator_id}"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="安排提醒", arguments={"延迟秒数": "600", "内容": "喝水"}),
+            AgentDecision("final", answer="（轻轻点头）十分钟后提醒你咩。"),
+        ], [])
+        member_runtime = agent_runtime.create_agent_runtime(
+            _Service(),
+            agent_service=runtime._agent_service,
+            schedule_reminder=schedule,
+            reminder_operation=operate,
+            access=agent_runtime.AgentAccess.MEMBER,
+        )
+        key = agent_runtime.ConversationKey("onebot.v11:group:1", "")
+
+        text = await member_runtime.execute(
+            "十分钟后提醒我喝水",
+            operator_id="member",
+            scope_id="onebot.v11:group:1",
+            conversation_key=key,
+            delivery_target={"adapter": "OneBot V11", "id": "1"},
+            delivery_user_id="member",
+        )
+
+        self.assertEqual(set(member_runtime._tools), {"安排提醒", "查看我的提醒", "取消我的提醒"})
+        self.assertEqual(scheduled, [(agent_runtime.AgentAccess.MEMBER, "member", 600, "喝水")])
+        self.assertEqual(text, "（轻轻点头）十分钟后提醒你咩。")

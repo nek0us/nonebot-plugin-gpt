@@ -141,7 +141,7 @@ _✨ NoneBot GPT ✨_
 | gpt_auto_init_friend | 否 | false | bool | 私聊首次有效聊天时自动加载私聊默认人设；不会覆盖已有逻辑会话。 |
 | gpt_init_group_persona_name | 否 | 空 | str | 群聊自动初始化使用的人设名称。配置不存在的人设会跳过自动初始化并创建普通会话。 |
 | gpt_init_friend_persona_name | 否 | 空 | str | 私聊自动初始化使用的人设名称，行为同上。 |
-| gpt_agent_enabled | 否 | false | bool | 启用受控智能体入口。入口仍只允许 `SUPERUSERS`，`gpt_manage_ids` 不会获得智能体权限。 |
+| gpt_agent_enabled | 否 | false | bool | 启用受控智能体入口。所有入口均要求 @ 或昵称；超级用户可在任意会话使用，普通用户仍遵守白名单。 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 单次待确认操作的有效秒数；超时后需要重新计划或重新执行。 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数；写入、网络和进程控制始终逐次确认。 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
@@ -149,6 +149,9 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_model | 否 | auto | str | 智能体模型决策使用的模型别名；保持 `auto` 会按核心账户能力选择。 |
 | gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
 | gpt_agent_schedule_enabled | 否 | true | bool | 注册受控异步提醒工具；到时会回到原逻辑会话，由当前人设生成提醒。 |
+| gpt_agent_member_enabled | 否 | false | bool | 向已授权的普通用户开放成员安全智能体；当前只提供当前聊天范围内的个人提醒及其查看、取消能力，不提供主机、文件、网络或服务工具。 |
+| gpt_agent_member_reminder_limit | 否 | 5 | 1-50 | 单个普通用户在同一聊天范围内允许保留的未到期提醒上限。 |
+| gpt_agent_member_scope_reminder_limit | 否 | 20 | 1-200 | 单个聊天范围内由普通用户创建的未到期提醒总上限，避免群聊提醒刷屏。 |
 | gpt_agent_command_enabled | 否 | false | bool | 注册通用系统命令工具。仅超级用户入口可用，且每次执行都需要原聊天范围确认。 |
 | gpt_agent_command_timeout | 否 | 30 | 1-600 | 通用系统命令的默认超时秒数。 |
 | gpt_agent_command_workdir | 否 | 空 | Path | 通用系统命令允许使用的工作目录根；设置后，模型指定的工作目录不得离开该路径。 |
@@ -270,7 +273,7 @@ gpt_auto_init_friend=true
 gpt_init_group_persona_name="群聊"
 gpt_init_friend_persona_name="单人"
 
-# 启用仅超级用户可调用的智能体只读工具
+# 启用智能体；默认只有超级用户拥有本机、文件和服务工具
 gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
@@ -281,6 +284,11 @@ gpt_agent_model="auto"
 gpt_agent_workspace="./data/agent-workspace"
 # 异步提醒会在重启后恢复；设为 false 则不注册该工具。
 gpt_agent_schedule_enabled=true
+# 向已授权普通用户开放“智能体 10分钟后提醒我喝水”等个人安全能力。
+# 它不授予任何主机、文件、网络、服务或命令权限。
+gpt_agent_member_enabled=false
+gpt_agent_member_reminder_limit=5
+gpt_agent_member_scope_reminder_limit=20
 # 通用命令默认关闭。开启后模型仍只能提出 argv，且每次由超级用户确认。
 gpt_agent_command_enabled=false
 gpt_agent_command_timeout=30
@@ -322,7 +330,7 @@ SUPERUSERS=["admin user id"]
 | 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
-| 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 `gpt_agent_enabled`；`智能体 <自然语言任务>` 会由核心模型多轮选择插件已注册工具，自动步骤会继续执行，写入/网络/进程步骤在原聊天范围等待“确认 <编号>”；“计划 <任务>”仅预览真实首步决策。详见 `docs/agent.md`。 |
+| 智能体 | 兼容 | 超级用户；可选普通用户安全模式 | 是 | 群聊/私聊/频道 | 需启用 `gpt_agent_enabled`；普通用户还需启用 `gpt_agent_member_enabled`，仅可管理自己在当前范围的提醒。超级用户可使用本机、文件、服务和命令工具；高风险步骤在原聊天范围等待“智能体 确认 <编号>”。详见 `docs/agent.md`。 |
 | 生成cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性会话白名单 CDK，并记录创建者、创建会话与可选来源备注 |
 | 生成个人cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性个人白名单 CDK，兑换者可在同一适配器的任意会话聊天 |
 | 兑换 <CDK> | 兼容 | 无 | 是 | 群聊/私聊/频道 | 使用 `@机器人 兑换 <CDK>` 或 `机器人昵称 兑换 <CDK>`；根据 CDK 类型授权当前会话或兑换者本人，兼容旧别名“出现吧”，每个 CDK 只能兑换一次 |

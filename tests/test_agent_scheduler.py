@@ -61,3 +61,29 @@ class AgentSchedulerTests(unittest.IsolatedAsyncioTestCase):
             )
             await scheduler._retry(item)
             self.assertEqual(await scheduler.list(), [])
+
+    async def test_user_can_only_list_and_cancel_own_scope_reminders(self):
+        with TemporaryDirectory() as temporary:
+            scheduler = agent_scheduler.AgentScheduler(Path(temporary) / "reminders.json", lambda _: asyncio.sleep(0))
+            own = await scheduler.schedule(
+                delay_seconds=60,
+                target={"adapter": "Console", "id": "group"},
+                conversation_session_id="console:group:1",
+                conversation_user_id="",
+                user_id="alice",
+                content="喝水",
+            )
+            await scheduler.schedule(
+                delay_seconds=60,
+                target={"adapter": "Console", "id": "group"},
+                conversation_session_id="console:group:1",
+                conversation_user_id="",
+                user_id="bob",
+                content="休息",
+            )
+
+            listed = await scheduler.list_for_user(user_id="alice", conversation_session_id="console:group:1")
+            self.assertEqual([item.id for item in listed], [own.id])
+            self.assertFalse(await scheduler.cancel_for_user(own.id, user_id="alice", conversation_session_id="console:group:2"))
+            self.assertFalse(await scheduler.cancel_for_user(own.id, user_id="bob", conversation_session_id="console:group:1"))
+            self.assertTrue(await scheduler.cancel_for_user(own.id, user_id="alice", conversation_session_id="console:group:1"))

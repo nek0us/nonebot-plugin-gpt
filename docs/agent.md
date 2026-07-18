@@ -1,6 +1,8 @@
 # 智能体使用说明
 
-智能体默认关闭，且入口只允许 NoneBot `SUPERUSERS` 使用；`gpt_manage_ids` 不会获得智能体权限。它不是关键词映射或任意命令执行器：每一轮都由 ChatGPTWeb 核心模型从插件注册的工具中选择下一步，插件在本地校验参数、执行已批准的工具，并把结果回送给模型继续推理。
+智能体默认关闭。它不是关键词映射或任意命令执行器：每一轮都由 ChatGPTWeb 核心模型从插件注册的工具中选择下一步，插件在本地校验参数、执行已批准的工具，并把结果回送给模型继续推理。
+
+所有入口都需要按插件的全局规则先 `@机器人` 或使用机器人昵称。超级用户可在任意聊天范围使用高权限工具；普通用户仍需通过聊天白名单，且只有在显式开启成员安全模式后才可使用个人提醒。`gpt_manage_ids` 不会获得主机、文件、命令或服务权限。
 
 ```env
 gpt_agent_enabled=true
@@ -11,6 +13,10 @@ gpt_agent_plan_timeout=300
 gpt_agent_session_approval_timeout=1800
 gpt_agent_workspace=./data/agent-workspace
 gpt_agent_schedule_enabled=true
+# 已授权普通用户只获得“安排/查看/取消自己的提醒”能力。
+gpt_agent_member_enabled=false
+gpt_agent_member_reminder_limit=5
+gpt_agent_member_scope_reminder_limit=20
 # 只有明确开启后才会注册通用系统命令工具。
 gpt_agent_command_enabled=false
 gpt_agent_command_timeout=30
@@ -34,6 +40,18 @@ gpt_agent_command_workdir=./data/agent-command-workdir
 ```
 
 确认编号绑定创建任务的超级用户和当前聊天范围，不能在其他群、频道或私聊复用。确认后工具结果会回送给同一模型会话，模型可以继续调用下一工具或给出最终答复。`gpt_agent_max_steps` 默认限制为 8，防止模型陷入无意义循环。
+
+## 成员安全模式
+
+启用 `gpt_agent_member_enabled=true` 后，已授权的普通用户也可以自然描述低风险任务，例如：
+
+```text
+@机器人 智能体 10 分钟后提醒我喝水
+@机器人 智能体 看看我有哪些提醒
+@机器人 智能体 取消刚才那条提醒
+```
+
+成员模型上下文中只会注册“安排提醒”“查看我的提醒”“取消我的提醒”三项工具。提醒只能投递回创建者的原群、私聊或频道，并且只能由创建者在同一聊天范围查看或取消。每位用户和每个聊天范围的未到期提醒数量分别受 `gpt_agent_member_reminder_limit` 与 `gpt_agent_member_scope_reminder_limit` 限制。成员模式绝不注册账户状态、本机环境、工作区、网络、受管服务或系统命令工具，也没有任何临时授权入口。
 
 如只想检查模型的首步，不执行任何工具：
 

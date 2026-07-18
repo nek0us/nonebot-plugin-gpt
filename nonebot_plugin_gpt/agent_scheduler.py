@@ -145,6 +145,31 @@ class AgentScheduler:
         async with self._lock:
             return sorted(self._items.values(), key=lambda item: item.due_at)
 
+    async def list_for_user(self, *, user_id: str, conversation_session_id: str) -> list[ScheduledReminder]:
+        """返回当前用户在当前聊天范围创建的提醒。"""
+        items = await self.list()
+        return [
+            item for item in items
+            if item.user_id == user_id and item.conversation_session_id == conversation_session_id
+        ]
+
+    async def cancel_for_user(
+        self,
+        identifier: str,
+        *,
+        user_id: str,
+        conversation_session_id: str,
+    ) -> bool:
+        """只允许创建者在原聊天范围取消自己的提醒。"""
+        async with self._lock:
+            item = self._items.get(identifier)
+            if item is None or item.user_id != user_id or item.conversation_session_id != conversation_session_id:
+                return False
+            self._items.pop(identifier, None)
+            self._save()
+            self._wake.set()
+            return True
+
     async def _take_due(self) -> list[ScheduledReminder]:
         async with self._lock:
             now = self._clock()

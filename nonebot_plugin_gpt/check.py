@@ -298,6 +298,11 @@ async def gpt_superuser_rule(event: Event) -> bool:
     )
 
 
+async def gpt_agent_rule(event: Event) -> bool:
+    """超级用户可在任意会话进入智能体；普通用户仍遵守聊天白名单。"""
+    return await gpt_superuser_rule(event) or await gpt_command_rule(event)
+
+
 async def gpt_cdk_redeem_rule(event: Event) -> bool:
     """允许未入白名单的正常用户兑换 CDK。"""
     if not get_event_user_id(event) or not _is_message_event(event) or not _is_explicitly_addressed(event):
