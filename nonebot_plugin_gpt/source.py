@@ -74,3 +74,6 @@ if not personpath.stat().st_size:
 # gpt会话存储
 chatpath = data_dir / "conversation"
 conversation_store_path = chatpath / "sessions.json"
+
+# 智能体异步提醒。仅保存投递目标和提醒正文，不保存模型响应或账号信息。
+agent_schedule_path = data_dir / "agent" / "scheduled_reminders.json"

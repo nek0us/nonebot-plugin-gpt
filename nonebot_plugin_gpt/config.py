@@ -54,7 +54,13 @@ class Config(BaseModel):
     gpt_agent_confirm_timeout: int = Field(default=60, ge=10, le=3600)
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
     gpt_agent_plan_timeout: int = Field(default=300, ge=30, le=3600)
+    gpt_agent_max_steps: int = Field(default=8, ge=1, le=20)
+    gpt_agent_model: str = "auto"
     gpt_agent_workspace: Path | None = None
+    gpt_agent_schedule_enabled: bool = True
+    gpt_agent_command_enabled: bool = False
+    gpt_agent_command_timeout: int = Field(default=30, ge=1, le=600)
+    gpt_agent_command_workdir: Path | None = None
     gpt_agent_managed_services: list[dict] = Field(default_factory=list)
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)

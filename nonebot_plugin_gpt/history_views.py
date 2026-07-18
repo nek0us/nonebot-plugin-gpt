@@ -13,6 +13,7 @@ _UPSTREAM_MARKUP = re.compile("\\ue200(?P<body>.*?)\\ue201", re.DOTALL)
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<url>[^\s)]+)(?:\s+['\"][^)]*['\"])?\)")
 _MARKDOWN_EMPHASIS = re.compile(r"(?<!\\)(?:\*\*|__)(?P<value>.+?)(?<!\\)(?:\*\*|__)")
 _MARKDOWN_CODE = re.compile(r"`(?P<value>[^`]+)`")
+_AGENT_PROTOCOL_MARKER = "【ChatGPTWeb Agent Protocol】"
 
 
 def normalize_history_markdown(value: str) -> str:
@@ -84,7 +85,9 @@ def project_history(
         is_private_setup = (hide_initial and index == 0) or (
             bool(normalized_prompt) and normalized_prompt in question
         )
-        if is_private_setup:
+        # 智能体决策协议会作为同一 ChatGPT 会话中的内部消息存在；展示给
+        # 群成员既破坏人设，也可能泄露工具描述，因此和私有人设一并隐藏。
+        if is_private_setup or _AGENT_PROTOCOL_MARKER in question:
             continue
         entries.append(item)
         source_indexes.append(index)

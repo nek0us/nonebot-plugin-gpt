@@ -1,35 +1,40 @@
-"""仅供超级用户调用的受控 Agent 工具与审批基础。"""
+"""由核心 Agent 协议驱动的 NoneBot 受控工具宿主。"""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from secrets import token_urlsafe
 from time import monotonic, perf_counter
 from typing import Any
 
-from ChatGPTWeb import ChatService
+from ChatGPTWeb import AgentDecision, AgentService, AgentState, AgentTool as CoreAgentTool, AgentToolResult, AgentTurn, ChatService
 from nonebot.log import logger
 
 from .agent_audit import AgentAuditLog
-from .agent_planner import AgentPlanner
+from .agent_commands import CommandRunner, CommandValidationError
 from .agent_workspace import AgentWorkspace, WorkspaceError
+from .conversation import ConversationKey
 from .environment_diagnostics import collect_environment_diagnostics, format_environment_diagnostics
 from .managed_services import ManagedServiceRegistry
 from .management_views import format_account_status
 
 
 AgentActionHandler = Callable[[dict[str, str]], Awaitable[str]]
+AgentTurnHandler = Callable[..., Awaitable[AgentTurn]]
+AgentRunActionHandler = Callable[[dict[str, str], "AgentRun"], Awaitable[str]]
+ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
 
 
 class AgentPermission(str, Enum):
-    """工具实际能力类别；它是代码校验依据，不是提示词约定。"""
+    """工具实际能力类别；模型只能看到说明，不能决定权限。"""
 
     READ_LOCAL = "read_local"
     READ_NETWORK = "read_network"
     WRITE_LOCAL = "write_local"
     PROCESS_CONTROL = "process_control"
+    MESSAGE_SEND = "message_send"
     DESTRUCTIVE = "destructive"
 
 
@@ -45,27 +50,15 @@ _PERMISSION_NAMES = {
     AgentPermission.READ_NETWORK: "网络读取",
     AgentPermission.WRITE_LOCAL: "本机写入",
     AgentPermission.PROCESS_CONTROL: "进程控制",
+    AgentPermission.MESSAGE_SEND: "消息投递",
     AgentPermission.DESTRUCTIVE: "高风险变更",
 }
 _GRANTABLE_PERMISSIONS = {AgentPermission.READ_LOCAL}
 
 
 @dataclass(frozen=True)
-class AgentTool:
-    """一个由插件明确注册、可独立审计的 Agent 工具。"""
-
-    name: str
-    description: str
-    permission: AgentPermission
-    approval: AgentApproval
-    handler: AgentActionHandler
-    parameters: tuple["AgentToolParameter", ...] = ()
-    describe_action: Callable[[dict[str, str]], str] | None = None
-
-
-@dataclass(frozen=True)
 class AgentToolParameter:
-    """一个由插件本地校验的工具参数。"""
+    """由插件本地校验的字符串参数。"""
 
     name: str
     description: str
@@ -75,155 +68,146 @@ class AgentToolParameter:
 
 
 @dataclass(frozen=True)
-class PendingAgentAction:
-    """等待同一操作者在同一聊天范围确认的一次性操作。"""
+class AgentTool:
+    """插件显式注册的本地工具，不接受模型临时扩展。"""
 
-    token: str
     name: str
     description: str
     permission: AgentPermission
+    approval: AgentApproval
     handler: AgentActionHandler
+    parameters: tuple[AgentToolParameter, ...] = ()
+    describe_action: Callable[[dict[str, str]], str] | None = None
+    run_handler: AgentRunActionHandler | None = None
+    argument_validator: Callable[[dict[str, str]], str] | None = None
+
+    def core_definition(self) -> CoreAgentTool:
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+        for parameter in self.parameters:
+            rule: dict[str, Any] = {
+                "type": "string",
+                "description": parameter.description,
+                "maxLength": 8192,
+            }
+            if parameter.choices:
+                rule["enum"] = list(parameter.choices)
+            properties[parameter.name] = rule
+            if parameter.required:
+                required.append(parameter.name)
+        return CoreAgentTool(
+            self.name,
+            self.description,
+            {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            },
+        )
+
+
+@dataclass
+class AgentRun:
+    """绑定原操作者与原聊天范围的一次多轮模型任务。"""
+
+    task: str
+    state: AgentState
     operator_id: str
     scope_id: str
-    expires_at: float
-    source_plan_token: str = ""
+    steps: int = 0
+    model: str = "auto"
+    conversation_key: ConversationKey | None = None
+    delivery_target: dict[str, Any] | None = None
+    delivery_user_id: str = ""
 
 
-@dataclass(frozen=True)
-class PlannedAgentAction:
-    """已由本地校验通过、尚未执行的工具计划。"""
+@dataclass
+class PendingAgentAction:
+    """等待明确确认后才执行并继续模型循环的动作。"""
 
     token: str
     tool: AgentTool
-    reason: str
     arguments: dict[str, str]
+    run: AgentRun | None
+    operator_id: str
+    scope_id: str
+    expires_at: float
+    direct: bool = False
+
+
+@dataclass
+class PlannedAgentRun:
+    """只规划首步、尚未开始执行的真实 Agent 回合。"""
+
+    token: str
+    run: AgentRun
+    decision: AgentDecision
     operator_id: str
     scope_id: str
     expires_at: float
 
 
 class AgentRuntime:
-    """管理工具、一次性确认与低风险临时授权。"""
+    """把核心模型决策与本地工具执行、审批和审计连接起来。"""
 
     def __init__(
         self,
+        service: ChatService,
         tools: list[AgentTool],
         *,
         confirmation_ttl_seconds: int = 60,
         session_approval_ttl_seconds: int = 1800,
         plan_ttl_seconds: int = 300,
-        planner: AgentPlanner | None = None,
+        max_steps: int = 8,
+        model: str = "auto",
         audit_log: AgentAuditLog | None = None,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
+        agent_service: AgentService | None = None,
+        agent_turn: AgentTurnHandler | None = None,
+        schedule_reminder: ReminderScheduleHandler | None = None,
     ):
         self._tools = {tool.name: tool for tool in tools}
+        if len(self._tools) != len(tools):
+            raise ValueError("智能体工具名称不能重复")
+        self._agent_service = agent_service or AgentService(service)
+        self._agent_turn = agent_turn
+        self._schedule_reminder = schedule_reminder
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._plan_ttl_seconds = plan_ttl_seconds
+        self._max_steps = max(1, min(max_steps, 20))
+        self._model = model or "auto"
         self._clock = clock
         self._token_factory = token_factory
-        self._planner = planner
         self._audit = audit_log or AgentAuditLog()
         self._pending: dict[str, PendingAgentAction] = {}
-        self._plans: dict[str, PlannedAgentAction] = {}
+        self._plans: dict[str, PlannedAgentRun] = {}
         self._approvals: dict[tuple[str, str, AgentPermission], float] = {}
 
     def help_text(self) -> str:
         lines = ["智能体工具（仅超级用户）"]
         for tool in self._tools.values():
-            confirmation = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
-            lines.append(
-                f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{confirmation}）"
-            )
+            approval = "需要确认" if tool.approval is AgentApproval.CONFIRM else "自动执行"
+            lines.append(f"- {tool.name}：{tool.description}（{_PERMISSION_NAMES[tool.permission]}，{approval}）")
         lines.extend([
-            "用法：智能体 工具 / 智能体 状态 / 智能体 模型 / 智能体 环境",
-            "模型规划：智能体 计划 <任务>。计划只提出建议，不会执行工具。",
-            "执行已校验计划：智能体 执行 <计划编号>。计划仅在原聊天范围内短期有效。",
-            "查看审计：智能体 审计 [数量]。审计仅保留当前运行的无敏感事件。",
-            "需确认的操作会返回一次性编号，请在同一聊天范围发送：智能体 确认 <编号>",
-            "可申请临时授权：智能体 授权 本机只读；可用 授权列表 或 撤销授权 查看和撤销。",
-            "文件快捷操作：智能体 文件列表 [目录] / 智能体 读取文件 <相对路径> / 智能体 写入文件 <相对路径> <内容>。",
+            "",
+            "执行任务：智能体 <任务>。模型会按需多轮调用已注册工具，自动允许的步骤会继续执行。",
+            "只看首步计划：智能体 计划 <任务>；再用 智能体 执行 <计划编号> 开始。",
+            "高风险步骤会返回确认编号；仅原超级用户可在原聊天范围使用 智能体 确认 <编号> 或 智能体 取消 <编号>。",
+            "可用：智能体 审计 [数量] / 智能体 授权 本机只读 / 智能体 授权列表 / 智能体 撤销授权。",
         ])
         return "\n".join(lines)
 
-    def _planner_tools(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "permission": _PERMISSION_NAMES[tool.permission],
-                "approval": "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许",
-                "parameters": [
-                    {"name": item.name, "description": item.description, "required": item.required, "choices": list(item.choices)}
-                    for item in tool.parameters
-                ],
-            }
-            for tool in self._tools.values()
-        ]
-
-    async def _plan_task(self, task: str, operator_id: str, scope_id: str) -> str:
-        if self._planner is None:
-            self._audit.record("计划被拒绝", "模型规划器")
-            return "模型规划器尚未配置。"
-        plan = await self._planner.plan(task, self._planner_tools())
-        if not plan.valid:
-            self._audit.record("计划被拒绝", "模型规划")
-            return f"智能体计划未通过校验：{plan.error}"
-        if plan.tool_name is None:
-            self._audit.record("计划未调用工具", "模型规划")
-            return "\n".join([
-                "智能体计划（未执行）",
-                f"摘要：{plan.summary or plan.reason}",
-                "建议动作：暂不调用任何工具。",
-                f"判断依据：{plan.reason}",
-            ])
-        tool = self._tools[plan.tool_name]
-        arguments, error = self._validate_tool_arguments(tool, plan.arguments)
-        if error:
-            self._audit.record("计划被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
-            return f"智能体计划未通过参数校验：{error}"
-        approval = "需确认" if tool.approval is AgentApproval.CONFIRM else "自动允许"
-        token = self._new_token()
-        self._plans[token] = PlannedAgentAction(
-            token=token,
-            tool=tool,
-            reason=plan.reason,
-            arguments=arguments,
-            operator_id=operator_id,
-            scope_id=scope_id,
-            expires_at=self._clock() + self._plan_ttl_seconds,
-        )
-        self._audit.record("计划已创建", tool.name, _PERMISSION_NAMES[tool.permission])
-        return "\n".join([
-            "智能体计划（未执行）",
-            f"摘要：{plan.summary or plan.reason}",
-            f"建议动作：{tool.description}",
-            f"工具：{tool.name}",
-            f"参数：{self._format_plan_arguments(tool, arguments)}",
-            f"权限：{_PERMISSION_NAMES[tool.permission]}｜审批：{approval}",
-            f"判断依据：{plan.reason}",
-            f"计划编号：{token}（{self._plan_ttl_seconds} 秒内有效）",
-            f"下一步：如需执行，请发送“智能体 执行 {token}”。",
-        ])
+    def _core_tools(self) -> list[CoreAgentTool]:
+        return [tool.core_definition() for tool in self._tools.values()]
 
     def _discard_expired(self) -> None:
         now = self._clock()
-        self._pending = {
-            token: action
-            for token, action in self._pending.items()
-            if action.expires_at > now
-        }
-        self._plans = {
-            token: plan
-            for token, plan in self._plans.items()
-            if plan.expires_at > now
-        }
-        self._approvals = {
-            key: expires_at
-            for key, expires_at in self._approvals.items()
-            if expires_at > now
-        }
+        self._pending = {token: item for token, item in self._pending.items() if item.expires_at > now}
+        self._plans = {token: item for token, item in self._plans.items() if item.expires_at > now}
+        self._approvals = {key: expires_at for key, expires_at in self._approvals.items() if expires_at > now}
 
     def _new_token(self) -> str:
         token = self._token_factory()
@@ -232,25 +216,29 @@ class AgentRuntime:
         return token
 
     @staticmethod
-    def _validate_tool_arguments(tool: AgentTool, arguments: dict[str, str]) -> tuple[dict[str, str], str]:
-        declared = {item.name: item for item in tool.parameters}
-        unexpected = set(arguments) - set(declared)
-        if unexpected:
-            return {}, f"包含未声明参数：{'、'.join(sorted(unexpected))}"
-        normalized = {}
-        for name, parameter in declared.items():
+    def _validate_arguments(tool: AgentTool, arguments: dict[str, Any]) -> tuple[dict[str, str], str]:
+        expected = {item.name: item for item in tool.parameters}
+        unknown = set(arguments).difference(expected)
+        if unknown:
+            return {}, f"包含未声明参数：{'、'.join(sorted(unknown))}"
+        normalized: dict[str, str] = {}
+        for name, parameter in expected.items():
             value = arguments.get(name)
             if value is None:
                 if parameter.required:
                     return {}, f"缺少必填参数：{name}"
                 continue
+            if not isinstance(value, str):
+                return {}, f"参数 {name} 必须是文本"
             if parameter.choices and value not in parameter.choices:
                 return {}, f"参数 {name} 仅允许：{'、'.join(parameter.choices)}"
             normalized[name] = value
         return normalized, ""
 
-    @staticmethod
-    def _format_plan_arguments(tool: AgentTool, arguments: dict[str, str]) -> str:
+    def _has_session_approval(self, permission: AgentPermission, operator_id: str, scope_id: str) -> bool:
+        return self._approvals.get((operator_id, scope_id, permission), 0) > self._clock()
+
+    def _format_arguments(self, tool: AgentTool, arguments: dict[str, str]) -> str:
         if not arguments:
             return "无"
         parameters = {parameter.name: parameter for parameter in tool.parameters}
@@ -259,85 +247,214 @@ class AgentRuntime:
             for name, value in arguments.items()
         )
 
-    def _create_pending(
+    def _pending_message(self, action: PendingAgentAction) -> str:
+        description = action.tool.describe_action(action.arguments) if action.tool.describe_action else action.tool.description
+        return "\n".join([
+            f"智能体准备执行：{description}",
+            f"权限：{_PERMISSION_NAMES[action.tool.permission]}",
+            f"参数：{self._format_arguments(action.tool, action.arguments)}",
+            f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {action.token}”，或发送“智能体 取消 {action.token}”。",
+        ])
+
+    def _queue_confirmation(
         self,
-        *,
-        name: str,
-        description: str,
-        permission: AgentPermission,
-        handler: AgentActionHandler,
+        tool: AgentTool,
+        arguments: dict[str, str],
+        run: AgentRun | None,
         operator_id: str,
         scope_id: str,
-        source_plan_token: str = "",
+        *,
+        direct: bool = False,
     ) -> str:
         self._discard_expired()
         token = self._new_token()
-        self._pending[token] = PendingAgentAction(
+        action = PendingAgentAction(
             token=token,
-            name=name,
-            description=description,
-            permission=permission,
-            handler=handler,
+            tool=tool,
+            arguments=arguments,
+            run=run,
             operator_id=operator_id,
             scope_id=scope_id,
             expires_at=self._clock() + self._confirmation_ttl_seconds,
-            source_plan_token=source_plan_token,
+            direct=direct,
         )
-        return token
+        self._pending[token] = action
+        self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
+        return self._pending_message(action)
 
-    @staticmethod
-    def _approval_key(operator_id: str, scope_id: str, permission: AgentPermission) -> tuple[str, str, AgentPermission]:
-        return operator_id, scope_id, permission
+    async def _call_tool(
+        self,
+        tool: AgentTool,
+        arguments: dict[str, str],
+        run: AgentRun | None = None,
+    ) -> AgentToolResult:
+        started_at = perf_counter()
+        try:
+            if tool.run_handler is not None:
+                if run is None:
+                    return AgentToolResult(tool.name, "该工具只能在智能体任务中调用。", ok=False)
+                output = await tool.run_handler(arguments, run)
+            else:
+                output = await tool.handler(arguments)
+        except Exception:
+            logger.exception(f"智能体工具“{tool.name}”执行异常")
+            self._audit.record("工具执行失败", tool.name, _PERMISSION_NAMES[tool.permission])
+            return AgentToolResult(tool.name, "工具执行失败，未返回内部错误细节。", ok=False)
+        elapsed_ms = max(0, round((perf_counter() - started_at) * 1000))
+        self._audit.record("工具执行完成", tool.name, _PERMISSION_NAMES[tool.permission])
+        return AgentToolResult(tool.name, str(output)[:12000] + f"\n\n[工具耗时：{elapsed_ms} 毫秒]", ok=True)
 
-    def _has_session_approval(self, permission: AgentPermission, operator_id: str, scope_id: str) -> bool:
-        expires_at = self._approvals.get(self._approval_key(operator_id, scope_id, permission), 0)
-        return expires_at > self._clock()
-
-    def _pending_message(self, action: PendingAgentAction) -> str:
-        message = (
-            f"已创建“{action.name}”待确认操作（权限：{_PERMISSION_NAMES[action.permission]}）。\n"
-            f"原因：{action.description}\n"
-            f"请在 {self._confirmation_ttl_seconds} 秒内发送“智能体 确认 {action.token}”，"
-            f"或发送“智能体 取消 {action.token}”。"
+    async def _request_turn(
+        self,
+        task: str,
+        *,
+        run: AgentRun | None = None,
+        state: AgentState | None = None,
+        tool_result: AgentToolResult | None = None,
+    ) -> AgentTurn:
+        if self._agent_turn is not None and run is not None and run.conversation_key is not None:
+            return await self._agent_turn(
+                key=run.conversation_key,
+                task=task,
+                tools=self._core_tools(),
+                state=state,
+                tool_result=tool_result,
+                model=run.model,
+            )
+        return await self._agent_service.turn(
+            task,
+            self._core_tools(),
+            state=state,
+            tool_result=tool_result,
+            model=run.model if run is not None else self._model,
         )
-        if action.source_plan_token:
-            return f"来源计划：{action.source_plan_token}（尚未执行）\n{message}"
-        return message
+
+    async def _continue_after_result(self, run: AgentRun, result: AgentToolResult) -> str:
+        turn = await self._request_turn("", run=run, state=run.state, tool_result=result)
+        run.state = turn.state
+        return await self._handle_turn(turn, run)
+
+    async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> str:
+        if not turn.ok or turn.decision.kind == "error":
+            self._audit.record("模型决策失败", "智能体模型")
+            return f"智能体未能继续执行：{turn.decision.error or '模型请求失败'}"
+        if turn.decision.kind == "final":
+            self._audit.record("任务已完成", "智能体模型")
+            # 最终答复由模型按当前人设生成，直接交给聊天层发送，避免把
+            # “智能体已完成”之类的内部口吻带进角色扮演。
+            return turn.decision.answer
+        if run.steps >= self._max_steps:
+            self._audit.record("任务达到步数上限", "智能体模型")
+            return f"智能体已执行 {self._max_steps} 步，为避免失控循环已停止。请根据当前结果重新提出任务。"
+        tool = self._tools.get(turn.decision.tool)
+        if tool is None:
+            self._audit.record("模型请求未注册工具", turn.decision.tool)
+            return "智能体请求了不可用工具，已拒绝执行。"
+        arguments, error = self._validate_arguments(tool, turn.decision.arguments)
+        if error:
+            self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
+            return f"智能体工具参数未通过本地校验：{error}"
+        if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
+            self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
+            return f"智能体工具参数未通过本地校验：{error}"
+        run.steps += 1
+        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(tool.permission, run.operator_id, run.scope_id):
+            return self._queue_confirmation(tool, arguments, run, run.operator_id, run.scope_id)
+        return await self._continue_after_result(run, await self._call_tool(tool, arguments, run))
+
+    async def _start(
+        self,
+        task: str,
+        operator_id: str,
+        scope_id: str,
+        *,
+        plan_only: bool,
+        conversation_key: ConversationKey | None = None,
+        delivery_target: dict[str, Any] | None = None,
+        delivery_user_id: str = "",
+    ) -> str:
+        run = AgentRun(
+            task=task,
+            state=AgentState(model=self._model),
+            operator_id=operator_id,
+            scope_id=scope_id,
+            model=self._model,
+            conversation_key=conversation_key,
+            delivery_target=delivery_target,
+            delivery_user_id=delivery_user_id,
+        )
+        turn = await self._request_turn(task, run=run)
+        run.state = turn.state
+        if plan_only:
+            if not turn.ok or turn.decision.kind == "error":
+                return f"智能体计划未通过：{turn.decision.error or '模型请求失败'}"
+            token = self._new_token()
+            self._plans[token] = PlannedAgentRun(
+                token=token,
+                run=run,
+                decision=turn.decision,
+                operator_id=operator_id,
+                scope_id=scope_id,
+                expires_at=self._clock() + self._plan_ttl_seconds,
+            )
+            if turn.decision.kind == "final":
+                return f"智能体计划：无需调用工具。\n{turn.decision.answer}"
+            tool = self._tools.get(turn.decision.tool)
+            if tool is None:
+                return "智能体请求了不可用工具，已拒绝执行。"
+            arguments, error = self._validate_arguments(tool, turn.decision.arguments)
+            if error:
+                return f"智能体工具参数未通过本地校验：{error}"
+            if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
+                return f"智能体工具参数未通过本地校验：{error}"
+            return "\n".join([
+                "智能体首步计划（未执行）",
+                f"建议：{turn.decision.summary or tool.description}",
+                f"工具：{tool.name}",
+                f"权限：{_PERMISSION_NAMES[tool.permission]}",
+                f"参数：{self._format_arguments(tool, arguments)}",
+                f"发送“智能体 执行 {token}”开始执行；计划 {self._plan_ttl_seconds} 秒内有效。",
+            ])
+        return await self._handle_turn(turn, run)
+
+    async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
+        plan = self._plans.pop(token, None)
+        if plan is None:
+            return "未找到可执行的智能体计划，可能已执行、取消或过期。"
+        if plan.expires_at <= self._clock():
+            return "智能体计划已过期，未执行任何工具。"
+        if plan.operator_id != operator_id or plan.scope_id != scope_id:
+            self._plans[token] = plan
+            return "该智能体计划只能由原操作者在原聊天范围执行。"
+        if plan.decision.kind == "final":
+            return plan.decision.answer
+        return await self._handle_turn(AgentTurn(True, plan.run.state, plan.decision), plan.run)
 
     async def _confirm(self, token: str, operator_id: str, scope_id: str) -> str:
-        action = self._pending.pop(token, None)
+        action = self._pending.get(token)
         if action is None:
-            return "未找到待确认操作，可能已取消、已执行或已过期。"
+            return "未找到待确认操作，可能已取消、执行或过期。"
         if action.expires_at <= self._clock():
-            self._audit.record("确认已过期", action.name, _PERMISSION_NAMES[action.permission])
+            self._pending.pop(token, None)
             return "待确认操作已过期，未执行任何操作。"
         if action.operator_id != operator_id or action.scope_id != scope_id:
-            self._pending[token] = action
-            self._audit.record("确认被拒绝", action.name, _PERMISSION_NAMES[action.permission])
             return "该待确认操作只能由原操作者在原聊天范围确认。"
-        self._audit.record("确认已完成", action.name, _PERMISSION_NAMES[action.permission])
-        return await action.handler()
+        self._pending.pop(token, None)
+        self._audit.record("确认已完成", action.tool.name, _PERMISSION_NAMES[action.tool.permission])
+        result = await self._call_tool(action.tool, action.arguments, action.run)
+        if action.run is None:
+            return result.output
+        return await self._continue_after_result(action.run, result)
 
     def _cancel(self, token: str, operator_id: str, scope_id: str) -> str:
         action = self._pending.get(token)
         if action is None:
-            return "未找到待确认操作，可能已取消、已执行或已过期。"
-        if action.expires_at <= self._clock():
-            self._pending.pop(token, None)
-            self._audit.record("确认已过期", action.name, _PERMISSION_NAMES[action.permission])
-            return "待确认操作已过期，未执行任何操作。"
+            return "未找到待确认操作，可能已取消、执行或过期。"
         if action.operator_id != operator_id or action.scope_id != scope_id:
             return "该待确认操作只能由原操作者在原聊天范围取消。"
         self._pending.pop(token, None)
-        self._audit.record("确认已取消", action.name, _PERMISSION_NAMES[action.permission])
-        return "已取消待确认操作，未执行任何操作。"
-
-    def _permission_from_text(self, value: str) -> AgentPermission | None:
-        normalized = value.strip().lower()
-        for permission, label in _PERMISSION_NAMES.items():
-            if normalized in {permission.value, label.lower()}:
-                return permission
-        return None
+        self._audit.record("确认已取消", action.tool.name, _PERMISSION_NAMES[action.tool.permission])
+        return "已取消待确认操作，未执行任何工具。"
 
     def _authorization_list(self, operator_id: str, scope_id: str) -> str:
         self._discard_expired()
@@ -349,220 +466,124 @@ class AgentRuntime:
         if not entries:
             return "当前聊天范围没有临时智能体授权。"
         now = self._clock()
-        lines = ["当前聊天范围的临时智能体授权"]
-        for permission, expires_at in sorted(entries, key=lambda item: item[0].value):
-            lines.append(f"- {_PERMISSION_NAMES[permission]}：剩余约 {max(0, int(expires_at - now))} 秒")
-        return "\n".join(lines)
-
-    def _revoke_authorization(self, value: str, operator_id: str, scope_id: str) -> str:
-        self._discard_expired()
-        permission = self._permission_from_text(value) if value.strip() else None
-        if value.strip() and permission is None:
-            return "未识别权限类别。当前仅支持“本机只读”。"
-        targets = [permission] if permission else list(_GRANTABLE_PERMISSIONS)
-        removed = 0
-        for target in targets:
-            if self._approvals.pop(self._approval_key(operator_id, scope_id, target), None) is not None:
-                removed += 1
-                self._audit.record("临时授权已撤销", _PERMISSION_NAMES[target], _PERMISSION_NAMES[target])
-        return "已撤销当前聊天范围的临时授权。" if removed else "当前聊天范围没有可撤销的临时授权。"
+        return "\n".join([
+            "当前聊天范围的临时智能体授权",
+            *(f"- {_PERMISSION_NAMES[permission]}：剩余约 {max(0, int(expires_at - now))} 秒" for permission, expires_at in entries),
+        ])
 
     def _request_authorization(self, value: str, operator_id: str, scope_id: str) -> str:
-        permission = self._permission_from_text(value)
+        normalized = value.strip().lower()
+        permission = next((item for item, label in _PERMISSION_NAMES.items() if normalized in {item.value, label.lower()}), None)
         if permission not in _GRANTABLE_PERMISSIONS:
             return "当前仅允许申请“本机只读”临时授权；网络、写入、进程控制和高风险操作必须逐次确认。"
+        token = self._new_token()
 
-        async def grant() -> str:
-            self._approvals[self._approval_key(operator_id, scope_id, permission)] = (
-                self._clock() + self._session_approval_ttl_seconds
-            )
+        async def grant(_: dict[str, str]) -> str:
+            self._approvals[(operator_id, scope_id, permission)] = self._clock() + self._session_approval_ttl_seconds
             self._audit.record("临时授权已授予", _PERMISSION_NAMES[permission], _PERMISSION_NAMES[permission])
-            return (
-                f"已授予当前聊天范围的“{_PERMISSION_NAMES[permission]}”临时授权，"
-                f"有效约 {self._session_approval_ttl_seconds} 秒；可随时使用“智能体 撤销授权”取消。"
-            )
+            return f"已授予当前聊天范围的“{_PERMISSION_NAMES[permission]}”临时授权，有效约 {self._session_approval_ttl_seconds} 秒。"
 
-        token = self._create_pending(
-            name=f"临时授权：{_PERMISSION_NAMES[permission]}",
-            description="允许当前聊天范围内的同类低风险操作在有效期内免于重复确认。",
-            permission=permission,
-            handler=grant,
+        self._pending[token] = PendingAgentAction(
+            token=token,
+            tool=AgentTool(f"临时授权：{_PERMISSION_NAMES[permission]}", "授予低风险临时权限", permission, AgentApproval.CONFIRM, grant),
+            arguments={},
+            run=None,
             operator_id=operator_id,
             scope_id=scope_id,
+            expires_at=self._clock() + self._confirmation_ttl_seconds,
+            direct=True,
         )
         return self._pending_message(self._pending[token])
 
-    async def _execute_tool(
+    def _revoke_authorization(self, operator_id: str, scope_id: str) -> str:
+        removed = 0
+        for permission in _GRANTABLE_PERMISSIONS:
+            if self._approvals.pop((operator_id, scope_id, permission), None) is not None:
+                removed += 1
+        return "已撤销当前聊天范围的临时授权。" if removed else "当前聊天范围没有可撤销的临时授权。"
+
+    async def _direct_tool(self, name: str, operator_id: str, scope_id: str) -> str:
+        tool = self._tools.get(name)
+        if tool is None:
+            return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
+        if tool.parameters:
+            return "该工具需要由模型根据任务填写参数；请直接描述任务，例如“智能体 在工作区创建 hello.txt”。"
+        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(tool.permission, operator_id, scope_id):
+            return self._queue_confirmation(tool, {}, None, operator_id, scope_id, direct=True)
+        return (await self._call_tool(tool, {})).output
+
+    async def execute(
         self,
-        tool: AgentTool,
-        arguments: dict[str, str],
+        value: str,
+        *,
         operator_id: str,
         scope_id: str,
-        *,
-        source_plan_token: str = "",
+        conversation_key: ConversationKey | None = None,
+        delivery_target: dict[str, Any] | None = None,
+        delivery_user_id: str = "",
     ) -> str:
-        if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(
-            tool.permission,
-            operator_id,
-            scope_id,
-        ):
-            token = self._create_pending(
-                name=tool.name,
-                description=tool.describe_action(arguments) if tool.describe_action else tool.description,
-                permission=tool.permission,
-                handler=(
-                    (lambda: self._run_planned_tool(tool, arguments, source_plan_token))
-                    if source_plan_token
-                    else (lambda: self._run_direct_tool(tool, arguments))
-                ),
-                operator_id=operator_id,
-                scope_id=scope_id,
-                source_plan_token=source_plan_token,
-            )
-            self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
-            return self._pending_message(self._pending[token])
-        if source_plan_token:
-            return await self._run_planned_tool(tool, arguments, source_plan_token)
-        return await self._run_direct_tool(tool, arguments)
-
-    async def _run_direct_tool(self, tool: AgentTool, arguments: dict[str, str]) -> str:
-        try:
-            result = await tool.handler(arguments)
-        except Exception:
-            logger.exception(f"智能体工具“{tool.name}”执行异常")
-            self._audit.record("工具执行失败", tool.name, _PERMISSION_NAMES[tool.permission])
-            return "智能体工具未能完成，请检查管理员工作状态或本地日志。"
-        self._audit.record("工具已执行", tool.name, _PERMISSION_NAMES[tool.permission])
-        return result
-
-    async def _run_planned_tool(self, tool: AgentTool, arguments: dict[str, str], plan_token: str) -> str:
-        """执行已确认的计划工具，并仅向操作者回显安全的运行元信息。"""
-        started_at = perf_counter()
-        try:
-            result = await tool.handler(arguments)
-        except Exception:
-            logger.exception(f"智能体计划工具“{tool.name}”执行异常")
-            result = "工具未能完成，请检查管理员工作状态或本地日志。"
-            status = "失败"
-            self._audit.record("计划工具失败", tool.name, _PERMISSION_NAMES[tool.permission])
-        else:
-            status = "已完成"
-            self._audit.record("计划工具已完成", tool.name, _PERMISSION_NAMES[tool.permission])
-        elapsed_ms = max(0, round((perf_counter() - started_at) * 1000))
-        return "\n".join([
-            "智能体执行结果",
-            f"来源计划：{plan_token}",
-            f"工具：{tool.name}",
-            f"权限：{_PERMISSION_NAMES[tool.permission]}",
-            f"状态：{status}",
-            f"耗时：{elapsed_ms} 毫秒",
-            "结果：",
-            result,
-        ])
-
-    async def _execute_plan(self, token: str, operator_id: str, scope_id: str) -> str:
-        plan = self._plans.pop(token, None)
-        if plan is None:
-            return "未找到可执行计划，可能已执行、已取消或已过期。"
-        if plan.expires_at <= self._clock():
-            self._audit.record("计划已过期", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
-            return "计划已过期，未执行任何工具。"
-        if plan.operator_id != operator_id or plan.scope_id != scope_id:
-            self._plans[token] = plan
-            self._audit.record("计划执行被拒绝", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
-            return "该计划只能由原操作者在原聊天范围执行。"
-        self._audit.record("计划进入执行", plan.tool.name, _PERMISSION_NAMES[plan.tool.permission])
-        return await self._execute_tool(
-            plan.tool,
-            plan.arguments,
-            operator_id,
-            scope_id,
-            source_plan_token=token,
-        )
-
-    async def execute(self, name: str, *, operator_id: str, scope_id: str) -> str:
-        normalized = name.strip()
+        """处理 Bot 命令文本；所有自然语言任务走核心多轮 Agent 协议。"""
+        normalized = value.strip()
+        self._discard_expired()
+        if normalized in {"", "帮助", "工具"}:
+            return self.help_text()
         if normalized.startswith("确认 "):
             return await self._confirm(normalized.removeprefix("确认 ").strip(), operator_id, scope_id)
         if normalized.startswith("取消 "):
             return self._cancel(normalized.removeprefix("取消 ").strip(), operator_id, scope_id)
-        if normalized.startswith("执行 "):
-            return await self._execute_plan(normalized.removeprefix("执行 ").strip(), operator_id, scope_id)
-        self._discard_expired()
-        if normalized in {"", "帮助", "工具"}:
-            return self.help_text()
-        if normalized == "计划":
-            return "请提供任务，例如：智能体 计划 检查当前运行环境"
-        if normalized.startswith("计划 "):
-            return await self._plan_task(normalized.removeprefix("计划 ").strip(), operator_id, scope_id)
-        if normalized == "审计":
-            return self._audit.format()
-        if normalized.startswith("审计 "):
-            try:
-                limit = int(normalized.removeprefix("审计 ").strip())
-            except ValueError:
-                return "审计数量应为 1 到 50 的整数。"
-            return self._audit.format(limit)
         if normalized == "授权列表":
             return self._authorization_list(operator_id, scope_id)
         if normalized == "授权":
             return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
         if normalized.startswith("授权 "):
             return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
-        if normalized == "撤销授权":
-            return self._revoke_authorization("", operator_id, scope_id)
-        if normalized.startswith("撤销授权 "):
-            return self._revoke_authorization(normalized.removeprefix("撤销授权 ").strip(), operator_id, scope_id)
-        workspace_result = await self._execute_workspace_shortcut(normalized, operator_id, scope_id)
-        if workspace_result is not None:
-            return workspace_result
-        tool = self._tools.get(normalized)
-        if tool is None:
-            return "未找到该智能体工具。请先使用“智能体 工具”查看可用项。"
-        return await self._execute_tool(tool, {}, operator_id, scope_id)
-
-    async def _execute_workspace_shortcut(
-        self,
-        value: str,
-        operator_id: str,
-        scope_id: str,
-    ) -> str | None:
-        """为受限文件工具提供不依赖模型 JSON 的确定性入口。"""
-        shortcuts = (
-            ("文件列表", "列出工作区文件", 1),
-            ("读取文件", "读取工作区文件", 1),
-            ("写入文件", "写入工作区文件", 2),
+        if normalized.startswith("撤销授权"):
+            return self._revoke_authorization(operator_id, scope_id)
+        if normalized == "审计":
+            return self._audit.format()
+        if normalized.startswith("审计 "):
+            try:
+                return self._audit.format(int(normalized.removeprefix("审计 ").strip()))
+            except ValueError:
+                return "审计数量应为 1 到 50 的整数。"
+        if normalized == "计划":
+            return "请提供任务，例如：智能体 计划 在工作区创建 hello.txt，内容为 hello from agent"
+        if normalized.startswith("计划 "):
+            return await self._start(
+                normalized.removeprefix("计划 ").strip(), operator_id, scope_id,
+                plan_only=True, conversation_key=conversation_key,
+                delivery_target=delivery_target, delivery_user_id=delivery_user_id,
+            )
+        if normalized == "执行":
+            return "请提供任务，或使用“智能体 执行 <计划编号>”执行已有首步计划。"
+        if normalized.startswith("执行 "):
+            subject = normalized.removeprefix("执行 ").strip()
+            if subject in self._plans:
+                return await self._execute_plan(subject, operator_id, scope_id)
+            return await self._start(
+                subject, operator_id, scope_id,
+                plan_only=False, conversation_key=conversation_key,
+                delivery_target=delivery_target, delivery_user_id=delivery_user_id,
+            )
+        if normalized in self._tools:
+            return await self._direct_tool(normalized, operator_id, scope_id)
+        # 除保留的控制子命令外，所有文本都是自然语言任务。不要求用户先
+        # 写“执行”，这样“智能体 查看当前 IP”能直接进入模型决策循环。
+        return await self._start(
+            normalized,
+            operator_id,
+            scope_id,
+            plan_only=False,
+            conversation_key=conversation_key,
+            delivery_target=delivery_target,
+            delivery_user_id=delivery_user_id,
         )
-        for command, tool_name, argument_count in shortcuts:
-            if value != command and not value.startswith(f"{command} "):
-                continue
-            tool = self._tools.get(tool_name)
-            if tool is None:
-                return "未配置智能体工作目录，无法使用文件工具。"
-            raw_arguments = value.removeprefix(command).strip()
-            if command == "文件列表":
-                return await self._execute_tool(tool, {"路径": raw_arguments} if raw_arguments else {}, operator_id, scope_id)
-            parts = raw_arguments.split(maxsplit=argument_count - 1)
-            if len(parts) != argument_count:
-                usage = (
-                    "智能体 读取文件 <工作目录内的相对路径>"
-                    if command == "读取文件"
-                    else "智能体 写入文件 <工作目录内的相对路径> <内容>"
-                )
-                return f"参数不足。用法：{usage}"
-            arguments = {"路径": parts[0]}
-            if command == "写入文件":
-                arguments["内容"] = parts[1]
-            return await self._execute_tool(tool, arguments, operator_id, scope_id)
-        return None
 
 
 def _format_model_catalog(catalog: dict[str, Any]) -> str:
-    """以有限行数展示本地模型别名，避免目录过大淹没聊天窗口。"""
     local = catalog.get("local")
     if not isinstance(local, dict):
         return "模型目录暂不可用。"
-
     lines = ["模型目录（本地静态配置）"]
     for category, label in (("free", "免费模型"), ("plus", "付费模型")):
         models = local.get(category)
@@ -570,10 +591,13 @@ def _format_model_catalog(catalog: dict[str, Any]) -> str:
             lines.append(f"{label}：无")
             continue
         entries = [f"{alias} -> {model}" for alias, model in models.items()]
-        preview = "；".join(entries[:12])
-        suffix = f"；另有 {len(entries) - 12} 项" if len(entries) > 12 else ""
-        lines.append(f"{label}（{len(entries)}）：{preview}{suffix}")
+        lines.append(f"{label}（{len(entries)}）：{'；'.join(entries[:12])}")
     return "\n".join(lines)
+
+
+async def _raise_direct_only(_: dict[str, str]) -> str:
+    """占位处理器：带运行上下文的工具不能绕过 AgentRun 直接调用。"""
+    raise RuntimeError("该工具只能在智能体任务中调用")
 
 
 def create_agent_runtime(
@@ -582,146 +606,156 @@ def create_agent_runtime(
     confirmation_ttl_seconds: int = 60,
     session_approval_ttl_seconds: int = 1800,
     plan_ttl_seconds: int = 300,
-    workspace: Path | None = None,
+    max_steps: int = 8,
+    model: str = "auto",
+    workspace: Any = None,
     managed_services: ManagedServiceRegistry | None = None,
+    command_runner: CommandRunner | None = None,
+    agent_service: AgentService | None = None,
+    agent_turn: AgentTurnHandler | None = None,
+    schedule_reminder: ReminderScheduleHandler | None = None,
+    token_factory: Callable[[], str] = lambda: token_urlsafe(6),
 ) -> AgentRuntime:
-    """创建默认工具集，不触发远程能力刷新或任何账户操作。"""
-
+    """创建默认本地工具集；工具执行始终受本文件的边界限制。"""
     registry = managed_services or ManagedServiceRegistry([], [])
 
     async def account_status(_: dict[str, str]) -> str:
-        result = format_account_status(await service.get_account_status())
-        if registry.configuration_issues:
-            return "\n".join([
-                result,
-                "",
-                "智能体受管服务配置提示：",
-                *(f"- {issue}" for issue in registry.configuration_issues),
-            ])
-        return result
+        return format_account_status(await service.get_account_status())
 
     async def model_catalog(_: dict[str, str]) -> str:
         return _format_model_catalog(await service.get_model_catalog(fetch_remote=False))
 
-    async def confirmation_demo(_: dict[str, str]) -> str:
-        return "确认事务已完成，未执行外部操作。"
-
     async def environment(_: dict[str, str]) -> str:
         return format_environment_diagnostics(collect_environment_diagnostics())
 
-    workspace_tools: list[AgentTool] = []
+    tools = [
+        AgentTool("状态", "查看 ChatGPT 账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
+        AgentTool("模型", "查看已缓存的模型目录", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
+        AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
+    ]
+    if command_runner is not None:
+        async def run_command(arguments: dict[str, str]) -> str:
+            return await command_runner.run(arguments)
+
+        def validate_command(arguments: dict[str, str]) -> str:
+            try:
+                command_runner.parse(arguments)
+            except CommandValidationError as error:
+                return str(error)
+            return ""
+
+        tools.append(AgentTool(
+            "运行系统命令",
+            "使用明确的程序和 JSON argv 执行一次跨平台系统命令。不会运行 shell 字符串；必须经超级用户确认。",
+            AgentPermission.PROCESS_CONTROL,
+            AgentApproval.CONFIRM,
+            run_command,
+            (
+                AgentToolParameter("程序", "可执行程序路径或命令名"),
+                AgentToolParameter("参数", "JSON 字符串数组，例如 [\"--version\"]"),
+                AgentToolParameter("工作目录", "可选工作目录；未填写时使用配置的命令目录", required=False),
+                AgentToolParameter("超时秒数", "可选整数，1 到 600", required=False),
+            ),
+            lambda arguments: command_runner.parse(arguments).display(),
+            argument_validator=validate_command,
+        ))
+    if schedule_reminder is not None:
+        async def schedule_reminder_tool(arguments: dict[str, str], run: AgentRun) -> str:
+            try:
+                delay_seconds = int(arguments["延迟秒数"])
+            except ValueError:
+                return "提醒延迟必须是整数秒。"
+            if not 1 <= delay_seconds <= 604800:
+                return "提醒延迟必须在 1 秒到 7 天之间。"
+            return await schedule_reminder(run, delay_seconds, arguments["内容"])
+
+        def validate_reminder(arguments: dict[str, str]) -> str:
+            try:
+                delay_seconds = int(arguments["延迟秒数"])
+            except ValueError:
+                return "提醒延迟必须是整数秒。"
+            if not 1 <= delay_seconds <= 604800:
+                return "提醒延迟必须在 1 秒到 7 天之间。"
+            if not arguments["内容"].strip():
+                return "提醒内容不能为空。"
+            return ""
+
+        tools.append(AgentTool(
+            "安排提醒",
+            "在原聊天范围安排一次提醒。仅可提醒发起任务的用户；到时会回到同一逻辑会话，按当前人设生成提醒。",
+            AgentPermission.MESSAGE_SEND,
+            AgentApproval.AUTOMATIC,
+            _raise_direct_only,
+            (
+                AgentToolParameter("延迟秒数", "距现在的整数秒数，范围 1 到 604800"),
+                AgentToolParameter("内容", "提醒内容"),
+            ),
+            lambda arguments: f"在 {arguments['延迟秒数']} 秒后提醒：{arguments['内容'][:120]}",
+            run_handler=schedule_reminder_tool,
+            argument_validator=validate_reminder,
+        ))
     if workspace is not None:
         agent_workspace = AgentWorkspace(workspace)
 
-        async def list_workspace_files(arguments: dict[str, str]) -> str:
+        async def list_files(arguments: dict[str, str]) -> str:
             try:
                 return agent_workspace.list_files(arguments.get("路径", ""))
             except WorkspaceError as error:
                 return f"工作目录操作已拒绝：{error}"
 
-        async def read_workspace_file(arguments: dict[str, str]) -> str:
+        async def read_file(arguments: dict[str, str]) -> str:
             try:
                 return agent_workspace.read_text(arguments["路径"])
             except WorkspaceError as error:
                 return f"工作目录操作已拒绝：{error}"
 
-        async def write_workspace_file(arguments: dict[str, str]) -> str:
+        async def write_file(arguments: dict[str, str]) -> str:
             try:
                 return agent_workspace.write_text(arguments["路径"], arguments["内容"])
             except WorkspaceError as error:
                 return f"工作目录操作已拒绝：{error}"
 
-        workspace_tools = [
-            AgentTool(
-                "列出工作区文件",
-                "列出受限智能体工作目录中的文件和目录",
-                AgentPermission.READ_LOCAL,
-                AgentApproval.CONFIRM,
-                list_workspace_files,
-                parameters=(AgentToolParameter("路径", "工作目录内的相对目录，可省略", required=False),),
-            ),
-            AgentTool(
-                "读取工作区文件",
-                "读取受限智能体工作目录内的一个 UTF-8 文本文件",
-                AgentPermission.READ_LOCAL,
-                AgentApproval.CONFIRM,
-                read_workspace_file,
-                parameters=(AgentToolParameter("路径", "工作目录内的相对文件路径"),),
-                describe_action=lambda arguments: f"读取工作目录文件 {arguments['路径']}",
-            ),
-            AgentTool(
-                "写入工作区文件",
-                "以 UTF-8 文本原子写入受限智能体工作目录内的一个文件",
-                AgentPermission.WRITE_LOCAL,
-                AgentApproval.CONFIRM,
-                write_workspace_file,
-                parameters=(
-                    AgentToolParameter("路径", "工作目录内的相对文件路径"),
-                    AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True),
-                ),
-                describe_action=lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）",
-            ),
-        ]
-
-    tools = [
-        AgentTool("状态", "查看账户与浏览器运行诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, account_status),
-        AgentTool("模型", "查看本地配置的模型别名", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, model_catalog),
-        AgentTool("环境", "查看跨平台本机基础环境诊断", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, environment),
-        AgentTool("确认演示", "验证确认流程，不执行外部操作", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, confirmation_demo),
-    ] + workspace_tools
+        tools.extend([
+            AgentTool("列出工作区文件", "列出受限工作目录内的文件和目录", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, list_files, (AgentToolParameter("路径", "工作目录内相对目录，可省略", required=False),)),
+            AgentTool("读取工作区文件", "读取受限工作目录内的一个 UTF-8 文本文件", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, read_file, (AgentToolParameter("路径", "工作目录内相对文件路径"),), lambda arguments: f"读取工作目录文件 {arguments['路径']}"),
+            AgentTool("写入工作区文件", "以 UTF-8 原子写入受限工作目录内的一个文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, write_file, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True)), lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）"),
+        ])
     if registry.process_names or registry.tcp_names:
-        async def managed_service_overview(_: dict[str, str]) -> str:
+        async def service_overview(_: dict[str, str]) -> str:
             return await registry.overview()
 
-        overview_permission = AgentPermission.READ_NETWORK if registry.tcp_names else AgentPermission.READ_LOCAL
-        overview_approval = AgentApproval.CONFIRM if registry.tcp_names else AgentApproval.AUTOMATIC
         tools.append(AgentTool(
             "受管服务概览",
-            "汇总所有已配置服务的类型、状态与重启权限",
-            overview_permission,
-            overview_approval,
-            managed_service_overview,
+            "汇总已配置服务的状态与重启权限",
+            AgentPermission.READ_NETWORK if registry.tcp_names else AgentPermission.READ_LOCAL,
+            AgentApproval.CONFIRM if registry.tcp_names else AgentApproval.AUTOMATIC,
+            service_overview,
         ))
     if registry.process_names:
-        async def process_service_status(arguments: dict[str, str]) -> str:
+        async def process_status(arguments: dict[str, str]) -> str:
             return registry.process_status(arguments["服务"])
 
-        tools.append(AgentTool(
-            "本地服务状态",
-            "查看配置中的本地 PID 服务状态",
-            AgentPermission.READ_LOCAL,
-            AgentApproval.AUTOMATIC,
-            process_service_status,
-            parameters=(AgentToolParameter("服务", "已配置的服务名称", choices=registry.process_names),),
-        ))
+        tools.append(AgentTool("本地服务状态", "查看已配置 PID 服务的状态", AgentPermission.READ_LOCAL, AgentApproval.AUTOMATIC, process_status, (AgentToolParameter("服务", "已配置服务名", choices=registry.process_names),)))
     if registry.tcp_names:
-        async def tcp_service_status(arguments: dict[str, str]) -> str:
+        async def tcp_status(arguments: dict[str, str]) -> str:
             return await registry.tcp_status(arguments["服务"])
 
-        tools.append(AgentTool(
-            "网络服务状态",
-            "探测配置中的 TCP 服务连通性",
-            AgentPermission.READ_NETWORK,
-            AgentApproval.CONFIRM,
-            tcp_service_status,
-            parameters=(AgentToolParameter("服务", "已配置的服务名称", choices=registry.tcp_names),),
-        ))
+        tools.append(AgentTool("网络服务状态", "探测已配置 TCP 服务的连通性", AgentPermission.READ_NETWORK, AgentApproval.CONFIRM, tcp_status, (AgentToolParameter("服务", "已配置服务名", choices=registry.tcp_names),)))
     if registry.restart_names:
         async def restart_service(arguments: dict[str, str]) -> str:
             return await registry.restart(arguments["服务"])
 
-        tools.append(AgentTool(
-            "重启受管服务",
-            "使用管理员配置的命令重启指定服务",
-            AgentPermission.PROCESS_CONTROL,
-            AgentApproval.CONFIRM,
-            restart_service,
-            parameters=(AgentToolParameter("服务", "允许重启的服务名称", choices=registry.restart_names),),
-            describe_action=lambda arguments: f"重启受管服务 {arguments['服务']}（使用管理员配置）",
-        ))
-    return AgentRuntime(tools,
+        tools.append(AgentTool("重启受管服务", "使用管理员预配置命令重启指定服务", AgentPermission.PROCESS_CONTROL, AgentApproval.CONFIRM, restart_service, (AgentToolParameter("服务", "允许重启的服务名", choices=registry.restart_names),), lambda arguments: f"重启受管服务 {arguments['服务']}（使用管理员配置）"))
+    return AgentRuntime(
+        service,
+        tools,
         confirmation_ttl_seconds=confirmation_ttl_seconds,
         session_approval_ttl_seconds=session_approval_ttl_seconds,
         plan_ttl_seconds=plan_ttl_seconds,
-        planner=AgentPlanner(service),
+        max_steps=max_steps,
+        model=model,
+        agent_service=agent_service,
+        agent_turn=agent_turn,
+        schedule_reminder=schedule_reminder,
+        token_factory=token_factory,
     )

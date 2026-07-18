@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Awaitable, Callable, Literal
 
-from ChatGPTWeb import ChatRequest, ChatResult, ChatService, ConversationOperation
+from ChatGPTWeb import AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn, ChatRequest, ChatResult, ChatService, ConversationOperation
 from ChatGPTWeb.api import ChatStreamEvent
 from ChatGPTWeb.config import IOFile
 
@@ -66,6 +66,46 @@ class ChatRuntime:
                 deep_research=deep_research,
                 on_event=on_event,
             )
+
+    async def agent_turn(
+        self,
+        key: ConversationKey,
+        task: str,
+        tools: list[AgentTool],
+        *,
+        state: AgentState | None = None,
+        tool_result: AgentToolResult | None = None,
+        model: str = "auto",
+    ) -> AgentTurn:
+        """在当前逻辑会话中执行一轮受控智能体决策。
+
+        首轮会沿用已有角色、人设和聊天上下文；续轮则由工具结果推进同一
+        ChatGPT 会话。工具执行权始终留在插件宿主，不会交给核心模型。
+        """
+        async with self._conversation_lock(key):
+            conversation = await self._conversations.get(key)
+            selected_model = model if model and model != "auto" else (conversation.model or "auto")
+            cursor = state or AgentState(
+                conversation_id=conversation.conversation_id,
+                parent_message_id=conversation.parent_message_id,
+                model=selected_model,
+            )
+            turn = await AgentService(self._service).turn(
+                task,
+                tools,
+                state=cursor,
+                tool_result=tool_result,
+                model=selected_model,
+                continue_existing=bool(cursor.conversation_id and tool_result is None),
+            )
+            if turn.ok:
+                conversation.conversation_id = turn.state.conversation_id
+                conversation.parent_message_id = turn.state.parent_message_id
+                conversation.model = turn.state.model or conversation.model
+                if not conversation.label:
+                    conversation.label = self._build_session_label(task or "智能体任务")
+                await self._conversations.save(key, conversation)
+            return turn
 
     async def _chat_locked(
         self,

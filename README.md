@@ -145,7 +145,13 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 单次待确认操作的有效秒数；超时后需要重新计划或重新执行。 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数；写入、网络和进程控制始终逐次确认。 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
+| gpt_agent_max_steps | 否 | 8 | 1-20 | 单个智能体任务可连续执行的最大工具步数；达到上限会停止，避免模型循环消耗额度。 |
+| gpt_agent_model | 否 | auto | str | 智能体模型决策使用的模型别名；保持 `auto` 会按核心账户能力选择。 |
 | gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
+| gpt_agent_schedule_enabled | 否 | true | bool | 注册受控异步提醒工具；到时会回到原逻辑会话，由当前人设生成提醒。 |
+| gpt_agent_command_enabled | 否 | false | bool | 注册通用系统命令工具。仅超级用户入口可用，且每次执行都需要原聊天范围确认。 |
+| gpt_agent_command_timeout | 否 | 30 | 1-600 | 通用系统命令的默认超时秒数。 |
+| gpt_agent_command_workdir | 否 | 空 | Path | 通用系统命令允许使用的工作目录根；设置后，模型指定的工作目录不得离开该路径。 |
 | gpt_agent_managed_services | 否 | `[]` | JSON List[Dict] | 管理员预先声明的 `pid_file` 或 `tcp` 服务；模型不能传入任意进程、端口或 shell 命令。 |
 
 > `gpt_init_group_pernal_name` 与 `gpt_init_friend_pernal_name` 是历史拼写，仅保留兼容读取；新配置请使用带 `persona` 的字段。`begin_sleep_time`、`gpt_lgr_markdown`、`gpt_httpx`、`gpt_url_replace` 已废弃，分别迁移为 `gpt_begin_sleep_time`、`gpt_render_mode`，或直接删除。
@@ -269,8 +275,16 @@ gpt_agent_enabled=false
 gpt_agent_confirm_timeout=60
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
+gpt_agent_max_steps=8
+gpt_agent_model="auto"
 # 文件工具只允许访问此工作目录；不需要文件能力时保持未配置。
 gpt_agent_workspace="./data/agent-workspace"
+# 异步提醒会在重启后恢复；设为 false 则不注册该工具。
+gpt_agent_schedule_enabled=true
+# 通用命令默认关闭。开启后模型仍只能提出 argv，且每次由超级用户确认。
+gpt_agent_command_enabled=false
+gpt_agent_command_timeout=30
+gpt_agent_command_workdir="./data/agent-command-workdir"
 gpt_agent_managed_services='[{"name":"bot","kind":"pid_file","pid_file":"/run/nonebot.pid","restart_command":["systemctl","restart","nonebot"],"restart_check_seconds":5},{"name":"local-api","kind":"tcp","host":"127.0.0.1","port":8080}]'
     
 
@@ -308,7 +322,7 @@ SUPERUSERS=["admin user id"]
 | 解黑 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 解黑<账号> ，解除黑名单 |
 | 白名单列表 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看白名单列表 |
 | 工作状态 | 兼容 | 超级管理员/超管群 | 是 | 群聊/私聊/频道 | 查看当前所有账号的工作状态 |
-| 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 gpt_agent_enabled；“计划 <任务>”只生成受控工具建议，需在原聊天范围使用“执行 <编号>”才会运行对应工具；“审计 [数量]”查看当前运行的无敏感操作记录 |
+| 智能体 | 兼容 | 仅超级管理员 | 是 | 群聊/私聊/频道 | 需启用 `gpt_agent_enabled`；`智能体 <自然语言任务>` 会由核心模型多轮选择插件已注册工具，自动步骤会继续执行，写入/网络/进程步骤在原聊天范围等待“确认 <编号>”；“计划 <任务>”仅预览真实首步决策。详见 `docs/agent.md`。 |
 | 生成cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性会话白名单 CDK，并记录创建者、创建会话与可选来源备注 |
 | 生成个人cdk [来源] | 兼容 | 仅超级管理员 | 是 | 任意会话 | 生成一次性个人白名单 CDK，兑换者可在同一适配器的任意会话聊天 |
 | 兑换 <CDK> | 兼容 | 无 | 是 | 群聊/私聊/频道 | 使用 `@机器人 兑换 <CDK>` 或 `机器人昵称 兑换 <CDK>`；根据 CDK 类型授权当前会话或兑换者本人，兼容旧别名“出现吧”，每个 CDK 只能兑换一次 |
@@ -417,7 +431,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 
 ### 智能体Agent
 
-暂未实现，相关命令可忽略
+智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区读写、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
 
 ### 更新日志
 2026.07.16 1.1.3

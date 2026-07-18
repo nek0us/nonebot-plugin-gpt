@@ -62,6 +62,20 @@ class HistoryViewTests(unittest.TestCase):
         self.assertEqual([item["Q"] for item in projection.entries], ["你好"])
         self.assertEqual(projection.resolve_rewind_reference("1"), "2")
 
+    def test_agent_protocol_rounds_are_hidden_and_keep_rewind_mapping(self):
+        history = [
+            {"Q": "【ChatGPTWeb Agent Protocol】\n工具清单", "A": '{"type":"tool_call"}'},
+            {"Q": "你好", "A": "你好呀"},
+            {"Q": "【ChatGPTWeb Agent Protocol】\n工具结果", "A": '{"type":"final"}'},
+            {"Q": "提醒到时", "A": "记得喝水"},
+        ]
+
+        projection = history_views.project_history(history)
+
+        self.assertEqual([item["Q"] for item in projection.entries], ["你好", "提醒到时"])
+        self.assertEqual(projection.resolve_rewind_reference("1"), "2")
+        self.assertEqual(projection.resolve_rewind_reference("2"), "4")
+
     def test_history_shows_group_speaker_name_by_default(self):
         history = [
             {

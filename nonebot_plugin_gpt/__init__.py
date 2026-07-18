@@ -9,7 +9,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
 from nonebot_plugin_alconna import Match, on_alconna
-from nonebot_plugin_alconna.uniseg import OriginalUniMsg, UniMessage
+from nonebot_plugin_alconna.uniseg import OriginalUniMsg, Target, UniMessage, get_target
 from importlib.metadata import version
 import asyncio
 import json
@@ -22,6 +22,7 @@ from .source import (
     cdk_registry_path,
     conversation_store_path,
     data_dir,
+    agent_schedule_path,
     legacy_cdk_list_path,
     legacy_cdk_source_path,
     personpath,
@@ -29,6 +30,8 @@ from .source import (
     whitepath,
 )
 from .agent_runtime import create_agent_runtime
+from .agent_commands import CommandRunner
+from .agent_scheduler import AgentScheduler, ScheduledReminder
 from .managed_services import ManagedServiceRegistry
 from .check import add_personal_white, add_white, del_personal_white, del_white, get_access_session_id, get_event_user_id, get_event_user_identity, gpt_cdk_redeem_rule, gpt_command_rule, gpt_manage_rule, gpt_operator_command_rule, gpt_persona_editor_rule, gpt_rule, gpt_superuser_rule, plus_status, read_whitelist
 from .cdk import CdkRegistry
@@ -294,17 +297,6 @@ if isinstance(config_gpt.gpt_session,list):
         )
     chat_service = ChatService(chatbot)
     failure_diagnostics = ChatFailureDiagnostics()
-    managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
-    for issue in managed_services.configuration_issues:
-        logger.warning(f"智能体受管服务配置：{issue}")
-    agent_runtime = create_agent_runtime(
-        chat_service,
-        confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
-        session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
-        plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
-        workspace=config_gpt.gpt_agent_workspace,
-        managed_services=managed_services,
-    )
     chat_runtime = ChatRuntime(
         chat_service,
         ConversationStore(conversation_store_path),
@@ -313,6 +305,66 @@ if isinstance(config_gpt.gpt_session,list):
             utilization_threshold=config_gpt.gpt_context_compaction_threshold,
             minimum_estimated_tokens=config_gpt.gpt_context_compaction_min_tokens,
         ),
+    )
+
+    async def deliver_scheduled_reminder(item: ScheduledReminder) -> None:
+        """在异步事件到期后回到原逻辑会话，交给当前人设自然提醒。"""
+        key = ConversationKey(item.conversation_session_id, item.conversation_user_id)
+        prompt = (
+            "【异步事件】你之前为当前用户安排的一次提醒现在到时。"
+            "请按照当前人设自然地提醒对方，不要提及智能体、工具、系统事件或内部实现。"
+            f"提醒内容：{item.content}"
+        )
+        message = await chat_reply(
+            chat_runtime,
+            key,
+            prompt,
+            supports_markdown=False,
+            render_mode=config_gpt.gpt_render_mode,
+            render_markdown=chat_markdown_renderer,
+            error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
+            failure_diagnostics=failure_diagnostics,
+        )
+        await message.send(Target.load(item.target), at_sender=item.user_id or False)
+
+    agent_scheduler = AgentScheduler(agent_schedule_path, deliver_scheduled_reminder)
+
+    async def schedule_agent_reminder(run, delay_seconds: int, content: str) -> str:
+        if run.conversation_key is None or not run.delivery_target:
+            return "当前消息没有可用于后续投递的跨平台目标，未安排提醒。"
+        item = await agent_scheduler.schedule(
+            delay_seconds=delay_seconds,
+            target=run.delivery_target,
+            conversation_session_id=run.conversation_key.session_id,
+            conversation_user_id=run.conversation_key.user_id,
+            user_id=run.delivery_user_id,
+            content=content,
+        )
+        return f"提醒已安排，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
+
+    managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
+    for issue in managed_services.configuration_issues:
+        logger.warning(f"智能体受管服务配置：{issue}")
+    command_runner = None
+    if config_gpt.gpt_agent_command_enabled:
+        command_runner = CommandRunner(
+            default_timeout_seconds=config_gpt.gpt_agent_command_timeout,
+            working_directory=config_gpt.gpt_agent_command_workdir,
+        )
+        logger.warning("已启用智能体系统命令工具；每次执行仍需要超级用户在原聊天范围确认")
+    agent_runtime = create_agent_runtime(
+        chat_service,
+        confirmation_ttl_seconds=config_gpt.gpt_agent_confirm_timeout,
+        session_approval_ttl_seconds=config_gpt.gpt_agent_session_approval_timeout,
+        plan_ttl_seconds=config_gpt.gpt_agent_plan_timeout,
+        max_steps=config_gpt.gpt_agent_max_steps,
+        model=config_gpt.gpt_agent_model,
+        workspace=config_gpt.gpt_agent_workspace,
+        managed_services=managed_services,
+        command_runner=command_runner,
+        agent_turn=chat_runtime.agent_turn,
+        schedule_reminder=schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
     )
     auto_persona = AutoPersonaInitializer(
         chat_runtime,
@@ -329,9 +381,12 @@ if isinstance(config_gpt.gpt_session,list):
         loop = asyncio.get_running_loop()
         chatbot._start_task = asyncio.create_task(chatbot.__start__(loop))
         await ensure_default_persona(chatbot)
+        if config_gpt.gpt_agent_enabled and config_gpt.gpt_agent_schedule_enabled:
+            await agent_scheduler.start()
 
     @driver.on_shutdown
     async def close_chatbot():
+        await agent_scheduler.close()
         start_task = chatbot._start_task
         if start_task and not start_task.done():
             start_task.cancel()
@@ -716,14 +771,25 @@ if isinstance(config_gpt.gpt_session,list):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         value = _argument_text(argument)
+        key = ConversationKey.from_event(event)
+        model, prefer_paid_account = await select_model(event)
+        auto_result = await auto_persona.ensure_initialized(
+            key,
+            is_shared=_is_group_context(event),
+            model=model,
+            prefer_paid_account=prefer_paid_account,
+        )
+        if auto_result is not None and not auto_result.ok:
+            logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
         text = await agent_runtime.execute(
             value,
             operator_id=event.get_user_id(),
             scope_id=get_access_session_id(event),
+            conversation_key=key,
+            delivery_target=get_target(event).dump(),
+            delivery_user_id=event.get_user_id(),
         )
-        await _finish_management_document(
-            matcher, event, title="智能体结果", pages=markdown_pages_from_text("智能体结果", text), fallback=text,
-        )
+        await finish_message(matcher, event, UniMessage.text(text))
 
     create_cdk = legacy_command("生成cdk", rule=gpt_superuser_rule, priority=config_gpt.gpt_command_priority, block=True)
     @create_cdk.handle()
