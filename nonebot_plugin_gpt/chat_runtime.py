@@ -77,35 +77,47 @@ class ChatRuntime:
         tool_result: AgentToolResult | None = None,
         model: str = "auto",
     ) -> AgentTurn:
-        """在当前逻辑会话中执行一轮受控智能体决策。
+        """在独立的控制会话中执行一轮受控智能体决策。
 
-        首轮会沿用已有角色、人设和聊天上下文；续轮则由工具结果推进同一
-        ChatGPT 会话。工具执行权始终留在插件宿主，不会交给核心模型。
+        工具协议不能和角色扮演正文共用物理会话：人设会自然优先输出日常
+        对话，而不是严格 JSON，且协议消息也不应污染用户的聊天记录。Agent
+        游标只由 ``AgentState`` 持有；普通逻辑会话始终保留自己的位置。
         """
         async with self._conversation_lock(key):
             conversation = await self._conversations.get(key)
             selected_model = model if model and model != "auto" else (conversation.model or "auto")
-            cursor = state or AgentState(
-                conversation_id=conversation.conversation_id,
-                parent_message_id=conversation.parent_message_id,
-                model=selected_model,
-            )
-            turn = await AgentService(self._service).turn(
+            cursor = state or AgentState(model=selected_model)
+            return await AgentService(self._service).turn(
                 task,
                 tools,
                 state=cursor,
                 tool_result=tool_result,
                 model=selected_model,
-                continue_existing=bool(cursor.conversation_id and tool_result is None),
+                continue_existing=False,
             )
-            if turn.ok:
-                conversation.conversation_id = turn.state.conversation_id
-                conversation.parent_message_id = turn.state.parent_message_id
-                conversation.model = turn.state.model or conversation.model
-                if not conversation.label:
-                    conversation.label = self._build_session_label(task or "智能体任务")
-                await self._conversations.save(key, conversation)
-            return turn
+
+    async def render_agent_final(
+        self,
+        key: ConversationKey,
+        task: str,
+        agent_answer: str,
+        *,
+        model: str = "auto",
+    ) -> str:
+        """让已有角色以自然口吻呈现已完成的受控任务结果。"""
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            if not state.conversation_id:
+                return agent_answer
+            prompt = "\n".join((
+                "【已完成的受控任务】",
+                "下面是可信的任务完成结果。请按当前人设自然回复用户，",
+                "不要提及 JSON、协议、工具调用或内部执行过程；不要重复执行任务。",
+                f"用户原任务：{task}",
+                f"完成结果：{agent_answer}",
+            ))
+            result = await self._chat_locked(key, prompt, model=model or state.model)
+            return result.text if result.ok and result.text.strip() else agent_answer
 
     async def _chat_locked(
         self,

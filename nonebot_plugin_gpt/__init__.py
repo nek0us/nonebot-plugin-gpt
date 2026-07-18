@@ -377,6 +377,16 @@ if isinstance(config_gpt.gpt_session,list):
             return "提醒已取消。" if cancelled else "未找到可取消的提醒；只能取消你在当前聊天范围创建的未到期提醒。"
         return "不支持的提醒操作。"
 
+    async def render_agent_final(run, answer: str) -> str:
+        if run.conversation_key is None:
+            return answer
+        return await chat_runtime.render_agent_final(
+            run.conversation_key,
+            run.task,
+            answer,
+            model=run.model,
+        )
+
     managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)
     for issue in managed_services.configuration_issues:
         logger.warning(f"智能体受管服务配置：{issue}")
@@ -397,6 +407,7 @@ if isinstance(config_gpt.gpt_session,list):
         "managed_services": managed_services,
         "command_runner": command_runner,
         "agent_turn": chat_runtime.agent_turn,
+        "final_renderer": render_agent_final,
         "schedule_reminder": schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
         "reminder_operation": operate_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
     }

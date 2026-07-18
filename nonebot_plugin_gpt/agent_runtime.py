@@ -26,6 +26,7 @@ AgentTurnHandler = Callable[..., Awaitable[AgentTurn]]
 AgentRunActionHandler = Callable[[dict[str, str], "AgentRun"], Awaitable[str]]
 ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
 ReminderOperationHandler = Callable[["AgentRun", str, str], Awaitable[str]]
+AgentFinalRenderer = Callable[["AgentRun", str], Awaitable[str]]
 
 
 class AgentPermission(str, Enum):
@@ -178,6 +179,7 @@ class AgentRuntime:
         agent_turn: AgentTurnHandler | None = None,
         schedule_reminder: ReminderScheduleHandler | None = None,
         reminder_operation: ReminderOperationHandler | None = None,
+        final_renderer: AgentFinalRenderer | None = None,
         access: AgentAccess = AgentAccess.SUPERUSER,
     ):
         self._tools = {tool.name: tool for tool in tools}
@@ -185,6 +187,7 @@ class AgentRuntime:
             raise ValueError("智能体工具名称不能重复")
         self._agent_service = agent_service or AgentService(service)
         self._agent_turn = agent_turn
+        self._final_renderer = final_renderer
         self._access = access
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
@@ -356,8 +359,11 @@ class AgentRuntime:
             return f"智能体未能继续执行：{turn.decision.error or '模型请求失败'}"
         if turn.decision.kind == "final":
             self._audit.record("任务已完成", "智能体模型")
-            # 最终答复由模型按当前人设生成，直接交给聊天层发送，避免把
-            # “智能体已完成”之类的内部口吻带进角色扮演。
+            if self._final_renderer is not None:
+                try:
+                    return await self._final_renderer(run, turn.decision.answer)
+                except Exception:
+                    logger.exception("智能体最终答复人设化失败，回退到控制会话答复")
             return turn.decision.answer
         if run.steps >= self._max_steps:
             self._audit.record("任务达到步数上限", "智能体模型")
@@ -654,6 +660,7 @@ def create_agent_runtime(
     agent_turn: AgentTurnHandler | None = None,
     schedule_reminder: ReminderScheduleHandler | None = None,
     reminder_operation: ReminderOperationHandler | None = None,
+    final_renderer: AgentFinalRenderer | None = None,
     access: AgentAccess = AgentAccess.SUPERUSER,
     token_factory: Callable[[], str] = lambda: token_urlsafe(6),
 ) -> AgentRuntime:
@@ -830,6 +837,7 @@ def create_agent_runtime(
         agent_turn=agent_turn,
         schedule_reminder=schedule_reminder,
         reminder_operation=reminder_operation,
+        final_renderer=final_renderer,
         access=access,
         token_factory=token_factory,
     )

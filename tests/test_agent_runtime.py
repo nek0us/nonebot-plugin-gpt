@@ -45,6 +45,22 @@ def _runtime(decisions, tools, **kwargs):
 
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_final_renderer_can_present_an_agent_result_in_the_current_persona(self):
+        rendered = []
+
+        async def render(run, answer):
+            rendered.append((run.task, answer))
+            return "（轻轻点头）一分钟后提醒你喝水咩。"
+
+        runtime = _runtime([
+            AgentDecision("final", answer="提醒已安排。"),
+        ], [], final_renderer=render)
+
+        text = await runtime.execute("一分钟后提醒我喝水", operator_id="admin", scope_id="group:1")
+
+        self.assertEqual(text, "（轻轻点头）一分钟后提醒你喝水咩。")
+        self.assertEqual(rendered, [("一分钟后提醒我喝水", "提醒已安排。")])
+
     async def test_agent_runs_multiple_model_tool_turns_and_returns_final_answer(self):
         calls = []
 

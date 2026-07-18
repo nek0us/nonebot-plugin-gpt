@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from ChatGPTWeb import ChatResult
+from ChatGPTWeb import AgentTool, ChatResult
 from ChatGPTWeb.config import IOFile
 
 
@@ -87,6 +87,43 @@ class SequentialService(FakeService):
 
 
 class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_agent_uses_an_isolated_control_conversation(self):
+        class AgentService(FakeService):
+            async def send(self, request):
+                self.requests.append(request)
+                return ChatResult(
+                    ok=True,
+                    text='{"type":"final","answer":"提醒已安排。"}',
+                    conversation_id="agent-control",
+                    message_id="agent-message",
+                    used_model="gpt-5",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = AgentService()
+            runtime = chat_runtime.ChatRuntime(service, store, context_policy.ContextPolicy(mode="off"))
+            key = conversation.ConversationKey("onebot.v11:group:100", "")
+            state = await store.create(key, "角色扮演")
+            state.conversation_id = "persona-conversation"
+            state.parent_message_id = "persona-message"
+            state.model = "gpt-5"
+            await store.save(key, state)
+
+            turn = await runtime.agent_turn(
+                key,
+                "一分钟后提醒我喝水",
+                [AgentTool("安排提醒", "安排一次提醒")],
+            )
+            saved = await store.get(key)
+
+        self.assertTrue(turn.ok)
+        self.assertEqual(turn.state.conversation_id, "agent-control")
+        self.assertEqual(service.requests[0].conversation_id, "")
+        self.assertEqual(service.requests[0].parent_message_id, "")
+        self.assertEqual(saved.conversation_id, "persona-conversation")
+        self.assertEqual(saved.parent_message_id, "persona-message")
+
     async def test_shared_conversation_serializes_concurrent_messages(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")
