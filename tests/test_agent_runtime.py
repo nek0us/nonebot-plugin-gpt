@@ -236,6 +236,79 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "（摇摇尾巴）十分钟后会提醒你喝水咩。")
         self.assertEqual(scheduled, [(key, {"adapter": "OneBot V11", "id": "1"}, "admin", 600, "喝水")])
 
+    async def test_superuser_can_schedule_a_reminder_for_an_actually_mentioned_member_after_confirmation(self):
+        scheduled = []
+
+        async def schedule_target(run, delay_seconds, content, target_user_id):
+            scheduled.append((run.operator_id, target_user_id, delay_seconds, content))
+            return "已为指定成员安排提醒。"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="安排指定提醒", arguments={
+                "延迟秒数": "120",
+                "对象ID": "member-2",
+                "内容": "吃饭啦",
+            }),
+            AgentDecision("final", answer="提醒已经安排好啦。"),
+        ], [])
+        target_runtime = agent_runtime.create_agent_runtime(
+            _Service(),
+            agent_service=runtime._agent_service,
+            schedule_target_reminder=schedule_target,
+            token_factory=iter(("confirm", "next")).__next__,
+        )
+        key = agent_runtime.ConversationKey("onebot.v11:group:1", "")
+
+        pending = await target_runtime.execute(
+            "两分钟后提醒 @成员 吃饭",
+            operator_id="admin",
+            scope_id="onebot.v11:group:1",
+            conversation_key=key,
+            delivery_target={"adapter": "OneBot V11", "id": "1"},
+            delivery_user_id="admin",
+            mentioned_user_ids=("member-2",),
+        )
+        completed = await target_runtime.execute(
+            "确认 confirm",
+            operator_id="admin",
+            scope_id="onebot.v11:group:1",
+        )
+
+        self.assertIn("确认 confirm", pending)
+        self.assertEqual(scheduled, [("admin", "member-2", 120, "吃饭啦")])
+        self.assertEqual(completed, "提醒已经安排好啦。")
+
+    async def test_target_reminder_rejects_a_user_not_mentioned_in_the_source_message(self):
+        scheduled = []
+
+        async def schedule_target(*_):
+            scheduled.append(True)
+            return "unexpected"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="安排指定提醒", arguments={
+                "延迟秒数": "120",
+                "对象ID": "not-mentioned",
+                "内容": "吃饭啦",
+            }),
+        ], [])
+        target_runtime = agent_runtime.create_agent_runtime(
+            _Service(),
+            agent_service=runtime._agent_service,
+            schedule_target_reminder=schedule_target,
+        )
+
+        text = await target_runtime.execute(
+            "两分钟后提醒某人吃饭",
+            operator_id="admin",
+            scope_id="onebot.v11:group:1",
+            mentioned_user_ids=("member-2",),
+        )
+
+        self.assertIn("实际提及", text)
+        self.assertEqual(scheduled, [])
+        self.assertEqual(target_runtime._pending, {})
+
     async def test_member_runtime_only_exposes_personal_reminder_tools(self):
         scheduled = []
 

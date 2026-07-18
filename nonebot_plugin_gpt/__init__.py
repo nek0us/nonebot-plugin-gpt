@@ -9,7 +9,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.typing import T_State
 from nonebot import get_driver
 from nonebot_plugin_alconna import Match, on_alconna
-from nonebot_plugin_alconna.uniseg import OriginalUniMsg, Target, UniMessage, get_target
+from nonebot_plugin_alconna.uniseg import At, OriginalUniMsg, Target, UniMessage, get_target
 from importlib.metadata import version
 import asyncio
 import json
@@ -143,6 +143,32 @@ def _is_group_admin(event: Event) -> bool:
     """仅在适配器明确给出 owner/admin 身份时允许 R18 群聊初始化。"""
     sender = getattr(event, "sender", None)
     return getattr(sender, "role", "member") in {"owner", "admin"}
+
+
+def _agent_mention_context(message: OriginalUniMsg, *, self_id: str) -> tuple[tuple[str, ...], str]:
+    """提取本条 Agent 命令的真实 @ 目标，供超级用户受控提醒使用。"""
+    try:
+        segments = UniMessage.of(message)
+    except Exception:
+        return (), ""
+    targets: list[tuple[str, str]] = []
+    for segment in segments:
+        if not isinstance(segment, At) or segment.flag != "user":
+            continue
+        identifier = str(segment.target).strip()
+        if not identifier or identifier == str(self_id).strip():
+            continue
+        display = " ".join((segment.display or "").split()) or identifier
+        if identifier not in {item[0] for item in targets}:
+            targets.append((identifier, display))
+    if not targets:
+        return (), ""
+    lines = [
+        "【本条消息的提及对象】",
+        "以下 ID 来自实际 @ 提及；如任务要求提醒其中一人，只能使用这些 ID 作为“安排指定提醒”的对象ID。",
+        *(f"- {display}：{identifier}" for identifier, display in targets),
+    ]
+    return tuple(identifier for identifier, _ in targets), "\n".join(lines)
 
 
 async def _finish_management_message(matcher: Matcher, event: Event, message) -> None:
@@ -335,7 +361,7 @@ if isinstance(config_gpt.gpt_session,list):
         if run.conversation_key is None or not run.delivery_target:
             return "当前消息没有可用于后续投递的跨平台目标，未安排提醒。"
         existing = await agent_scheduler.list_for_user(
-            user_id=run.delivery_user_id,
+            user_id=run.operator_id,
             conversation_session_id=run.conversation_key.session_id,
         )
         if run.access is AgentAccess.MEMBER:
@@ -351,15 +377,30 @@ if isinstance(config_gpt.gpt_session,list):
             conversation_user_id=run.conversation_key.user_id,
             user_id=run.delivery_user_id,
             content=content,
+            owner_id=run.operator_id,
         )
         return f"提醒已安排，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
+
+    async def schedule_target_agent_reminder(run, delay_seconds: int, content: str, target_user_id: str) -> str:
+        if run.conversation_key is None or not run.delivery_target:
+            return "当前消息没有可用于后续投递的跨平台目标，未安排提醒。"
+        item = await agent_scheduler.schedule(
+            delay_seconds=delay_seconds,
+            target=run.delivery_target,
+            conversation_session_id=run.conversation_key.session_id,
+            conversation_user_id=run.conversation_key.user_id,
+            user_id=target_user_id,
+            content=content,
+            owner_id=run.operator_id,
+        )
+        return f"已为指定成员安排提醒，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
 
     async def operate_agent_reminder(run, operation: str, identifier: str) -> str:
         if run.conversation_key is None or not run.delivery_user_id:
             return "当前消息没有可用于管理提醒的身份信息。"
         if operation == "list":
             items = await agent_scheduler.list_for_user(
-                user_id=run.delivery_user_id,
+                user_id=run.operator_id,
                 conversation_session_id=run.conversation_key.session_id,
             )
             if not items:
@@ -371,7 +412,7 @@ if isinstance(config_gpt.gpt_session,list):
         if operation == "cancel":
             cancelled = await agent_scheduler.cancel_for_user(
                 identifier,
-                user_id=run.delivery_user_id,
+                user_id=run.operator_id,
                 conversation_session_id=run.conversation_key.session_id,
             )
             return "提醒已取消。" if cancelled else "未找到可取消的提醒；只能取消你在当前聊天范围创建的未到期提醒。"
@@ -409,6 +450,7 @@ if isinstance(config_gpt.gpt_session,list):
         "agent_turn": chat_runtime.agent_turn,
         "final_renderer": render_agent_final,
         "schedule_reminder": schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
+        "schedule_target_reminder": schedule_target_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
         "reminder_operation": operate_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,
     }
     agent_runtime = create_agent_runtime(
@@ -822,7 +864,7 @@ if isinstance(config_gpt.gpt_session,list):
 
     agent = legacy_command("agent", aliases={"智能体"}, rule=gpt_agent_rule, priority=config_gpt.gpt_command_priority, block=True)
     @agent.handle()
-    async def agent_handle(event: Event, argument: Match[str], matcher: Matcher):
+    async def agent_handle(event: Event, argument: Match[str], original_message: OriginalUniMsg, matcher: Matcher):
         if not config_gpt.gpt_agent_enabled:
             await matcher.finish("智能体功能未启用。请在配置中设置 gpt_agent_enabled=true 后重启机器人。")
         is_superuser = event.get_user_id() in config_nb.superusers
@@ -840,6 +882,10 @@ if isinstance(config_gpt.gpt_session,list):
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
         runtime = agent_runtime if is_superuser else member_agent_runtime
+        mentioned_user_ids, agent_context = _agent_mention_context(
+            original_message,
+            self_id=str(getattr(event, "self_id", "")),
+        )
         text = await runtime.execute(
             value,
             operator_id=event.get_user_id(),
@@ -847,6 +893,8 @@ if isinstance(config_gpt.gpt_session,list):
             conversation_key=key,
             delivery_target=get_target(event).dump(),
             delivery_user_id=event.get_user_id(),
+            mentioned_user_ids=mentioned_user_ids,
+            agent_context=agent_context if is_superuser else "",
         )
         await finish_message(matcher, event, UniMessage.text(text))
 

@@ -87,3 +87,24 @@ class AgentSchedulerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(await scheduler.cancel_for_user(own.id, user_id="alice", conversation_session_id="console:group:2"))
             self.assertFalse(await scheduler.cancel_for_user(own.id, user_id="bob", conversation_session_id="console:group:1"))
             self.assertTrue(await scheduler.cancel_for_user(own.id, user_id="alice", conversation_session_id="console:group:1"))
+
+    async def test_creator_can_manage_a_reminder_delivered_to_another_member(self):
+        with TemporaryDirectory() as temporary:
+            scheduler = agent_scheduler.AgentScheduler(Path(temporary) / "reminders.json", lambda _: asyncio.sleep(0))
+            item = await scheduler.schedule(
+                delay_seconds=60,
+                target={"adapter": "Console", "id": "group"},
+                conversation_session_id="console:group:1",
+                conversation_user_id="",
+                user_id="recipient",
+                owner_id="admin",
+                content="吃饭",
+            )
+
+            owner_items = await scheduler.list_for_user(user_id="admin", conversation_session_id="console:group:1")
+            recipient_items = await scheduler.list_for_user(user_id="recipient", conversation_session_id="console:group:1")
+
+            self.assertEqual([value.id for value in owner_items], [item.id])
+            self.assertEqual(recipient_items, [])
+            self.assertFalse(await scheduler.cancel_for_user(item.id, user_id="recipient", conversation_session_id="console:group:1"))
+            self.assertTrue(await scheduler.cancel_for_user(item.id, user_id="admin", conversation_session_id="console:group:1"))

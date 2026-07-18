@@ -24,7 +24,9 @@ from .management_views import format_account_status
 AgentActionHandler = Callable[[dict[str, str]], Awaitable[str]]
 AgentTurnHandler = Callable[..., Awaitable[AgentTurn]]
 AgentRunActionHandler = Callable[[dict[str, str], "AgentRun"], Awaitable[str]]
+AgentRunArgumentValidator = Callable[[dict[str, str], "AgentRun"], str]
 ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
+TargetReminderScheduleHandler = Callable[["AgentRun", int, str, str], Awaitable[str]]
 ReminderOperationHandler = Callable[["AgentRun", str, str], Awaitable[str]]
 AgentFinalRenderer = Callable[["AgentRun", str], Awaitable[str]]
 
@@ -89,6 +91,7 @@ class AgentTool:
     describe_action: Callable[[dict[str, str]], str] | None = None
     run_handler: AgentRunActionHandler | None = None
     argument_validator: Callable[[dict[str, str]], str] | None = None
+    run_argument_validator: AgentRunArgumentValidator | None = None
     minimum_access: AgentAccess = AgentAccess.SUPERUSER
 
     def core_definition(self) -> CoreAgentTool:
@@ -130,6 +133,8 @@ class AgentRun:
     conversation_key: ConversationKey | None = None
     delivery_target: dict[str, Any] | None = None
     delivery_user_id: str = ""
+    mentioned_user_ids: tuple[str, ...] = ()
+    agent_context: str = ""
     access: AgentAccess = AgentAccess.SUPERUSER
 
 
@@ -178,6 +183,7 @@ class AgentRuntime:
         agent_service: AgentService | None = None,
         agent_turn: AgentTurnHandler | None = None,
         schedule_reminder: ReminderScheduleHandler | None = None,
+        schedule_target_reminder: TargetReminderScheduleHandler | None = None,
         reminder_operation: ReminderOperationHandler | None = None,
         final_renderer: AgentFinalRenderer | None = None,
         access: AgentAccess = AgentAccess.SUPERUSER,
@@ -187,6 +193,7 @@ class AgentRuntime:
             raise ValueError("智能体工具名称不能重复")
         self._agent_service = agent_service or AgentService(service)
         self._agent_turn = agent_turn
+        self._schedule_target_reminder = schedule_target_reminder
         self._final_renderer = final_renderer
         self._access = access
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
@@ -379,6 +386,9 @@ class AgentRuntime:
         if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
+        if tool.run_argument_validator is not None and (error := tool.run_argument_validator(arguments, run)):
+            self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
+            return f"智能体工具参数未通过本地校验：{error}"
         run.steps += 1
         if tool.approval is AgentApproval.CONFIRM and not self._has_session_approval(tool.permission, run.operator_id, run.scope_id):
             return self._queue_confirmation(tool, arguments, run, run.operator_id, run.scope_id)
@@ -394,6 +404,8 @@ class AgentRuntime:
         conversation_key: ConversationKey | None = None,
         delivery_target: dict[str, Any] | None = None,
         delivery_user_id: str = "",
+        mentioned_user_ids: tuple[str, ...] = (),
+        agent_context: str = "",
     ) -> str:
         run = AgentRun(
             task=task,
@@ -404,9 +416,12 @@ class AgentRuntime:
             conversation_key=conversation_key,
             delivery_target=delivery_target,
             delivery_user_id=delivery_user_id,
+            mentioned_user_ids=mentioned_user_ids,
+            agent_context=agent_context,
             access=self._access,
         )
-        turn = await self._request_turn(task, run=run)
+        model_task = "\n".join(part for part in (task.strip(), agent_context.strip()) if part)
+        turn = await self._request_turn(model_task, run=run)
         run.state = turn.state
         if plan_only:
             if not turn.ok or turn.decision.kind == "error":
@@ -429,6 +444,8 @@ class AgentRuntime:
             if error:
                 return f"智能体工具参数未通过本地校验：{error}"
             if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
+                return f"智能体工具参数未通过本地校验：{error}"
+            if tool.run_argument_validator is not None and (error := tool.run_argument_validator(arguments, run)):
                 return f"智能体工具参数未通过本地校验：{error}"
             return "\n".join([
                 "智能体首步计划（未执行）",
@@ -544,6 +561,8 @@ class AgentRuntime:
         conversation_key: ConversationKey | None = None,
         delivery_target: dict[str, Any] | None = None,
         delivery_user_id: str = "",
+        mentioned_user_ids: tuple[str, ...] = (),
+        agent_context: str = "",
     ) -> str:
         """处理 Bot 命令文本；所有自然语言任务走核心多轮 Agent 协议。"""
         normalized = value.strip()
@@ -588,6 +607,7 @@ class AgentRuntime:
                 normalized.removeprefix("计划 ").strip(), operator_id, scope_id,
                 plan_only=True, conversation_key=conversation_key,
                 delivery_target=delivery_target, delivery_user_id=delivery_user_id,
+                mentioned_user_ids=mentioned_user_ids, agent_context=agent_context,
             )
         if normalized == "执行":
             return "请提供任务，或使用“智能体 执行 <计划编号>”执行已有首步计划。"
@@ -599,6 +619,7 @@ class AgentRuntime:
                 subject, operator_id, scope_id,
                 plan_only=False, conversation_key=conversation_key,
                 delivery_target=delivery_target, delivery_user_id=delivery_user_id,
+                mentioned_user_ids=mentioned_user_ids, agent_context=agent_context,
             )
         if normalized in self._tools:
             if self._tools[normalized].run_handler is not None:
@@ -610,6 +631,8 @@ class AgentRuntime:
                     conversation_key=conversation_key,
                     delivery_target=delivery_target,
                     delivery_user_id=delivery_user_id,
+                    mentioned_user_ids=mentioned_user_ids,
+                    agent_context=agent_context,
                 )
             return await self._direct_tool(normalized, operator_id, scope_id)
         # 除保留的控制子命令外，所有文本都是自然语言任务。不要求用户先
@@ -622,6 +645,8 @@ class AgentRuntime:
             conversation_key=conversation_key,
             delivery_target=delivery_target,
             delivery_user_id=delivery_user_id,
+            mentioned_user_ids=mentioned_user_ids,
+            agent_context=agent_context,
         )
 
 
@@ -659,6 +684,7 @@ def create_agent_runtime(
     agent_service: AgentService | None = None,
     agent_turn: AgentTurnHandler | None = None,
     schedule_reminder: ReminderScheduleHandler | None = None,
+    schedule_target_reminder: TargetReminderScheduleHandler | None = None,
     reminder_operation: ReminderOperationHandler | None = None,
     final_renderer: AgentFinalRenderer | None = None,
     access: AgentAccess = AgentAccess.SUPERUSER,
@@ -707,6 +733,17 @@ def create_agent_runtime(
             lambda arguments: command_runner.parse(arguments).display(),
             argument_validator=validate_command,
         ))
+    def validate_reminder(arguments: dict[str, str]) -> str:
+        try:
+            delay_seconds = int(arguments["延迟秒数"])
+        except ValueError:
+            return "提醒延迟必须是整数秒。"
+        if not 1 <= delay_seconds <= 604800:
+            return "提醒延迟必须在 1 秒到 7 天之间。"
+        if not arguments["内容"].strip():
+            return "提醒内容不能为空。"
+        return ""
+
     if schedule_reminder is not None:
         async def schedule_reminder_tool(arguments: dict[str, str], run: AgentRun) -> str:
             try:
@@ -716,17 +753,6 @@ def create_agent_runtime(
             if not 1 <= delay_seconds <= 604800:
                 return "提醒延迟必须在 1 秒到 7 天之间。"
             return await schedule_reminder(run, delay_seconds, arguments["内容"])
-
-        def validate_reminder(arguments: dict[str, str]) -> str:
-            try:
-                delay_seconds = int(arguments["延迟秒数"])
-            except ValueError:
-                return "提醒延迟必须是整数秒。"
-            if not 1 <= delay_seconds <= 604800:
-                return "提醒延迟必须在 1 秒到 7 天之间。"
-            if not arguments["内容"].strip():
-                return "提醒内容不能为空。"
-            return ""
 
         tools.append(AgentTool(
             "安排提醒",
@@ -742,6 +768,40 @@ def create_agent_runtime(
             run_handler=schedule_reminder_tool,
             argument_validator=validate_reminder,
             minimum_access=AgentAccess.MEMBER,
+        ))
+    if schedule_target_reminder is not None:
+        def validate_target_reminder(arguments: dict[str, str], run: AgentRun) -> str:
+            if arguments["对象ID"].strip() not in run.mentioned_user_ids:
+                return "只能提醒本条消息中实际提及的用户。"
+            return ""
+
+        async def schedule_target_reminder_tool(arguments: dict[str, str], run: AgentRun) -> str:
+            try:
+                delay_seconds = int(arguments["延迟秒数"])
+            except ValueError:
+                return "提醒延迟必须是整数秒。"
+            return await schedule_target_reminder(
+                run,
+                delay_seconds,
+                arguments["内容"],
+                arguments["对象ID"].strip(),
+            )
+
+        tools.append(AgentTool(
+            "安排指定提醒",
+            "在原聊天范围安排一次对已提及成员的提醒。对象 ID 必须来自本条消息的 @ 提及；该消息投递需要超级用户确认。",
+            AgentPermission.MESSAGE_SEND,
+            AgentApproval.CONFIRM,
+            _raise_direct_only,
+            (
+                AgentToolParameter("延迟秒数", "距现在的整数秒数，范围 1 到 604800"),
+                AgentToolParameter("对象ID", "本条消息 @ 提及的对象 ID"),
+                AgentToolParameter("内容", "提醒内容"),
+            ),
+            lambda arguments: f"在 {arguments['延迟秒数']} 秒后提醒对象 {arguments['对象ID']}：{arguments['内容'][:120]}",
+            run_handler=schedule_target_reminder_tool,
+            argument_validator=validate_reminder,
+            run_argument_validator=validate_target_reminder,
         ))
     if workspace is not None:
         agent_workspace = AgentWorkspace(workspace)
@@ -836,6 +896,7 @@ def create_agent_runtime(
         agent_service=agent_service,
         agent_turn=agent_turn,
         schedule_reminder=schedule_reminder,
+        schedule_target_reminder=schedule_target_reminder,
         reminder_operation=reminder_operation,
         final_renderer=final_renderer,
         access=access,

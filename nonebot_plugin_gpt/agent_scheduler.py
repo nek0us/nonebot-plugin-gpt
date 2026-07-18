@@ -23,6 +23,7 @@ class ScheduledReminder:
     conversation_user_id: str
     user_id: str
     content: str
+    owner_id: str = ""
     attempts: int = 0
     created_at: float = field(default_factory=time)
 
@@ -42,6 +43,7 @@ class ScheduledReminder:
                 conversation_user_id=str(value.get("conversation_user_id") or ""),
                 user_id=str(value.get("user_id") or ""),
                 content=str(value.get("content") or "")[:2000],
+                owner_id=str(value.get("owner_id") or value.get("user_id") or ""),
                 attempts=max(0, int(value.get("attempts", 0))),
                 created_at=float(value.get("created_at", due_at)),
             )
@@ -121,6 +123,7 @@ class AgentScheduler:
         conversation_user_id: str,
         user_id: str,
         content: str,
+        owner_id: str = "",
     ) -> ScheduledReminder:
         if delay_seconds < 1:
             raise ValueError("提醒时间至少为 1 秒。")
@@ -134,6 +137,7 @@ class AgentScheduler:
             conversation_user_id=conversation_user_id,
             user_id=user_id,
             content=content.strip()[:2000],
+            owner_id=owner_id or user_id,
         )
         async with self._lock:
             self._items[item.id] = item
@@ -150,7 +154,7 @@ class AgentScheduler:
         items = await self.list()
         return [
             item for item in items
-            if item.user_id == user_id and item.conversation_session_id == conversation_session_id
+            if item.owner_id == user_id and item.conversation_session_id == conversation_session_id
         ]
 
     async def cancel_for_user(
@@ -163,7 +167,7 @@ class AgentScheduler:
         """只允许创建者在原聊天范围取消自己的提醒。"""
         async with self._lock:
             item = self._items.get(identifier)
-            if item is None or item.user_id != user_id or item.conversation_session_id != conversation_session_id:
+            if item is None or item.owner_id != user_id or item.conversation_session_id != conversation_session_id:
                 return False
             self._items.pop(identifier, None)
             self._save()
