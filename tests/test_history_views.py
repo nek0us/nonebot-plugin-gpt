@@ -91,20 +91,37 @@ class HistoryViewTests(unittest.TestCase):
         self.assertEqual(projection.resolve_rewind_reference("1"), "1")
         self.assertNotIn("已完成的受控任务", projection.entries[0]["Q"])
 
+    def test_agent_presentation_keeps_group_task_author_without_exposing_control_prompt(self):
+        history = [{
+            "Q": '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n'
+                 "【已完成的受控任务】\n用户原任务：检查当前内存\n完成结果：内存正常。",
+            "A": "内存状态已经看过啦。",
+        }]
+
+        projection = history_views.project_history(history)
+
+        self.assertEqual(
+            projection.entries[0]["Q"],
+            '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n检查当前内存',
+        )
+        self.assertNotIn("已完成的受控任务", projection.entries[0]["Q"])
+
     def test_async_reminder_is_projected_as_an_event_and_keeps_rewind_mapping(self):
         history = [
             {"Q": "你好", "A": "你好呀"},
             {
-                "Q": "【异步事件】你之前为当前用户安排的一次提醒现在到时。\n"
-                "提醒内容：吃饭",
+                "Q": '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n'
+                "【异步事件】你之前为当前用户安排的一次提醒现在到时。\n提醒内容：吃饭",
                 "A": "记得吃饭呀。",
             },
         ]
 
         projection = history_views.project_history(history)
 
-        self.assertEqual(projection.entries[1]["Q"], "提醒到时：吃饭")
-        self.assertEqual(projection.entries[1]["_history_speaker"], "提醒事件")
+        self.assertEqual(
+            projection.entries[1]["Q"],
+            '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n提醒到时：吃饭',
+        )
         self.assertEqual(projection.entries[1]["_history_kind"], "event")
         self.assertEqual(projection.resolve_rewind_reference("2"), "2")
 

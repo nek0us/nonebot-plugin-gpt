@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from .event_scope import group_speaker_identity, project_group_speaker_prompt
+from .event_scope import extract_group_speaker_tag, group_speaker_identity, project_group_speaker_prompt
 
 
 _UPSTREAM_MARKUP = re.compile("\\ue200(?P<body>.*?)\\ue201", re.DOTALL)
@@ -119,20 +119,23 @@ def project_history(
             # 角色化最终答复必须作为原聊天会话的一轮继续，才能继承人设和
             # 上下文；这里仅在展示层还原用户任务，避免暴露内部控制提示。
             visible_item = dict(item)
+            speaker_tag = extract_group_speaker_tag(question)
+            projected_task = f"{speaker_tag}\n{presentation_task}" if speaker_tag else presentation_task
             if "Q" in visible_item or "input" not in visible_item:
-                visible_item["Q"] = presentation_task
+                visible_item["Q"] = projected_task
             else:
-                visible_item["input"] = presentation_task
+                visible_item["input"] = projected_task
             entries.append(visible_item)
         elif async_event_content:
             # 到期提醒会进入原逻辑会话以保留角色语气，但它不是新的用户发言。
             visible_item = dict(item)
             event_text = f"提醒到时：{async_event_content}"
+            speaker_tag = extract_group_speaker_tag(question)
+            projected_event = f"{speaker_tag}\n{event_text}" if speaker_tag else event_text
             if "Q" in visible_item or "input" not in visible_item:
-                visible_item["Q"] = event_text
+                visible_item["Q"] = projected_event
             else:
-                visible_item["input"] = event_text
-            visible_item["_history_speaker"] = "提醒事件"
+                visible_item["input"] = projected_event
             visible_item["_history_kind"] = "event"
             entries.append(visible_item)
         else:

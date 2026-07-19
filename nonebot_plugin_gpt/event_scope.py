@@ -168,6 +168,20 @@ def group_speaker_identity(message: str) -> str:
     return str(metadata.get("id") or "").strip() if isinstance(metadata, dict) else ""
 
 
+def extract_group_speaker_tag(message: str) -> str:
+    """从普通输入或内部事件中提取一行合法的群聊发言者标签。"""
+    for line in str(message or "").splitlines():
+        if not line.startswith(GROUP_SPEAKER_TAG):
+            continue
+        try:
+            metadata = json.loads(line.removeprefix(GROUP_SPEAKER_TAG).strip())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(metadata, dict):
+            return line.strip()
+    return ""
+
+
 def strip_group_speaker_prompt(message: str) -> str:
     """从上游历史记录中移除插件写入的群聊发言者标签。"""
     if message.startswith(GROUP_SPEAKER_TAG):

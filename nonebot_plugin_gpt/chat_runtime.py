@@ -119,14 +119,14 @@ class ChatRuntime:
             state = await self._conversations.get(key)
             if not state.conversation_id:
                 return agent_answer
-            prompt = "\n".join((
+            prompt = "\n".join(part for part in (
+                speaker_context.strip(),
                 "【已完成的受控任务】",
                 "下面是可信的任务完成结果。请按当前人设自然回复用户，",
                 "不要提及 JSON、协议、工具调用或内部执行过程；不要重复执行任务。",
                 f"用户原任务：{task}",
                 f"完成结果：{agent_answer}",
-                speaker_context.strip(),
-            ))
+            ) if part)
             result = await self._chat_locked(key, prompt, model=model or state.model)
             return result.text if result.ok and result.text.strip() else agent_answer
 
