@@ -24,6 +24,7 @@ class ScheduledReminder:
     user_id: str
     content: str
     owner_id: str = ""
+    speaker_context: str = ""
     attempts: int = 0
     created_at: float = field(default_factory=time)
 
@@ -44,6 +45,7 @@ class ScheduledReminder:
                 user_id=str(value.get("user_id") or ""),
                 content=str(value.get("content") or "")[:2000],
                 owner_id=str(value.get("owner_id") or value.get("user_id") or ""),
+                speaker_context=str(value.get("speaker_context") or "")[:1200],
                 attempts=max(0, int(value.get("attempts", 0))),
                 created_at=float(value.get("created_at", due_at)),
             )
@@ -124,6 +126,7 @@ class AgentScheduler:
         user_id: str,
         content: str,
         owner_id: str = "",
+        speaker_context: str = "",
     ) -> ScheduledReminder:
         if delay_seconds < 1:
             raise ValueError("提醒时间至少为 1 秒。")
@@ -138,6 +141,7 @@ class AgentScheduler:
             user_id=user_id,
             content=content.strip()[:2000],
             owner_id=owner_id or user_id,
+            speaker_context=speaker_context.strip()[:1200],
         )
         async with self._lock:
             self._items[item.id] = item

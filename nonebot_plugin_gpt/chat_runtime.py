@@ -112,6 +112,7 @@ class ChatRuntime:
         agent_answer: str,
         *,
         model: str = "auto",
+        speaker_context: str = "",
     ) -> str:
         """让已有角色以自然口吻呈现已完成的受控任务结果。"""
         async with self._conversation_lock(key):
@@ -124,6 +125,7 @@ class ChatRuntime:
                 "不要提及 JSON、协议、工具调用或内部执行过程；不要重复执行任务。",
                 f"用户原任务：{task}",
                 f"完成结果：{agent_answer}",
+                speaker_context.strip(),
             ))
             result = await self._chat_locked(key, prompt, model=model or state.model)
             return result.text if result.ok and result.text.strip() else agent_answer

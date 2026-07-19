@@ -127,6 +127,8 @@ def format_group_speaker_prompt(event: Event, message: str) -> str:
     metadata = {
         "id": identity,
         "name": resolve_participant_display_name(event) or None,
+        # 这是本轮实际发言者，不应被共享群聊历史中的旧称呼覆盖。
+        "current": True,
     }
     return f"{GROUP_SPEAKER_TAG} {json.dumps(metadata, ensure_ascii=False)}\n{message}"
 
@@ -150,6 +152,20 @@ def project_group_speaker_prompt(message: str, *, anonymize: bool = False) -> tu
                 return f"用户 · {identity.rsplit(':', maxsplit=1)[-1]}", body.strip()
             return "用户", body.strip()
     return "用户", strip_group_speaker_prompt(message)
+
+
+def group_speaker_identity(message: str) -> str:
+    """提取历史投影可选展示的稳定发言者 ID，不把内部标签原样暴露给用户。"""
+    if not message.startswith(GROUP_SPEAKER_TAG):
+        return ""
+    header, separator, _ = message.partition("\n")
+    if not separator:
+        return ""
+    try:
+        metadata = json.loads(header.removeprefix(GROUP_SPEAKER_TAG).strip())
+    except json.JSONDecodeError:
+        return ""
+    return str(metadata.get("id") or "").strip() if isinstance(metadata, dict) else ""
 
 
 def strip_group_speaker_prompt(message: str) -> str:

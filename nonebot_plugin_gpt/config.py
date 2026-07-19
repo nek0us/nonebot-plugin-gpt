@@ -49,6 +49,9 @@ class Config(BaseModel):
     gpt_image_font_scale: float = Field(default=1.0, ge=0.85, le=1.25)
     gpt_management_recall_after: int = Field(default=0, ge=0, le=3600)
     gpt_history_anonymize: bool = False
+    gpt_history_show_identity: bool = True
+    gpt_history_show_timestamp: bool = True
+    gpt_history_show_message_id: bool = False
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_agent_enabled: bool = False

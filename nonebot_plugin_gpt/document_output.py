@@ -10,8 +10,13 @@ from urllib.parse import urlparse
 
 import markdown
 
-from .event_scope import project_group_speaker_prompt
-from .history_views import normalize_history_markdown, parse_history_range, replace_history_links
+from .event_scope import group_speaker_identity, project_group_speaker_prompt
+from .history_views import (
+    format_history_timestamp,
+    normalize_history_markdown,
+    parse_history_range,
+    replace_history_links,
+)
 from .image_fallback import render_history_page, render_markdown_page, use_local_font_renderer
 
 
@@ -29,9 +34,12 @@ h1 { margin: 0; color: #2c3654; font-size: calc(30px * var(--gpt-image-font-scal
 .card + .card { margin-top: 10px; }
 .user { background: #eaf3ff; border: 1px solid #d4e8ff; }
 .reply { background: #fff0f6; border: 1px solid #ffdce9; }
+.event { background: #f3efff; border: 1px solid #ded3ff; }
 .role { margin: 0 0 9px; font-size: calc(15px * var(--gpt-image-font-scale)); font-weight: 700; }
 .user .role { color: #2d6eae; }
 .reply .role { color: #b4537c; }
+.event .role { color: #7252b5; }
+.meta { margin: -3px 0 10px; color: #7b8499; font-size: calc(13px * var(--gpt-image-font-scale)); line-height: 1.45; overflow-wrap: anywhere; }
 .content { color: #29384f; font-size: calc(18px * var(--gpt-image-font-scale)); line-height: 1.74; white-space: pre-wrap; overflow-wrap: anywhere; }
 .content.markdown { white-space: normal; }
 .content.markdown > :first-child { margin-top: 0; }.content.markdown > :last-child { margin-bottom: 0; }
@@ -90,6 +98,8 @@ class HistoryRound:
     question: str
     answer: str
     speaker: str = "用户"
+    metadata: str = ""
+    kind: str = "user"
     continuation: str = ""
     link_indexes: tuple[int, ...] = ()
 
@@ -202,6 +212,9 @@ def build_history_markdown_pages(
     value: str = "",
     *,
     anonymize: bool = False,
+    show_identity: bool = True,
+    show_timestamp: bool = True,
+    show_message_id: bool = False,
     reverse_order: bool = False,
     page_limit: int = 6000,
 ) -> tuple[str, ...]:
@@ -212,6 +225,9 @@ def build_history_markdown_pages(
             history,
             value,
             anonymize=anonymize,
+            show_identity=show_identity,
+            show_timestamp=show_timestamp,
+            show_message_id=show_message_id,
             reverse_order=reverse_order,
             page_limit=page_limit,
         )
@@ -223,6 +239,9 @@ def _history_rounds(
     value: str,
     *,
     anonymize: bool,
+    show_identity: bool,
+    show_timestamp: bool,
+    show_message_id: bool,
     reverse_order: bool,
     page_limit: int,
 ) -> tuple[list[HistoryRound], tuple[HistoryLink, ...]]:
@@ -237,10 +256,23 @@ def _history_rounds(
     link_registry = _HistoryLinkRegistry()
     part_limit = max(page_limit - 560, 180)
     for index, item in numbered_entries:
-        speaker, question = project_group_speaker_prompt(
-            str(item.get("Q") or item.get("input") or ""),
+        raw_question = str(item.get("Q") or item.get("input") or "")
+        speaker = str(item.get("_history_speaker") or "")
+        if speaker:
+            question = raw_question.strip()
+        else:
+            speaker, question = project_group_speaker_prompt(raw_question, anonymize=anonymize)
+        metadata = _history_metadata(
+            item,
+            raw_question,
             anonymize=anonymize,
+            show_identity=show_identity,
+            show_timestamp=show_timestamp,
+            show_message_id=show_message_id,
         )
+        kind = str(item.get("_history_kind") or "user")
+        if kind not in {"user", "event"}:
+            kind = "user"
         question = normalize_history_markdown(question).strip()
         answer, link_indexes = link_registry.replace(
             str(item.get("A") or item.get("output") or "")
@@ -255,6 +287,8 @@ def _history_rounds(
                     question,
                     answer,
                     speaker=speaker,
+                    metadata=metadata,
+                    kind=kind,
                     link_indexes=link_indexes,
                 )
             )
@@ -270,6 +304,8 @@ def _history_rounds(
                         segment if is_question else "",
                         segment if not is_question else "",
                         speaker=speaker,
+                        metadata=metadata,
+                        kind=kind,
                         continuation=continuation,
                         link_indexes=tuple(
                             link_index
@@ -279,6 +315,31 @@ def _history_rounds(
                     )
                 )
     return rounds, tuple(link_registry.links)
+
+
+def _history_metadata(
+    item: dict[str, object],
+    raw_question: str,
+    *,
+    anonymize: bool,
+    show_identity: bool,
+    show_timestamp: bool,
+    show_message_id: bool,
+) -> str:
+    parts: list[str] = []
+    if show_identity and not anonymize:
+        identity = group_speaker_identity(raw_question)
+        if identity:
+            parts.append(f"ID: {identity}")
+    if show_timestamp:
+        timestamp = format_history_timestamp(item.get("created_at"))
+        if timestamp:
+            parts.append(timestamp)
+    if show_message_id:
+        message_id = str(item.get("message_id") or item.get("next_msg_id") or "").strip()
+        if message_id:
+            parts.append(f"消息: {message_id}")
+    return " · ".join(parts)
 
 
 def _history_markdown(
@@ -294,7 +355,10 @@ def _history_markdown(
             label += f" · {round_item.continuation}"
         content = [f"## {label}"]
         if round_item.question:
-            content.append(f"### {round_item.speaker}\n\n{round_item.question}")
+            heading = f"### {round_item.speaker}"
+            if round_item.metadata:
+                heading += f"\n\n{round_item.metadata}"
+            content.append(f"{heading}\n\n{round_item.question}")
         if round_item.answer:
             content.append(f"### 回复\n\n{round_item.answer}")
         blocks.append("\n\n".join(content))
@@ -331,8 +395,14 @@ def _history_html(
             label += f" · {round_item.continuation}"
         cards = []
         if round_item.question:
+            metadata_html = (
+                f'<p class="meta">{escape(round_item.metadata)}</p>'
+                if round_item.metadata
+                else ""
+            )
             cards.append(
-                f'<section class="card user"><p class="role">{escape(round_item.speaker)}</p><div class="content">'
+                f'<section class="card {escape(round_item.kind)}"><p class="role">{escape(round_item.speaker)}</p>'
+                f'{metadata_html}<div class="content">'
                 f"{escape(round_item.question)}</div></section>"
             )
         if round_item.answer:
@@ -345,8 +415,8 @@ def _history_html(
     references = ""
     if reference_links:
         items = "".join(
-            f'<li><span>[{link.index}] {escape(link.label)}</span> '
-            f'<span class="domain">{escape(urlparse(link.url).netloc or link.url)}</span></li>'
+            f'<li><span>[{link.index}] {escape(link.label)}</span><br>'
+            f'<span class="domain">{escape(link.url)}</span></li>'
             for link in reference_links
         )
         references = f'<section class="references"><p class="references-title">参考链接</p><ol>{items}</ol></section>'
@@ -364,6 +434,9 @@ def build_history_pages(
     value: str = "",
     *,
     anonymize: bool = False,
+    show_identity: bool = True,
+    show_timestamp: bool = True,
+    show_message_id: bool = False,
     reverse_order: bool = False,
     page_limit: int = 6000,
     font_scale: float = 1.0,
@@ -373,6 +446,9 @@ def build_history_pages(
         history,
         value,
         anonymize=anonymize,
+        show_identity=show_identity,
+        show_timestamp=show_timestamp,
+        show_message_id=show_message_id,
         reverse_order=reverse_order,
         page_limit=page_limit,
     )

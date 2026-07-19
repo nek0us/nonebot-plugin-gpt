@@ -47,7 +47,7 @@ class DocumentOutputTests(unittest.TestCase):
 
         self.assertIn("你好", pages[0])
         self.assertNotIn("群聊发言者", pages[0])
-        self.assertNotIn("onebot.v11:user:42", pages[0])
+        self.assertIn("onebot.v11:user:42", pages[0])
         self.assertIn("用户 · 小明", pages[0])
 
     def test_very_long_history_round_keeps_a_labeled_continuation(self):
@@ -97,6 +97,24 @@ class DocumentOutputTests(unittest.TestCase):
         self.assertIn("<hr", html)
         self.assertIn("<li>第一项</li>", html)
         self.assertNotIn("turn0search11", html)
+
+    def test_history_event_uses_a_distinct_card_and_metadata(self):
+        pages = document_output.build_history_pages([
+            {
+                "Q": "提醒到时：吃饭",
+                "A": "记得吃饭呀。",
+                "_history_speaker": "提醒事件",
+                "_history_kind": "event",
+                "created_at": 1_700_000_000,
+                "message_id": "message-42",
+            },
+        ], show_message_id=True)
+
+        page = pages[0]
+        self.assertEqual(page.rounds[0].speaker, "提醒事件")
+        self.assertEqual(page.rounds[0].kind, "event")
+        self.assertIn('class="card event"', page.html)
+        self.assertIn("消息: message-42", page.html)
 
     def test_history_references_are_deduplicated_and_exported_as_plain_urls(self):
         pages = document_output.build_history_pages([

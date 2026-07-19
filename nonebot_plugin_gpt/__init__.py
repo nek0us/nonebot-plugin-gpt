@@ -77,7 +77,6 @@ from .paged_output import paginate_text
 from .document_output import (
     HistoryPage,
     build_history_pages,
-    history_reference_text,
     markdown_pages_from_text,
     render_history_pages,
     render_markdown_pages,
@@ -254,7 +253,7 @@ async def _finish_history_document(
         logger.warning(f"聊天记录图片渲染失败，已回退文本输出：{error}")
         await _finish_management_message(matcher, event, paginate_text(fallback))
         return
-    sent = await finish_image_pages(
+    await finish_image_pages(
         matcher,
         event,
         images,
@@ -262,10 +261,6 @@ async def _finish_history_document(
         recall_after=config_gpt.gpt_management_recall_after,
         finish=False,
     )
-    if sent:
-        references = history_reference_text(pages)
-        if references:
-            await UniMessage.text(references).send(event)
     await matcher.finish()
 
 
@@ -362,6 +357,8 @@ if isinstance(config_gpt.gpt_session,list):
             "请按照当前人设自然地提醒对方，不要提及智能体、工具、系统事件或内部实现。"
             f"提醒内容：{item.content}"
         )
+        if item.speaker_context:
+            prompt = f"{prompt}\n{item.speaker_context}"
         message = await chat_reply(
             chat_runtime,
             key,
@@ -398,6 +395,7 @@ if isinstance(config_gpt.gpt_session,list):
             user_id=run.delivery_user_id,
             content=content,
             owner_id=run.operator_id,
+            speaker_context=run.agent_context,
         )
         return f"提醒已安排，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
 
@@ -412,6 +410,7 @@ if isinstance(config_gpt.gpt_session,list):
             user_id=target_user_id,
             content=content,
             owner_id=run.operator_id,
+            speaker_context=run.agent_context,
         )
         return f"已为指定成员安排提醒，编号：{item.id}，将在约 {delay_seconds} 秒后投递。"
 
@@ -447,6 +446,7 @@ if isinstance(config_gpt.gpt_session,list):
                 run.task,
                 answer,
                 model=run.model,
+                speaker_context=run.agent_context,
             )
         if not run.artifacts:
             return text
@@ -906,6 +906,9 @@ if isinstance(config_gpt.gpt_session,list):
             value,
             anonymize=config_gpt.gpt_history_anonymize,
             reverse_order=reverse_order,
+            show_identity=config_gpt.gpt_history_show_identity,
+            show_timestamp=config_gpt.gpt_history_show_timestamp,
+            show_message_id=config_gpt.gpt_history_show_message_id,
         )
         await _finish_history_document(
             matcher,
@@ -915,6 +918,9 @@ if isinstance(config_gpt.gpt_session,list):
                 value,
                 anonymize=config_gpt.gpt_history_anonymize,
                 reverse_order=reverse_order,
+                show_identity=config_gpt.gpt_history_show_identity,
+                show_timestamp=config_gpt.gpt_history_show_timestamp,
+                show_message_id=config_gpt.gpt_history_show_message_id,
                 font_scale=config_gpt.gpt_image_font_scale,
             ),
             fallback=fallback,
@@ -971,10 +977,15 @@ if isinstance(config_gpt.gpt_session,list):
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
         runtime = agent_runtime if is_superuser else member_agent_runtime
-        mentioned_user_ids, agent_context = _agent_mention_context(
+        mentioned_user_ids, mention_context = _agent_mention_context(
             original_message,
             self_id=str(getattr(event, "self_id", "")),
         )
+        context_parts = []
+        if config_gpt.gpt_group_chat and _is_group_context(event):
+            context_parts.append(format_group_speaker_prompt(event, "").strip())
+        if is_superuser and mention_context:
+            context_parts.append(mention_context)
         result = await runtime.execute(
             value,
             operator_id=event.get_user_id(),
@@ -983,7 +994,7 @@ if isinstance(config_gpt.gpt_session,list):
             delivery_target=get_target(event).dump(),
             delivery_user_id=event.get_user_id(),
             mentioned_user_ids=mentioned_user_ids,
-            agent_context=agent_context if is_superuser else "",
+            agent_context="\n".join(context_parts),
         )
         message = result if isinstance(result, UniMessage) else UniMessage.text(str(result))
         await finish_message(matcher, event, message)

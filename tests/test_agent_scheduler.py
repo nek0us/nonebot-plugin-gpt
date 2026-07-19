@@ -35,8 +35,10 @@ class AgentSchedulerTests(unittest.IsolatedAsyncioTestCase):
                 conversation_user_id="console:user",
                 user_id="user",
                 content="喝水",
+                speaker_context='[群聊发言者] {"id":"onebot.v11:user:42","current":true}',
             )
             self.assertEqual((await scheduler.list())[0].id, item.id)
+            self.assertEqual((await scheduler.list())[0].speaker_context, item.speaker_context)
 
             now[0] = 102.0
             due = await scheduler._take_due()

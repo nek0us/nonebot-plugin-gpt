@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import datetime
 
-from .event_scope import project_group_speaker_prompt
+from .event_scope import group_speaker_identity, project_group_speaker_prompt
 
 
 _UPSTREAM_MARKUP = re.compile("\\ue200(?P<body>.*?)\\ue201", re.DOTALL)
@@ -15,10 +16,12 @@ _MARKDOWN_EMPHASIS = re.compile(r"(?<!\\)(?:\*\*|__)(?P<value>.+?)(?<!\\)(?:\*\*
 _MARKDOWN_CODE = re.compile(r"`(?P<value>[^`]+)`")
 _AGENT_PROTOCOL_MARKER = "【ChatGPTWeb Agent Protocol】"
 _AGENT_PRESENTATION_MARKER = "【已完成的受控任务】"
+_ASYNC_EVENT_MARKER = "【异步事件】"
 _AGENT_PRESENTATION_TASK = re.compile(
     r"(?:^|\n)用户原任务：(?P<task>.*?)(?=\n完成结果：|\Z)",
     re.DOTALL,
 )
+_ASYNC_EVENT_CONTENT = re.compile(r"(?:^|\n)提醒内容：(?P<content>.*)\Z", re.DOTALL)
 
 
 def _agent_presentation_task(value: str) -> str:
@@ -27,6 +30,14 @@ def _agent_presentation_task(value: str) -> str:
         return ""
     match = _AGENT_PRESENTATION_TASK.search(value)
     return match.group("task").strip().lstrip("，,：:").strip() if match else ""
+
+
+def _async_event_content(value: str) -> str:
+    """把到期提醒的内部控制提示投影为可读事件，而不是伪造用户发言。"""
+    if _ASYNC_EVENT_MARKER not in value:
+        return ""
+    match = _ASYNC_EVENT_CONTENT.search(value)
+    return match.group("content").strip() if match else ""
 
 
 def normalize_history_markdown(value: str) -> str:
@@ -94,6 +105,7 @@ def project_history(
     for index, item in enumerate(history):
         question = str(item.get("Q") or item.get("input") or "").strip()
         presentation_task = _agent_presentation_task(question)
+        async_event_content = _async_event_content(question)
         # 人设会作为物理会话首轮发送；强化人设或自动摘要重启时，正文
         # 也可能再次出现在后续轮次中，因此不能只依赖固定的第一轮。
         is_private_setup = (hide_initial and index == 0) or (
@@ -111,6 +123,17 @@ def project_history(
                 visible_item["Q"] = presentation_task
             else:
                 visible_item["input"] = presentation_task
+            entries.append(visible_item)
+        elif async_event_content:
+            # 到期提醒会进入原逻辑会话以保留角色语气，但它不是新的用户发言。
+            visible_item = dict(item)
+            event_text = f"提醒到时：{async_event_content}"
+            if "Q" in visible_item or "input" not in visible_item:
+                visible_item["Q"] = event_text
+            else:
+                visible_item["input"] = event_text
+            visible_item["_history_speaker"] = "提醒事件"
+            visible_item["_history_kind"] = "event"
             entries.append(visible_item)
         else:
             entries.append(item)
@@ -153,6 +176,9 @@ def format_history(
     *,
     anonymize: bool = False,
     reverse_order: bool = False,
+    show_identity: bool = True,
+    show_timestamp: bool = True,
+    show_message_id: bool = False,
 ) -> str:
     """生成不包含物理消息标识的问答历史文本。"""
     entries = list(history)
@@ -165,12 +191,63 @@ def format_history(
     if reverse_order:
         numbered_entries.reverse()
     for index, item in numbered_entries:
-        speaker, question = project_group_speaker_prompt(
-            str(item.get("Q") or item.get("input") or ""),
+        raw_question = str(item.get("Q") or item.get("input") or "")
+        speaker = str(item.get("_history_speaker") or "")
+        if speaker:
+            question = raw_question.strip()
+        else:
+            speaker, question = project_group_speaker_prompt(
+                raw_question,
+                anonymize=anonymize,
+            )
+        metadata = _format_history_metadata(
+            item,
+            raw_question,
             anonymize=anonymize,
+            show_identity=show_identity,
+            show_timestamp=show_timestamp,
+            show_message_id=show_message_id,
         )
-        lines.extend((
-            f"{index}. {speaker}：{history_plain_text(question)}",
-            f"   回复：{history_plain_text(str(item.get('A') or item.get('output') or ''))}",
-        ))
+        lines.append(f"{index}. {speaker}：{history_plain_text(question)}")
+        if metadata:
+            lines.append(f"   {metadata}")
+        lines.append(f"   回复：{history_plain_text(str(item.get('A') or item.get('output') or ''))}")
     return "\n".join(lines)
+
+
+def _format_history_metadata(
+    item: dict[str, object],
+    raw_question: str,
+    *,
+    anonymize: bool,
+    show_identity: bool,
+    show_timestamp: bool,
+    show_message_id: bool,
+) -> str:
+    parts: list[str] = []
+    if show_identity and not anonymize:
+        identity = group_speaker_identity(raw_question)
+        if identity:
+            parts.append(f"ID: {identity}")
+    if show_timestamp:
+        timestamp = format_history_timestamp(item.get("created_at"))
+        if timestamp:
+            parts.append(timestamp)
+    if show_message_id:
+        message_id = str(item.get("message_id") or item.get("next_msg_id") or "").strip()
+        if message_id:
+            parts.append(f"消息: {message_id}")
+    return " · ".join(parts)
+
+
+def format_history_timestamp(value: object) -> str:
+    """兼容核心库已保存的 ISO 时间和历史/外部实现可能返回的时间戳。"""
+    if isinstance(value, (int, float)) and value > 0:
+        return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    try:
+        timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return timestamp.astimezone().strftime("%Y-%m-%d %H:%M") if timestamp.tzinfo else timestamp.strftime("%Y-%m-%d %H:%M")
