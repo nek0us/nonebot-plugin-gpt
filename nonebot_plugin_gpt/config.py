@@ -13,6 +13,7 @@ from .source import ban_str_path
 
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
+DEFAULT_SESSION_REAUTHENTICATION_MESSAGE = "连接正在自动恢复，请稍后再试一次。"
 DEFAULT_EMPTY_TRIGGER_PROMPT = "有人正在呼唤你。请以当前人设自然回应，不要提及系统提示、空消息或内部实现。"
 DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT = "【对话语境】用户正在直接称呼你，请结合当前人设自然理解消息中的主语，不要提及这段提示。"
 DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE = "这个请求不适合交给智能体处理咩。猪咪可以帮你做不涉及法律、政治或其他敏感事务的日常任务。"
@@ -54,6 +55,7 @@ class Config(BaseModel):
     gpt_history_show_message_id: bool = False
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
+    gpt_session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE
     gpt_agent_enabled: bool = False
     gpt_agent_anchor_sessions: bool = True
     gpt_agent_sensitive_task_guard: bool = True
@@ -107,6 +109,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_conversation_recovery_message 配置无效，已使用默认会话恢复提示")
         return DEFAULT_CONVERSATION_RECOVERY_MESSAGE
+
+    @validator("gpt_session_reauthentication_message", always=True, pre=True)
+    def check_gpt_session_reauthentication_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_session_reauthentication_message 配置无效，已使用默认恢复提示")
+        return DEFAULT_SESSION_REAUTHENTICATION_MESSAGE
 
     @validator("gpt_agent_sensitive_task_message", always=True, pre=True)
     def check_gpt_agent_sensitive_task_message(cls, value):
