@@ -174,6 +174,29 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.extract_plain_text(), "猪咪正在重新连接，请等一下咩。")
         self.assertNotIn("secret", message.extract_plain_text())
 
+    async def test_session_recovery_timeout_uses_the_reauthentication_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal recovery detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "conversation_session_recovery_timeout", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "你好",
+            render_markdown=None,
+            error_message="普通失败提示",
+            session_reauthentication_message="正在自动恢复，请稍候。",
+        )
+
+        self.assertEqual(message.extract_plain_text(), "正在自动恢复，请稍候。")
+        self.assertNotIn("secret", message.extract_plain_text())
+
     async def test_runtime_exception_returns_safe_message(self):
         class Runtime:
             async def chat(self, *args, **kwargs):

@@ -30,7 +30,11 @@ _CONVERSATION_RECOVERY_KINDS = {
     "conversation_session_missing",
     "conversation_session_stopped",
 }
-_SESSION_REAUTHENTICATION_KINDS = {"session_reauthentication_pending"}
+_SESSION_REAUTHENTICATION_KINDS = {
+    "session_reauthentication_pending",
+    "session_recovery_timeout",
+    "conversation_session_recovery_timeout",
+}
 
 
 async def _render_markdown(markdown: str) -> bytes | None:

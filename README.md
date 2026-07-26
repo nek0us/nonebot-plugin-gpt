@@ -141,6 +141,7 @@ _✨ NoneBot GPT ✨_
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_session_reauthentication_message | 否 | 连接正在自动恢复，请稍后再试一次。 | str | 核心检测到会话令牌过期并已启动自动重新登录时的提示；与普通失败和原会话失效提示分开，避免暴露账号细节。 |
+| gpt_session_recovery_wait_timeout | 否 | 60 | 1-600 | 账号正在自动恢复时，单条聊天请求等待就绪的秒数。恢复在此时间内完成时会继续发送原消息；仅超时后才发送 `gpt_session_reauthentication_message`，无需用户手动重发。 |
 | gpt_auto_init_group | 否 | false | bool | 群聊或频道首次有效聊天时自动加载群聊默认人设；不会覆盖已有逻辑会话。 |
 | gpt_auto_init_friend | 否 | false | bool | 私聊首次有效聊天时自动加载私聊默认人设；不会覆盖已有逻辑会话。 |
 | gpt_init_group_persona_name | 否 | 空 | str | 群聊自动初始化使用的人设名称。配置不存在的人设会跳过自动初始化并创建普通会话。 |
@@ -284,6 +285,9 @@ gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持�
 
 # 已确认账号会话过期且正在自动重新登录时的提示；不会暴露账号或登录流程
 gpt_session_reauthentication_message="猪咪正在重新连接，请稍后再试一次咩~"
+
+# 账号自动恢复期间，单条聊天请求等待可用状态的最长秒数；超时后才发送上面的恢复提示
+gpt_session_recovery_wait_timeout=60
 
 # 原会话依赖的账号已移除或停用时的提示；不会暴露账号和风控细节
 gpt_conversation_recovery_message="当前对话已无法继续，请重新初始化人设后再试。"

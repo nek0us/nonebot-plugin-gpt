@@ -56,6 +56,7 @@ class Config(BaseModel):
     gpt_error_message: str = DEFAULT_ERROR_MESSAGE
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE
+    gpt_session_recovery_wait_timeout: int = Field(default=60, ge=1, le=600)
     gpt_agent_enabled: bool = False
     gpt_agent_anchor_sessions: bool = True
     gpt_agent_sensitive_task_guard: bool = True
