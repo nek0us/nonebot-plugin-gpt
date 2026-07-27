@@ -22,6 +22,7 @@ MarkdownRenderer = Callable[[str], Awaitable[bytes | None]]
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 DEFAULT_SESSION_REAUTHENTICATION_MESSAGE = "连接正在自动恢复，请稍后再试一次。"
+DEFAULT_RATE_LIMIT_MESSAGE = "当前上游服务请求较多，正在等待恢复，请稍后再试。"
 
 
 # 这两类错误说明逻辑会话绑定的账号已经不再可用。临时未就绪等错误
@@ -35,6 +36,7 @@ _SESSION_REAUTHENTICATION_KINDS = {
     "session_recovery_timeout",
     "conversation_session_recovery_timeout",
 }
+_RATE_LIMIT_KINDS = {"rate_limited", "conversation_rate_limited"}
 
 
 async def _render_markdown(markdown: str) -> bytes | None:
@@ -55,6 +57,7 @@ def _error_message(
     error_message: str,
     conversation_recovery_message: str,
     session_reauthentication_message: str,
+    rate_limit_message: str,
     failure_diagnostics: ChatFailureDiagnostics | None,
 ) -> UniMessage:
     """将核心服务的失败结果收敛为不会泄露内部细节的用户提示。"""
@@ -69,6 +72,8 @@ def _error_message(
         return UniMessage.text(conversation_recovery_message)
     if error_kinds & _SESSION_REAUTHENTICATION_KINDS:
         return UniMessage.text(session_reauthentication_message)
+    if error_kinds & _RATE_LIMIT_KINDS:
+        return UniMessage.text(rate_limit_message)
     return UniMessage.text(error_message)
 
 
@@ -93,6 +98,7 @@ async def render_result(
     error_message: str = DEFAULT_ERROR_MESSAGE,
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """把结构化聊天结果转换为可由 Alconna 发送的统一消息。"""
@@ -102,6 +108,7 @@ async def render_result(
             error_message,
             conversation_recovery_message,
             session_reauthentication_message,
+            rate_limit_message,
             failure_diagnostics,
         )
     return await build_unimessage(
@@ -129,6 +136,7 @@ async def chat_reply(
     error_message: str = DEFAULT_ERROR_MESSAGE,
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """处理一条普通聊天消息并返回跨平台输出。"""
@@ -151,6 +159,7 @@ async def chat_reply(
         error_message=error_message,
         conversation_recovery_message=conversation_recovery_message,
         session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
         failure_diagnostics=failure_diagnostics,
     )
 
@@ -169,6 +178,7 @@ async def persona_reply(
     error_message: str = DEFAULT_ERROR_MESSAGE,
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """初始化人设并将结果投影为跨平台输出。"""
@@ -192,6 +202,7 @@ async def persona_reply(
         error_message=error_message,
         conversation_recovery_message=conversation_recovery_message,
         session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
         failure_diagnostics=failure_diagnostics,
     )
 
@@ -206,6 +217,7 @@ async def restart_persona_reply(
     error_message: str = DEFAULT_ERROR_MESSAGE,
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """重置当前人设并创建新的逻辑会话。"""
@@ -223,6 +235,7 @@ async def restart_persona_reply(
         error_message=error_message,
         conversation_recovery_message=conversation_recovery_message,
         session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
         failure_diagnostics=failure_diagnostics,
     )
 
@@ -238,6 +251,7 @@ async def rewind_reply(
     error_message: str = DEFAULT_ERROR_MESSAGE,
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """回退当前逻辑会话的物理上下文。"""
@@ -257,5 +271,6 @@ async def rewind_reply(
         error_message=error_message,
         conversation_recovery_message=conversation_recovery_message,
         session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
         failure_diagnostics=failure_diagnostics,
     )

@@ -372,6 +372,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         )
         await message.send(Target.load(item.target), at_sender=item.user_id or False)
@@ -665,6 +666,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         ))
 
@@ -733,6 +735,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         ))
     
@@ -750,6 +753,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         ))
             
@@ -768,6 +772,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         ))
             
@@ -820,6 +825,7 @@ if isinstance(config_gpt.gpt_session,list):
             error_message=config_gpt.gpt_error_message,
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
         ))
 
