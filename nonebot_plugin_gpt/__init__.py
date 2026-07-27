@@ -486,14 +486,21 @@ if isinstance(config_gpt.gpt_session,list):
             logger.warning(f"智能体命令技能配置：{issue}")
     elif config_gpt.gpt_agent_command_skills or config_gpt.gpt_agent_skill_files:
         logger.warning("已配置智能体命令技能，但 gpt_agent_command_enabled 为 false，技能不会注册")
+    readonly_sources = AgentReadonlyRoots(config_gpt.gpt_agent_read_roots)
     filesystem_scanner = None
     if config_gpt.gpt_agent_filesystem_scan_enabled:
-        filesystem_scanner = AgentFilesystemScanner(config_gpt.gpt_agent_filesystem_roots)
+        # A named read-only diagnostic root is already an administrator-approved
+        # directory. Reuse it for size scans so a model can scan "运行日志"
+        # without confusing it with a broader filesystem root.
+        scan_roots = [
+            *config_gpt.gpt_agent_filesystem_roots,
+            *config_gpt.gpt_agent_read_roots,
+        ]
+        filesystem_scanner = AgentFilesystemScanner(scan_roots)
         if filesystem_scanner.root_choices:
             logger.warning("已启用智能体目录占用扫描；每次扫描仍需要超级用户在原聊天范围确认")
         else:
             logger.warning("已启用 gpt_agent_filesystem_scan_enabled，但未找到有效的 gpt_agent_filesystem_roots")
-    readonly_sources = AgentReadonlyRoots(config_gpt.gpt_agent_read_roots)
     if readonly_sources.root_choices:
         logger.warning("已启用智能体只读诊断目录；日志和源码检索仅能访问管理员命名的根目录，每次读取或搜索仍需确认")
     elif config_gpt.gpt_agent_read_roots:
