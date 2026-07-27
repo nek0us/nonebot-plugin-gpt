@@ -356,7 +356,7 @@ if isinstance(config_gpt.gpt_session,list):
         prompt = (
             "【异步事件】你之前为当前用户安排的一次提醒现在到时。"
             "请按照当前人设自然地提醒对方，不要提及智能体、工具、系统事件或内部实现。"
-            f"提醒内容：{item.content}"
+            f"\n提醒内容：{item.content}"
         )
         if item.speaker_context:
             prompt = f"{prompt}\n{item.speaker_context}"

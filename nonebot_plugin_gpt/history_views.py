@@ -21,7 +21,7 @@ _AGENT_PRESENTATION_TASK = re.compile(
     r"(?:^|\n)用户原任务：(?P<task>.*?)(?=\n完成结果：|\Z)",
     re.DOTALL,
 )
-_ASYNC_EVENT_CONTENT = re.compile(r"(?:^|\n)提醒内容：(?P<content>.*)\Z", re.DOTALL)
+_ASYNC_EVENT_CONTENT = re.compile(r"提醒内容\s*[:：]\s*(?P<content>.*)\Z", re.DOTALL)
 
 
 def _agent_presentation_task(value: str) -> str:
@@ -37,7 +37,15 @@ def _async_event_content(value: str) -> str:
     if _ASYNC_EVENT_MARKER not in value:
         return ""
     match = _ASYNC_EVENT_CONTENT.search(value)
-    return match.group("content").strip() if match else ""
+    if not match:
+        return ""
+    # 历史中可能在控制提示前后附带群聊发言者标签。它仅用于让模型
+    # 确认提醒对象，不属于提醒正文，更不能展示给会话成员。
+    lines = (
+        line for line in match.group("content").splitlines()
+        if not line.strip().startswith("[群聊发言者]")
+    )
+    return "\n".join(lines).strip()
 
 
 def normalize_history_markdown(value: str) -> str:
@@ -136,6 +144,7 @@ def project_history(
                 visible_item["Q"] = projected_event
             else:
                 visible_item["input"] = projected_event
+            visible_item["_history_speaker"] = "提醒事件"
             visible_item["_history_kind"] = "event"
             entries.append(visible_item)
         else:

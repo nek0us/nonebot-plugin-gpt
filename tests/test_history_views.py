@@ -123,7 +123,25 @@ class HistoryViewTests(unittest.TestCase):
             '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n提醒到时：吃饭',
         )
         self.assertEqual(projection.entries[1]["_history_kind"], "event")
+        self.assertEqual(projection.entries[1]["_history_speaker"], "提醒事件")
         self.assertEqual(projection.resolve_rewind_reference("2"), "2")
+
+    def test_async_reminder_without_a_newline_before_content_is_projected(self):
+        history = [{
+            "Q": '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n'
+                 "【异步事件】你之前为当前用户安排的一次提醒现在到时。"
+                 "请按照当前人设自然地提醒对方，不要提及内部实现。提醒内容：喝水\n"
+                 '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}',
+            "A": "记得喝水。",
+        }]
+
+        projection = history_views.project_history(history)
+
+        self.assertEqual(
+            projection.entries[0]["Q"],
+            '[群聊发言者] {"id":"onebot.v11:user:42","name":"小明","current":true}\n提醒到时：喝水',
+        )
+        self.assertEqual(projection.entries[0]["_history_kind"], "event")
 
     def test_history_can_show_identity_timestamp_and_message_id(self):
         history = [{
