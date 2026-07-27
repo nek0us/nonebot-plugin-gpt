@@ -19,6 +19,8 @@ MAX_SEARCH_FILE_BYTES = 8 * 1024 * 1024
 MAX_SEARCH_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_SEARCH_SNIPPET = 300
 MAX_TAIL_BYTES = 512 * 1024
+MAX_ANALYZE_BYTES = 512 * 1024 * 1024
+MAX_ANALYZE_MATCHES = 30
 
 
 class ReadonlySourceError(ValueError):
@@ -104,6 +106,16 @@ class AgentReadonlyRoots:
     def _line(value: str) -> str:
         return value.rstrip("\r\n") if len(value) <= MAX_LINE_CHARS else f"{value[:MAX_LINE_CHARS - 1]}…"
 
+    @staticmethod
+    def _size(value: int) -> str:
+        units = ("B", "KiB", "MiB", "GiB", "TiB")
+        size = float(max(0, value))
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TiB"
+
     def validate_list(self, arguments: dict[str, str]) -> str:
         try:
             self._path(self._root(arguments.get("根目录", "")), arguments.get("路径", ""), allow_root=True)
@@ -143,6 +155,19 @@ class AgentReadonlyRoots:
             root = self._root(arguments.get("根目录", ""))
             self._path(root, arguments.get("路径", ""), allow_root=True)
             self._integer(arguments.get("结果数量", "30"), label="结果数量", minimum=1, maximum=MAX_SEARCH_RESULTS)
+        except ReadonlySourceError as error:
+            return str(error)
+        return ""
+
+    def validate_analyze(self, arguments: dict[str, str]) -> str:
+        try:
+            root = self._root(arguments.get("根目录", ""))
+            target = self._path(root, arguments.get("文件", ""))
+            if not target.is_file():
+                raise ReadonlySourceError("指定路径不是普通文件。")
+            query = arguments.get("关键词", "").strip()
+            if len(query) > 512:
+                raise ReadonlySourceError("关键词不能超过 512 个字符。")
         except ReadonlySourceError as error:
             return str(error)
         return ""
@@ -238,6 +263,49 @@ class AgentReadonlyRoots:
         relative = self._relative(root, target)
         prefix = "文件末尾片段" if size <= MAX_TAIL_BYTES else f"文件末尾 {MAX_TAIL_BYTES // 1024} KiB 片段"
         return f"{prefix}：{root.name}/{relative}\n" + "\n".join(self._line(line) for line in lines)
+
+    def analyze_text(self, arguments: dict[str, str]) -> str:
+        """对一个受限 UTF-8 文本做通用结构统计和可选关键词分析。"""
+        error = self.validate_analyze(arguments)
+        if error:
+            raise ReadonlySourceError(error)
+        root = self._root(arguments["根目录"])
+        target = self._path(root, arguments["文件"])
+        try:
+            stat = target.stat()
+        except OSError as error:
+            raise ReadonlySourceError("无法读取目标文件元数据。") from error
+        if stat.st_size > MAX_ANALYZE_BYTES:
+            raise ReadonlySourceError(
+                f"文件超过 {MAX_ANALYZE_BYTES // (1024 * 1024)} MiB 分析上限；请先用读取文件尾部或缩小文件范围。"
+            )
+        query = arguments.get("关键词", "").strip()
+        line_count = 0
+        matched_lines = 0
+        matches: list[str] = []
+        try:
+            with target.open("r", encoding="utf-8") as handle:
+                for line_count, line in enumerate(handle, start=1):
+                    if query and query in line:
+                        matched_lines += 1
+                        if len(matches) < MAX_ANALYZE_MATCHES:
+                            matches.append(f"- {line_count}: {self._snippet(line)}")
+        except (OSError, UnicodeDecodeError) as error:
+            raise ReadonlySourceError("只能分析可访问的 UTF-8 文本文件。") from error
+        relative = self._relative(root, target)
+        modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            f"文本分析：{root.name}/{relative}",
+            f"大小：{self._size(stat.st_size)}",
+            f"总行数：{line_count}",
+            f"修改时间：{modified}",
+        ]
+        if query:
+            lines.append(f"关键词“{query}”命中行数：{matched_lines}")
+            lines.extend(matches)
+            if matched_lines > len(matches):
+                lines.append(f"其余 {matched_lines - len(matches)} 个命中行未显示；可用读取文件片段查看指定行。")
+        return "\n".join(lines)
 
     def search_text(self, arguments: dict[str, str]) -> str:
         error = self.validate_search(arguments)

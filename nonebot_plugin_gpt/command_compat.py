@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 
 from arclet.alconna import AllParam, Alconna, Args, CommandMeta
+from nonebot_plugin_alconna.uniseg import At, Text
 
 
 _registered_command_names: set[str] = set()
@@ -13,7 +14,21 @@ def command_argument_text(value: object | None) -> str:
     if value is None:
         return ""
     if isinstance(value, (list, tuple)):
-        return " ".join(str(item) for item in value)
+        return "".join(_segment_argument_text(item) for item in value)
+    return str(value)
+
+
+def _segment_argument_text(value: object) -> str:
+    """保留命令参数中跨平台消息段的可读语义，尤其是用户 @。"""
+    if isinstance(value, Text):
+        return value.text
+    if isinstance(value, At):
+        target = str(value.target).strip()
+        display = " ".join((value.display or "").split())
+        label = display or target or "未知对象"
+        if value.flag == "user" and target:
+            return f"@{label}（用户ID：{target}）"
+        return f"@{label}"
     return str(value)
 
 

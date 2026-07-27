@@ -44,3 +44,21 @@ class AgentFilesystemTests(unittest.TestCase):
 
             self.assertEqual(scanner.root_choices, ("机器人目录",))
             self.assertEqual(scanner.validate({"扫描目录": "机器人目录"}), "")
+
+    def test_scan_can_rank_files_instead_of_directories(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "logs").mkdir()
+            (root / "logs" / "small.log").write_bytes(b"a" * 128)
+            (root / "logs" / "large.log").write_bytes(b"a" * 4096)
+            scanner = agent_filesystem.AgentFilesystemScanner([{"name": "机器人目录", "path": root}])
+
+            result = scanner.scan({
+                "扫描目录": "机器人目录",
+                "统计对象": "文件",
+                "最大深度": "2",
+                "结果数量": "5",
+            })
+
+            self.assertIn("占用较大的文件", result)
+            self.assertLess(result.index("logs/large.log"), result.index("logs/small.log"))

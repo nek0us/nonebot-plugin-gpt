@@ -1002,7 +1002,7 @@ if isinstance(config_gpt.gpt_session,list):
         context_parts = []
         if config_gpt.gpt_group_chat and _is_group_context(event):
             context_parts.append(format_group_speaker_prompt(event, "").strip())
-        if is_superuser and mention_context:
+        if mention_context:
             context_parts.append(mention_context)
         result = await runtime.execute(
             value,

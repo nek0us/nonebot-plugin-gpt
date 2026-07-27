@@ -27,6 +27,7 @@ class ScanResult:
     skipped_entries: int
     truncated: bool
     entries: tuple[tuple[str, int], ...]
+    entry_kind: str = "目录"
 
     @staticmethod
     def _size(value: int) -> str:
@@ -44,7 +45,7 @@ class ScanResult:
             f"已扫描：{self.scanned_nodes} 项；总计（受扫描边界限制）：{self._size(self.total_bytes)}",
         ]
         if self.entries:
-            lines.append("占用较大的目录：")
+            lines.append(f"占用较大的{self.entry_kind}：")
             lines.extend(f"- {relative}: {self._size(size)}" for relative, size in self.entries)
         else:
             lines.append("未发现可统计的普通文件。")
@@ -96,10 +97,23 @@ class AgentFilesystemScanner:
     def _selected_root(arguments: dict[str, str]) -> str:
         return arguments.get("扫描目录", arguments.get("根目录", "")).strip()
 
+    def _root(self, arguments: dict[str, str]) -> Path:
+        name = self._selected_root(arguments)
+        if name not in self._roots:
+            raise FilesystemScanError("扫描目录不在管理员配置的允许目录中。")
+        return self._roots[name]
+
+    @staticmethod
+    def _entry_kind(arguments: dict[str, str]) -> str:
+        value = arguments.get("统计对象", "目录").strip() or "目录"
+        if value not in {"目录", "文件"}:
+            raise FilesystemScanError("统计对象只能是“目录”或“文件”。")
+        return value
+
     def validate(self, arguments: dict[str, str]) -> str:
-        if self._selected_root(arguments) not in self._roots:
-            return "扫描目录不在管理员配置的允许目录中。"
         try:
+            self._root(arguments)
+            self._entry_kind(arguments)
             self._integer(arguments.get("最大深度", "3"), label="最大深度", minimum=1, maximum=MAX_SCAN_DEPTH)
             self._integer(arguments.get("结果数量", "20"), label="结果数量", minimum=1, maximum=MAX_RESULT_ENTRIES)
         except FilesystemScanError as error:
@@ -111,10 +125,12 @@ class AgentFilesystemScanner:
         if error:
             raise FilesystemScanError(error)
         root_name = self._selected_root(arguments)
-        root = self._roots[root_name]
+        root = self._root(arguments)
         max_depth = self._integer(arguments.get("最大深度", "3"), label="最大深度", minimum=1, maximum=MAX_SCAN_DEPTH)
         max_results = self._integer(arguments.get("结果数量", "20"), label="结果数量", minimum=1, maximum=MAX_RESULT_ENTRIES)
+        entry_kind = self._entry_kind(arguments)
         sizes: dict[Path, int] = defaultdict(int)
+        files: list[tuple[Path, int]] = []
         scanned_nodes = 0
         skipped_entries = 0
         truncated = False
@@ -140,6 +156,7 @@ class AgentFilesystemScanner:
                             continue
                         if entry.is_file(follow_symlinks=False):
                             size = entry.stat(follow_symlinks=False).st_size
+                            files.append((Path(entry.path), size))
                             for ancestor in ancestors:
                                 sizes[ancestor] += size
                         elif entry.is_dir(follow_symlinks=False):
@@ -152,14 +169,20 @@ class AgentFilesystemScanner:
                         skipped_entries += 1
 
         visit(root, 0, (root,))
-        entries = sorted(
-            (
-                (path.relative_to(root).as_posix() or ".", size)
-                for path, size in sizes.items()
-                if path != root
-            ),
-            key=lambda item: (-item[1], item[0]),
-        )[:max_results]
+        if entry_kind == "文件":
+            entries = sorted(
+                ((path.relative_to(root).as_posix(), size) for path, size in files),
+                key=lambda item: (-item[1], item[0]),
+            )[:max_results]
+        else:
+            entries = sorted(
+                (
+                    (path.relative_to(root).as_posix() or ".", size)
+                    for path, size in sizes.items()
+                    if path != root
+                ),
+                key=lambda item: (-item[1], item[0]),
+            )[:max_results]
         return ScanResult(
             root=root,
             root_name=root_name,
@@ -168,4 +191,5 @@ class AgentFilesystemScanner:
             skipped_entries=skipped_entries,
             truncated=truncated,
             entries=tuple(entries),
+            entry_kind=entry_kind,
         ).format()

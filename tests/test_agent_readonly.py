@@ -62,6 +62,26 @@ class AgentReadonlyRootsTests(unittest.TestCase):
             self.assertIn("ERROR final failure", tail)
             self.assertNotIn("old line\nold line\nold line\nold line\nold line", tail)
 
+    def test_analyzes_any_configured_text_file_without_returning_its_full_body(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            logs = Path(temporary) / "logs"
+            logs.mkdir()
+            (logs / "2026-07-27.log").write_text(
+                "INFO boot\nERROR token expired\nINFO retry\nERROR token expired\n",
+                encoding="utf-8",
+            )
+            roots = AgentReadonlyRoots([{"name": "运行日志", "path": logs}])
+
+            result = roots.analyze_text({
+                "根目录": "运行日志",
+                "文件": "2026-07-27.log",
+                "关键词": "ERROR token expired",
+            })
+
+            self.assertIn("总行数：4", result)
+            self.assertIn("命中行数：2", result)
+            self.assertIn("2: ERROR token expired", result)
+
     def test_rejects_unknown_roots_and_paths_outside_the_named_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -340,12 +340,24 @@ class AgentRuntime:
 
     def _pending_message(self, action: PendingAgentAction) -> str:
         description = action.tool.describe_action(action.arguments) if action.tool.describe_action else action.tool.description
+        compact_prefix = "".join(self._command_prefix.split())
         return "\n".join([
             f"智能体准备执行：{description}",
             f"权限：{_PERMISSION_NAMES[action.tool.permission]}",
             f"参数：{self._format_arguments(action.tool, action.arguments)}",
-            f"请在 {self._confirmation_ttl_seconds} 秒内发送“{self._command_prefix} 确认 {action.token}”，或发送“{self._command_prefix} 取消 {action.token}”。",
+            f"请在 {self._confirmation_ttl_seconds} 秒内复制并发送以下任一命令：",
+            f"{compact_prefix}确认{action.token}",
+            f"{compact_prefix}取消{action.token}",
         ])
+
+    @staticmethod
+    def _control_argument(value: str, name: str) -> str | None:
+        """兼容“确认 编号”和“确认编号”等紧凑控制命令。"""
+        if value == name:
+            return ""
+        if not value.startswith(name):
+            return None
+        return value[len(name):].strip()
 
     def _queue_confirmation(
         self,
@@ -636,10 +648,10 @@ class AgentRuntime:
         self._discard_expired()
         if normalized in {"", "帮助", "工具"}:
             return self.help_text()
-        if normalized.startswith("确认 "):
-            return await self._confirm(normalized.removeprefix("确认 ").strip(), operator_id, scope_id)
-        if normalized.startswith("取消 "):
-            return self._cancel(normalized.removeprefix("取消 ").strip(), operator_id, scope_id)
+        if (subject := self._control_argument(normalized, "确认")) is not None:
+            return await self._confirm(subject, operator_id, scope_id)
+        if (subject := self._control_argument(normalized, "取消")) is not None:
+            return self._cancel(subject, operator_id, scope_id)
         if normalized == "授权列表":
             if self._access is not AgentAccess.SUPERUSER:
                 return "当前安全智能体不提供本机权限授权。"
@@ -648,10 +660,10 @@ class AgentRuntime:
             if self._access is not AgentAccess.SUPERUSER:
                 return "当前安全智能体不提供本机权限授权。"
             return "可申请的临时授权：本机只读。用法：智能体 授权 本机只读"
-        if normalized.startswith("授权 "):
+        if (subject := self._control_argument(normalized, "授权")) not in {None, ""}:
             if self._access is not AgentAccess.SUPERUSER:
                 return "当前安全智能体不提供本机权限授权。"
-            return self._request_authorization(normalized.removeprefix("授权 ").strip(), operator_id, scope_id)
+            return self._request_authorization(subject, operator_id, scope_id)
         if normalized.startswith("撤销授权"):
             if self._access is not AgentAccess.SUPERUSER:
                 return "当前安全智能体不提供本机权限授权。"
@@ -669,17 +681,16 @@ class AgentRuntime:
                 return "审计数量应为 1 到 50 的整数。"
         if normalized == "计划":
             return "请提供任务，例如：智能体 计划 在工作区创建 hello.txt，内容为 hello from agent"
-        if normalized.startswith("计划 "):
+        if (subject := self._control_argument(normalized, "计划")) not in {None, ""}:
             return await self._start(
-                normalized.removeprefix("计划 ").strip(), operator_id, scope_id,
+                subject, operator_id, scope_id,
                 plan_only=True, conversation_key=conversation_key,
                 delivery_target=delivery_target, delivery_user_id=delivery_user_id,
                 mentioned_user_ids=mentioned_user_ids, agent_context=agent_context,
             )
         if normalized == "执行":
             return "请提供任务，或使用“智能体 执行 <计划编号>”执行已有首步计划。"
-        if normalized.startswith("执行 "):
-            subject = normalized.removeprefix("执行 ").strip()
+        if (subject := self._control_argument(normalized, "执行")) not in {None, ""}:
             if subject in self._plans:
                 return await self._execute_plan(subject, operator_id, scope_id)
             return await self._start(
@@ -844,12 +855,13 @@ def create_agent_runtime(
 
         tools.append(AgentTool(
             "扫描目录占用",
-            "在管理员明确配置的目录中扫描文件与子目录占用；不跟随符号链接，不会读取文件正文或修改任何数据。",
+            "在管理员明确配置的目录中扫描文件与子目录占用；将“统计对象”设为“文件”可找出最大的日志或其他文件。不跟随符号链接，不会读取文件正文或修改任何数据。",
             AgentPermission.READ_LOCAL,
             AgentApproval.CONFIRM,
             scan_filesystem,
             (
                 AgentToolParameter("扫描目录", "管理员配置的允许扫描目录", choices=filesystem_scanner.root_choices),
+                AgentToolParameter("统计对象", "要按占用排序的对象；默认目录，查最大日志文件时选择文件", required=False, choices=("目录", "文件")),
                 AgentToolParameter("最大深度", f"可选整数，1 到 6；默认 3", required=False),
                 AgentToolParameter("结果数量", f"可选整数，1 到 {200}；默认 20", required=False),
             ),
@@ -887,6 +899,12 @@ def create_agent_runtime(
             except ReadonlySourceError as error:
                 return f"只读诊断访问已拒绝：{error}"
 
+        async def analyze_readonly_text(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.analyze_text, arguments)
+            except ReadonlySourceError as error:
+                return f"只读文本分析已拒绝：{error}"
+
         tools.extend((
             AgentTool(
                 "列出只读目录",
@@ -914,6 +932,21 @@ def create_agent_runtime(
                 ),
                 lambda arguments: f"查看只读路径：{arguments['根目录']}/{arguments.get('路径', '') or '.'}",
                 argument_validator=readonly_sources.validate_list,
+                delegable=True,
+            ),
+            AgentTool(
+                "分析只读文本",
+                "对管理员命名的只读根目录内一个 UTF-8 文本做通用分析：返回大小、总行数、修改时间，并可统计任意关键词的命中行和少量定位片段。适用于日志、配置和源码；不会写入文件。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                analyze_readonly_text,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("文件", "根目录内的 UTF-8 文本文件相对路径"),
+                    AgentToolParameter("关键词", "可选：要统计的任意文本；留空只返回通用文件结构统计", required=False),
+                ),
+                lambda arguments: f"分析只读文本：{arguments['根目录']}/{arguments['文件']}",
+                argument_validator=readonly_sources.validate_analyze,
                 delegable=True,
             ),
             AgentTool(

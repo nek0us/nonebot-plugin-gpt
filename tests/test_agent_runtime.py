@@ -83,6 +83,34 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("bot.log:1", service.calls[1]["tool_result"].output)
             self.assertIn("auth.py:1", service.calls[2]["tool_result"].output)
 
+    async def test_readonly_text_analysis_is_available_for_any_configured_root(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logs = root / "logs"
+            logs.mkdir()
+            (logs / "bot.log").write_text("INFO boot\nERROR expired\n", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="分析只读文本", arguments={
+                    "根目录": "运行日志",
+                    "文件": "bot.log",
+                    "关键词": "ERROR",
+                }),
+                AgentDecision("final", answer="日志里有一条认证异常。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                agent_service=service,
+                readonly_sources=agent_readonly.AgentReadonlyRoots([
+                    {"name": "运行日志", "path": logs},
+                ]),
+                approval_mode=agent_runtime.AgentApprovalMode.FULL,
+            )
+
+            result = await runtime.execute("分析日志中的认证异常", operator_id="admin", scope_id="private:1")
+
+            self.assertIn("认证异常", result)
+            self.assertIn("总行数：2", service.calls[1]["tool_result"].output)
+
     async def test_final_renderer_can_present_an_agent_result_in_the_current_persona(self):
         rendered = []
 
@@ -155,8 +183,29 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("猪咪 智能体 确认 plan", pending)
-        self.assertIn("猪咪 智能体 取消 plan", pending)
+        self.assertIn("猪咪智能体确认plan", pending)
+        self.assertIn("猪咪智能体取消plan", pending)
+
+    async def test_confirmation_accepts_a_compact_control_command(self):
+        called = []
+
+        async def change(_):
+            called.append(True)
+            return "changed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="变更", arguments={}),
+            AgentDecision("final", answer="完成。"),
+        ], [agent_runtime.AgentTool(
+            "变更", "受控变更", agent_runtime.AgentPermission.WRITE_LOCAL,
+            agent_runtime.AgentApproval.CONFIRM, change,
+        )])
+
+        await runtime.execute("请执行受控变更", operator_id="admin", scope_id="private:1")
+        completed = await runtime.execute("确认plan", operator_id="admin", scope_id="private:1")
+
+        self.assertEqual(called, [True])
+        self.assertIn("完成", completed)
 
     async def test_delegate_mode_runs_workspace_writes_without_confirmation(self):
         with TemporaryDirectory() as temporary:
@@ -193,7 +242,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("确认 plan", pending)
+        self.assertIn("确认plan", pending)
 
     async def test_full_mode_runs_registered_change_without_confirmation(self):
         called = []
@@ -254,7 +303,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             pending = await runtime.execute("制作网页截图", operator_id="admin", scope_id="private:1")
             completed = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("确认 confirm", pending)
+        self.assertIn("确认confirm", pending)
         self.assertEqual(completed, "任务完成")
         self.assertEqual(rendered[0][0], "网页已完成。")
         self.assertEqual(rendered[0][1][0].path, "screenshots/page.png")
@@ -502,7 +551,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             scope_id="onebot.v11:group:1",
         )
 
-        self.assertIn("确认 confirm", pending)
+        self.assertIn("确认confirm", pending)
         self.assertEqual(scheduled, [("admin", "member-2", 120, "吃饭啦")])
         self.assertEqual(completed, "提醒已经安排好啦。")
 

@@ -2,6 +2,8 @@ import importlib.util
 import unittest
 from pathlib import Path
 
+from nonebot_plugin_alconna.uniseg import At, Text
+
 
 MODULE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt" / "command_compat.py"
 SPEC = importlib.util.spec_from_file_location("command_compat", MODULE_PATH)
@@ -80,6 +82,16 @@ class LegacyCommandTest(unittest.TestCase):
                     command_compat.command_argument_text(result.main_args["argument"]),
                     "文本",
                 )
+
+    def test_command_argument_preserves_mentioned_user_identity(self):
+        self.assertEqual(
+            command_compat.command_argument_text([
+                Text("提醒"),
+                At("user", "42", "小明"),
+                Text("喝水"),
+            ]),
+            "提醒@小明（用户ID：42）喝水",
+        )
 
     def test_registered_command_can_be_excluded_from_normal_chat(self):
         command_compat.build_legacy_command("智能体", {"agent"}, ["猪咪"])
