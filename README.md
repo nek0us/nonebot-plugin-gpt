@@ -284,7 +284,7 @@ gpt_direct_address_context_prompt="【对话语境】用户正在直接称呼你
 gpt_error_message="抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 
 # 已确认账号会话过期且正在自动重新登录时的提示；不会暴露账号或登录流程
-gpt_session_reauthentication_message="猪咪正在重新连接，请稍后再试一次咩~"
+gpt_session_reauthentication_message="bot正在重新连接，请稍后再试一次咩~"
 
 # 账号自动恢复期间，单条聊天请求等待可用状态的最长秒数；超时后才发送上面的恢复提示
 gpt_session_recovery_wait_timeout=60
