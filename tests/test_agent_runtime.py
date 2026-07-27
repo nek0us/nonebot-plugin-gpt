@@ -27,6 +27,21 @@ class _AgentService:
         return AgentTurn(True, AgentState("conversation", f"message-{len(self.calls)}", model), decision)
 
 
+class _FailedAgentService:
+    def __init__(self, *, errors):
+        self.errors = errors
+        self.calls = []
+
+    async def turn(self, task, tools, *, state=None, tool_result=None, model="auto"):
+        self.calls.append({"task": task, "tools": tools, "state": state, "tool_result": tool_result, "model": model})
+        return AgentTurn(
+            False,
+            state or AgentState(model=model),
+            AgentDecision("error", error="upstream request failed"),
+            errors=self.errors,
+        )
+
+
 class _Service:
     async def get_account_status(self):
         return {"accounts": []}
@@ -148,6 +163,102 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("环境正常，可以继续", text)
         self.assertEqual(len(runtime._agent_service.calls), 2)
         self.assertEqual(runtime._agent_service.calls[1]["tool_result"].tool, "环境")
+
+    async def test_agent_model_turn_budget_stops_before_another_tool_round(self):
+        async def inspect(_):
+            return "first inspection completed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="inspect", arguments={}),
+            AgentDecision("final", answer="should not be requested"),
+        ], [agent_runtime.AgentTool(
+            "inspect", "inspect local state", agent_runtime.AgentPermission.READ_LOCAL,
+            agent_runtime.AgentApproval.AUTOMATIC, inspect,
+        )], max_model_turns=1)
+
+        text = await runtime.execute("inspect once", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("请求模型 1 次", text)
+        self.assertEqual(len(runtime._agent_service.calls), 1)
+
+    async def test_agent_task_timeout_stops_before_another_tool_round(self):
+        now = [0.0]
+
+        async def inspect(_):
+            now[0] = 20.0
+            return "inspection completed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="inspect", arguments={}),
+            AgentDecision("final", answer="should not be requested"),
+        ], [agent_runtime.AgentTool(
+            "inspect", "inspect local state", agent_runtime.AgentPermission.READ_LOCAL,
+            agent_runtime.AgentApproval.AUTOMATIC, inspect,
+        )], task_timeout_seconds=5, clock=lambda: now[0])
+
+        text = await runtime.execute("inspect once", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("超过 15 秒", text)
+        self.assertEqual(len(runtime._agent_service.calls), 1)
+
+    async def test_confirmation_wait_does_not_consume_the_agent_task_budget(self):
+        now = [0.0]
+
+        async def change(_):
+            return "change completed"
+
+        runtime = _runtime([
+            AgentDecision("tool_call", tool="change", arguments={}),
+            AgentDecision("final", answer="completed"),
+        ], [agent_runtime.AgentTool(
+            "change", "perform a controlled change", agent_runtime.AgentPermission.WRITE_LOCAL,
+            agent_runtime.AgentApproval.CONFIRM, change,
+        )], task_timeout_seconds=15, confirmation_ttl_seconds=2000, clock=lambda: now[0])
+
+        pending = await runtime.execute("make the change", operator_id="admin", scope_id="private:1")
+        now[0] = 600.0
+        completed = await runtime.execute("确认 plan", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("确认", pending)
+        self.assertEqual(completed, "completed")
+        self.assertEqual(len(runtime._agent_service.calls), 2)
+
+    async def test_agent_rate_limit_error_uses_the_configured_safe_message(self):
+        service = _FailedAgentService(errors=[{"kind": "conversation_rate_limited"}])
+        runtime = agent_runtime.AgentRuntime(
+            _Service(), [], agent_service=service,
+            rate_limit_message="上游服务繁忙，请稍后再试。",
+            error_message="智能体当前不可用。",
+        )
+
+        text = await runtime.execute("inspect the environment", operator_id="admin", scope_id="private:1")
+
+        self.assertEqual(text, "上游服务繁忙，请稍后再试。")
+        self.assertEqual(len(service.calls), 1)
+
+    async def test_agent_model_error_uses_the_configured_safe_message(self):
+        service = _FailedAgentService(errors=[])
+        runtime = agent_runtime.AgentRuntime(
+            _Service(), [], agent_service=service,
+            error_message="智能体当前不可用。",
+        )
+
+        text = await runtime.execute("inspect the environment", operator_id="admin", scope_id="private:1")
+
+        self.assertEqual(text, "智能体当前不可用。")
+        self.assertNotIn("upstream request failed", text)
+
+    async def test_agent_plan_error_uses_the_configured_safe_message(self):
+        service = _FailedAgentService(errors=[])
+        runtime = agent_runtime.AgentRuntime(
+            _Service(), [], agent_service=service,
+            error_message="智能体当前不可用。",
+        )
+
+        text = await runtime.execute("计划 检查环境", operator_id="admin", scope_id="private:1")
+
+        self.assertEqual(text, "智能体计划未通过：智能体当前不可用。")
+        self.assertNotIn("upstream request failed", text)
 
     async def test_write_tool_pauses_for_bound_confirmation_then_continues(self):
         with TemporaryDirectory() as temporary:

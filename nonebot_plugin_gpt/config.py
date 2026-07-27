@@ -69,6 +69,8 @@ class Config(BaseModel):
     gpt_agent_session_approval_timeout: int = Field(default=1800, ge=60, le=86400)
     gpt_agent_plan_timeout: int = Field(default=300, ge=30, le=3600)
     gpt_agent_max_steps: int = Field(default=8, ge=1, le=20)
+    gpt_agent_max_model_turns: int = Field(default=12, ge=1, le=40)
+    gpt_agent_task_timeout: int = Field(default=300, ge=15, le=3600)
     gpt_agent_model: str = "auto"
     gpt_agent_workspace: Path | None = None
     gpt_agent_workspace_web_render_enabled: bool = False

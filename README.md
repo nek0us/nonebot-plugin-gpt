@@ -156,6 +156,8 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数。`strict` 模式下写入、网络和进程控制仍逐次确认；其他档位按 `gpt_agent_approval_mode` 执行。 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
 | gpt_agent_max_steps | 否 | 8 | 1-20 | 单个智能体任务可连续执行的最大工具步数；达到上限会停止，避免模型循环消耗额度。 |
+| gpt_agent_max_model_turns | 否 | 12 | 1-40 | 单个智能体任务最多请求模型决策的次数。工具步数之外的第二层保护，可限制反复规划、修复或工具续答造成的上游额度消耗。 |
+| gpt_agent_task_timeout | 否 | 300 | 15-3600 | 单个智能体任务累计实际推进的最长秒数。等待用户确认或等待计划执行不计入该时间；超时后任务停止，需以更小范围重新发起。 |
 | gpt_agent_model | 否 | auto | str | 智能体模型决策使用的模型别名；保持 `auto` 会按核心账户能力选择。 |
 | gpt_agent_workspace | 否 | 空 | Path | 智能体文件工具的受限工作目录；只允许其中的相对路径，拒绝绝对路径和 `..` 越界。 |
 | gpt_agent_workspace_web_render_enabled | 否 | false | bool | 是否启用工作区静态 HTML 截图。仅允许本地 UTF-8 HTML，拒绝脚本、嵌入页面及远程 HTTP 资源；以 960×640 桌面视口渲染。`strict` 下截图需超级用户确认，`delegate` 可自动执行。 |
@@ -314,7 +316,10 @@ gpt_agent_confirm_timeout=60
 gpt_agent_approval_mode="strict"
 gpt_agent_session_approval_timeout=1800
 gpt_agent_plan_timeout=300
+# 三层任务预算：工具步数、模型决策轮数、实际推进时长。等待人工确认不计入任务时长。
 gpt_agent_max_steps=8
+gpt_agent_max_model_turns=12
+gpt_agent_task_timeout=300
 gpt_agent_model="auto"
 # 文件工具只允许访问此工作目录；不需要文件能力时保持未配置。
 gpt_agent_workspace="./data/agent-workspace"
@@ -483,7 +488,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 
 ### 智能体Agent
 
-智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区的目录、读写、搜索、精确替换、复制/移动、单文件删除与产物回传，静态网页截图、可选的 Docker 工作区脚本执行、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。管理员还可以配置命名的只读日志、源码或诊断目录，供智能体搜索异常、读取相邻行并交叉定位实现，但模型不能填写任意路径或修改其中内容。模型可以组合这些原子能力完成多步任务，但不能直接获得任意路径、网络、Shell 或主机权限。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
+智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区的目录、读写、搜索、精确替换、复制/移动、单文件删除与产物回传，静态网页截图、可选的 Docker 工作区脚本执行、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。管理员还可以配置命名的只读日志、源码或诊断目录，供智能体搜索异常、读取相邻行并交叉定位实现，但模型不能填写任意路径或修改其中内容。模型可以组合这些原子能力完成多步任务，但不能直接获得任意路径、网络、Shell 或主机权限。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。任务同时受工具步数、模型决策轮数和实际推进时限约束；等待人工确认或计划执行不消耗任务时限。上游达到限额时会使用 `gpt_rate_limit_message`，其他模型故障使用 `gpt_error_message`，不会向聊天暴露内部错误。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
 
 ### 更新日志
 2026.07.16 1.1.3

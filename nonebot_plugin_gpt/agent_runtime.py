@@ -158,6 +158,10 @@ class AgentRun:
     operator_id: str
     scope_id: str
     steps: int = 0
+    model_turns: int = 0
+    started_at: float = 0.0
+    paused_at: float | None = None
+    paused_seconds: float = 0.0
     model: str = "auto"
     conversation_key: ConversationKey | None = None
     delivery_target: dict[str, Any] | None = None
@@ -215,7 +219,11 @@ class AgentRuntime:
         session_approval_ttl_seconds: int = 1800,
         plan_ttl_seconds: int = 300,
         max_steps: int = 8,
+        max_model_turns: int = 12,
+        task_timeout_seconds: int = 300,
         model: str = "auto",
+        error_message: str = "智能体当前无法继续执行，请稍后再试。",
+        rate_limit_message: str = "当前上游服务繁忙或已达到请求限额，请稍后再试。",
         audit_log: AgentAuditLog | None = None,
         clock: Callable[[], float] = monotonic,
         token_factory: Callable[[], str] = lambda: token_urlsafe(6),
@@ -243,7 +251,11 @@ class AgentRuntime:
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._plan_ttl_seconds = plan_ttl_seconds
         self._max_steps = max(1, min(max_steps, 20))
+        self._max_model_turns = max(1, min(max_model_turns, 40))
+        self._task_timeout_seconds = max(15, min(task_timeout_seconds, 3600))
         self._model = model or "auto"
+        self._error_message = error_message.strip() or "智能体当前无法继续执行，请稍后再试。"
+        self._rate_limit_message = rate_limit_message.strip() or self._error_message
         self._clock = clock
         self._token_factory = token_factory
         self._audit = audit_log or AgentAuditLog()
@@ -299,6 +311,19 @@ class AgentRuntime:
         self._pending = {token: item for token, item in self._pending.items() if item.expires_at > now}
         self._plans = {token: item for token, item in self._plans.items() if item.expires_at > now}
         self._approvals = {key: expires_at for key, expires_at in self._approvals.items() if expires_at > now}
+
+    def _pause_run(self, run: AgentRun | None) -> None:
+        if run is not None and run.paused_at is None:
+            run.paused_at = self._clock()
+
+    def _resume_run(self, run: AgentRun | None) -> None:
+        if run is not None and run.paused_at is not None:
+            run.paused_seconds += max(0.0, self._clock() - run.paused_at)
+            run.paused_at = None
+
+    def _active_elapsed(self, run: AgentRun) -> float:
+        now = run.paused_at if run.paused_at is not None else self._clock()
+        return max(0.0, now - run.started_at - run.paused_seconds)
 
     def _new_token(self) -> str:
         token = self._token_factory()
@@ -382,6 +407,7 @@ class AgentRuntime:
             direct=direct,
         )
         self._pending[token] = action
+        self._pause_run(run)
         self._audit.record("确认已创建", tool.name, _PERMISSION_NAMES[tool.permission])
         return self._pending_message(action)
 
@@ -415,6 +441,24 @@ class AgentRuntime:
         state: AgentState | None = None,
         tool_result: AgentToolResult | None = None,
     ) -> AgentTurn:
+        if run is not None:
+            if run.model_turns >= self._max_model_turns:
+                self._audit.record("模型决策达到轮数上限", "智能体模型")
+                return AgentTurn(
+                    False,
+                    run.state,
+                    AgentDecision("error", error="agent_model_turn_limit"),
+                )
+            elapsed = self._active_elapsed(run)
+            if elapsed >= self._task_timeout_seconds:
+                self._audit.record("任务达到总时限", "智能体模型")
+                return AgentTurn(
+                    False,
+                    run.state,
+                    AgentDecision("error", error="agent_task_timeout"),
+                )
+            run.model_turns += 1
+            self._audit.record("请求模型决策", "智能体模型")
         if self._agent_turn is not None and run is not None and run.conversation_key is not None:
             return await self._agent_turn(
                 key=run.conversation_key,
@@ -432,6 +476,27 @@ class AgentRuntime:
             model=run.model if run is not None else self._model,
         )
 
+    def _turn_failure_message(self, turn: AgentTurn) -> str:
+        error = turn.decision.error
+        if error == "agent_model_turn_limit":
+            return (
+                f"智能体已请求模型 {self._max_model_turns} 次，为避免失控循环已停止。"
+                "请根据当前结果缩小任务范围后重试。"
+            )
+        if error == "agent_task_timeout":
+            return (
+                f"智能体任务超过 {self._task_timeout_seconds} 秒仍未完成，已停止。"
+                "请缩小任务范围后重试。"
+            )
+        error_kinds = {
+            str(item.get("kind", ""))
+            for item in turn.errors
+            if isinstance(item, dict)
+        }
+        if error_kinds & {"rate_limited", "conversation_rate_limited"}:
+            return self._rate_limit_message
+        return self._error_message
+
     async def _continue_after_result(self, run: AgentRun, result: AgentToolResult) -> Any:
         turn = await self._request_turn("", run=run, state=run.state, tool_result=result)
         run.state = turn.state
@@ -440,7 +505,7 @@ class AgentRuntime:
     async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> Any:
         if not turn.ok or turn.decision.kind == "error":
             self._audit.record("模型决策失败", "智能体模型")
-            return f"智能体未能继续执行：{turn.decision.error or '模型请求失败'}"
+            return self._turn_failure_message(turn)
         if turn.decision.kind == "final":
             self._audit.record("任务已完成", "智能体模型")
             if self._final_renderer is not None:
@@ -489,6 +554,7 @@ class AgentRuntime:
             state=AgentState(model=self._model),
             operator_id=operator_id,
             scope_id=scope_id,
+            started_at=self._clock(),
             model=self._model,
             conversation_key=conversation_key,
             delivery_target=delivery_target,
@@ -502,7 +568,7 @@ class AgentRuntime:
         run.state = turn.state
         if plan_only:
             if not turn.ok or turn.decision.kind == "error":
-                return f"智能体计划未通过：{turn.decision.error or '模型请求失败'}"
+                return f"智能体计划未通过：{self._turn_failure_message(turn)}"
             token = self._new_token()
             self._plans[token] = PlannedAgentRun(
                 token=token,
@@ -512,6 +578,7 @@ class AgentRuntime:
                 scope_id=scope_id,
                 expires_at=self._clock() + self._plan_ttl_seconds,
             )
+            self._pause_run(run)
             if turn.decision.kind == "final":
                 return f"智能体计划：无需调用工具。\n{turn.decision.answer}"
             tool = self._tools.get(turn.decision.tool)
@@ -543,6 +610,7 @@ class AgentRuntime:
         if plan.operator_id != operator_id or plan.scope_id != scope_id:
             self._plans[token] = plan
             return "该智能体计划只能由原操作者在原聊天范围执行。"
+        self._resume_run(plan.run)
         if plan.decision.kind == "final":
             return plan.decision.answer
         return await self._handle_turn(AgentTurn(True, plan.run.state, plan.decision), plan.run)
@@ -557,6 +625,7 @@ class AgentRuntime:
         if action.operator_id != operator_id or action.scope_id != scope_id:
             return "该待确认操作只能由原操作者在原聊天范围确认。"
         self._pending.pop(token, None)
+        self._resume_run(action.run)
         self._audit.record("确认已完成", action.tool.name, _PERMISSION_NAMES[action.tool.permission])
         result = await self._call_tool(action.tool, action.arguments, action.run)
         if action.run is None:
@@ -755,7 +824,11 @@ def create_agent_runtime(
     session_approval_ttl_seconds: int = 1800,
     plan_ttl_seconds: int = 300,
     max_steps: int = 8,
+    max_model_turns: int = 12,
+    task_timeout_seconds: int = 300,
     model: str = "auto",
+    error_message: str = "智能体当前无法继续执行，请稍后再试。",
+    rate_limit_message: str = "当前上游服务繁忙或已达到请求限额，请稍后再试。",
     workspace: Any = None,
     workspace_sandbox: WorkspaceSandbox | None = None,
     workspace_web_renderer: WorkspaceWebRenderer | None = None,
@@ -1402,7 +1475,11 @@ def create_agent_runtime(
         session_approval_ttl_seconds=session_approval_ttl_seconds,
         plan_ttl_seconds=plan_ttl_seconds,
         max_steps=max_steps,
+        max_model_turns=max_model_turns,
+        task_timeout_seconds=task_timeout_seconds,
         model=model,
+        error_message=error_message,
+        rate_limit_message=rate_limit_message,
         agent_service=agent_service,
         agent_turn=agent_turn,
         schedule_reminder=schedule_reminder,

@@ -16,6 +16,9 @@ gpt_agent_sensitive_task_message="这个请求不适合交给智能体处理咩�
 gpt_agent_sensitive_terms='["生产数据库", "内部密钥轮换"]'
 gpt_agent_model=auto
 gpt_agent_max_steps=8
+# 工具步数之外，再限制模型连续决策轮数与任务实际推进时长。
+gpt_agent_max_model_turns=12
+gpt_agent_task_timeout=300
 gpt_agent_confirm_timeout=60
 # strict：每个需确认步骤暂停；delegate：受限工作区查看、读写、目录创建、搜索、复制/移动和静态截图自动执行；full：已注册工具自动执行。
 gpt_agent_approval_mode=strict
@@ -61,7 +64,9 @@ gpt_agent_command_workdir=./data/agent-command-workdir
 @机器人 智能体 取消 <编号>
 ```
 
-确认编号绑定创建任务的超级用户和当前聊天范围，不能在其他群、频道或私聊复用。确认后工具结果会回送给同一模型会话，模型可以继续调用下一工具或给出最终答复。机器人给出的确认消息会直接带上当前昵称，例如“猪咪 智能体 确认 <编号>”，可直接复制使用。`gpt_agent_max_steps` 默认限制为 8，防止模型陷入无意义循环。
+确认编号绑定创建任务的超级用户和当前聊天范围，不能在其他群、频道或私聊复用。确认后工具结果会回送给同一模型会话，模型可以继续调用下一工具或给出最终答复。机器人给出的确认消息会直接带上当前昵称，例如“猪咪 智能体 确认 <编号>”，可直接复制使用。`gpt_agent_max_steps` 默认限制为 8，防止模型陷入无意义循环；`gpt_agent_max_model_turns` 默认限制为 12，防止反复规划、修复或工具续答过度消耗上游额度；`gpt_agent_task_timeout` 默认限制实际推进 300 秒。用户等待确认或计划执行的时间会暂停任务计时，不会因为正常审批而触发任务超时。
+
+模型或上游请求未能继续时，插件不会把浏览器、协议或账户错误直接发到聊天。达到上游请求限额会使用 `gpt_rate_limit_message`，其他模型故障使用 `gpt_error_message`；这两项均可按机器人自身语气配置。
 
 ## 审批档位
 
