@@ -17,6 +17,7 @@ from nonebot.log import logger
 from .agent_audit import AgentAuditLog
 from .agent_commands import CommandRunner, CommandValidationError
 from .agent_filesystem import AgentFilesystemScanner
+from .agent_readonly import AgentReadonlyRoots, ReadonlySourceError
 from .agent_skills import AgentSkillError, DeclarativeCommandSkill
 from .agent_sandbox import SandboxError, WorkspaceSandbox
 from .agent_web import WebRenderError, WorkspaceWebRenderer
@@ -750,6 +751,7 @@ def create_agent_runtime(
     managed_services: ManagedServiceRegistry | None = None,
     command_runner: CommandRunner | None = None,
     filesystem_scanner: AgentFilesystemScanner | None = None,
+    readonly_sources: AgentReadonlyRoots | None = None,
     command_skills: Iterable[DeclarativeCommandSkill] = (),
     tool_providers: Iterable[AgentToolProvider] = (),
     agent_service: AgentService | None = None,
@@ -853,6 +855,118 @@ def create_agent_runtime(
             ),
             lambda arguments: f"扫描目录占用：{arguments['扫描目录']}（最大深度 {arguments.get('最大深度', '3')}，最多显示 {arguments.get('结果数量', '20')} 项）",
             argument_validator=validate_filesystem_scan,
+        ))
+    if readonly_sources is not None and readonly_sources.root_choices:
+        async def list_readonly_directory(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.list_entries, arguments)
+            except ReadonlySourceError as error:
+                return f"只读诊断访问已拒绝：{error}"
+
+        async def describe_readonly_path(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.describe_path, arguments)
+            except ReadonlySourceError as error:
+                return f"只读诊断访问已拒绝：{error}"
+
+        async def read_readonly_excerpt(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.read_excerpt, arguments)
+            except ReadonlySourceError as error:
+                return f"只读诊断访问已拒绝：{error}"
+
+        async def read_readonly_tail(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.read_tail, arguments)
+            except ReadonlySourceError as error:
+                return f"只读诊断访问已拒绝：{error}"
+
+        async def search_readonly_text(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.search_text, arguments)
+            except ReadonlySourceError as error:
+                return f"只读诊断访问已拒绝：{error}"
+
+        tools.extend((
+            AgentTool(
+                "列出只读目录",
+                "列出管理员命名的只读诊断根目录内的直接文件和目录；不会读取正文、写入文件或跟随符号链接。适合先确认日志或源码所在位置。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                list_readonly_directory,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("路径", "根目录内的可选相对目录；留空表示根目录", required=False),
+                ),
+                lambda arguments: f"列出只读目录：{arguments['根目录']}/{arguments.get('路径', '') or '.'}",
+                argument_validator=readonly_sources.validate_list,
+                delegable=True,
+            ),
+            AgentTool(
+                "查看只读路径",
+                "查看管理员命名的只读诊断根目录内单个文件或目录的元数据，不读取文件正文。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                describe_readonly_path,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("路径", "根目录内的可选相对路径；留空表示根目录", required=False),
+                ),
+                lambda arguments: f"查看只读路径：{arguments['根目录']}/{arguments.get('路径', '') or '.'}",
+                argument_validator=readonly_sources.validate_list,
+                delegable=True,
+            ),
+            AgentTool(
+                "读取只读文件片段",
+                "按行读取管理员命名的只读诊断根目录内 UTF-8 文本文件的一小段。用于查看日志命中位置附近或源码实现；不会写入文件。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                read_readonly_excerpt,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("文件", "根目录内的 UTF-8 文本文件相对路径"),
+                    AgentToolParameter("起始行", "可选整数，1 到 10000000；默认 1", required=False),
+                    AgentToolParameter("行数", "可选整数，1 到 400；默认 120", required=False),
+                ),
+                lambda arguments: (
+                    f"读取只读文件片段：{arguments['根目录']}/{arguments['文件']}，"
+                    f"第 {arguments.get('起始行', '1')} 行起，{arguments.get('行数', '120')} 行"
+                ),
+                argument_validator=readonly_sources.validate_excerpt,
+                delegable=True,
+            ),
+            AgentTool(
+                "读取只读文件尾部",
+                "读取管理员命名的只读诊断根目录内 UTF-8 文本文件末尾的少量行。优先用于正在增长的大型运行日志；不会写入文件。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                read_readonly_tail,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("文件", "根目录内的 UTF-8 文本文件相对路径"),
+                    AgentToolParameter("行数", "可选整数，1 到 400；默认 120", required=False),
+                ),
+                lambda arguments: f"读取只读文件尾部：{arguments['根目录']}/{arguments['文件']}，{arguments.get('行数', '120')} 行",
+                argument_validator=readonly_sources.validate_tail,
+                delegable=True,
+            ),
+            AgentTool(
+                "搜索只读文本",
+                "在管理员命名的只读诊断根目录内搜索 UTF-8 文本。适合先查异常关键字、模块名或函数名，再读取对应行附近的日志和源码；不会写入文件或跟随符号链接。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                search_readonly_text,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("文本", "要搜索的异常片段、模块名或函数名"),
+                    AgentToolParameter("路径", "根目录内的可选相对目录；留空表示整个根目录", required=False),
+                    AgentToolParameter("忽略大小写", "是否忽略大小写", required=False, choices=("否", "是")),
+                    AgentToolParameter("结果数量", "可选整数，1 到 100；默认 30", required=False),
+                ),
+                lambda arguments: f"搜索只读文本：{arguments['根目录']}，{arguments['文本'][:120]}",
+                argument_validator=readonly_sources.validate_search,
+                delegable=True,
+            ),
         ))
     def validate_reminder(arguments: dict[str, str]) -> str:
         try:

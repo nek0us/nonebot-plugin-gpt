@@ -85,6 +85,7 @@ class Config(BaseModel):
     gpt_agent_skill_files: list[Path] = Field(default_factory=list)
     gpt_agent_filesystem_scan_enabled: bool = False
     gpt_agent_filesystem_roots: list = Field(default_factory=list)
+    gpt_agent_read_roots: list = Field(default_factory=list)
     gpt_agent_managed_services: list[dict] = Field(default_factory=list)
     gpt_context_compaction_mode: Literal["off", "reinforce", "summarize_restart"] = "summarize_restart"
     gpt_context_compaction_threshold: float = Field(default=0.6, ge=0.1, le=0.95)

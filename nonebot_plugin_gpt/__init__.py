@@ -34,6 +34,7 @@ from .source import (
 from .agent_runtime import AgentAccess, create_agent_runtime
 from .agent_commands import CommandRunner
 from .agent_filesystem import AgentFilesystemScanner
+from .agent_readonly import AgentReadonlyRoots
 from .agent_sandbox import SandboxError, WorkspaceSandbox
 from .agent_skills import load_command_skill_sources
 from .agent_scheduler import AgentScheduler, ScheduledReminder
@@ -492,6 +493,11 @@ if isinstance(config_gpt.gpt_session,list):
             logger.warning("已启用智能体目录占用扫描；每次扫描仍需要超级用户在原聊天范围确认")
         else:
             logger.warning("已启用 gpt_agent_filesystem_scan_enabled，但未找到有效的 gpt_agent_filesystem_roots")
+    readonly_sources = AgentReadonlyRoots(config_gpt.gpt_agent_read_roots)
+    if readonly_sources.root_choices:
+        logger.warning("已启用智能体只读诊断目录；日志和源码检索仅能访问管理员命名的根目录，每次读取或搜索仍需确认")
+    elif config_gpt.gpt_agent_read_roots:
+        logger.warning("已配置 gpt_agent_read_roots，但未找到有效的命名目录")
     workspace_sandbox = None
     workspace_web_renderer = None
     if config_gpt.gpt_agent_workspace:
@@ -532,6 +538,7 @@ if isinstance(config_gpt.gpt_session,list):
         "command_runner": command_runner,
         "command_skills": command_skills,
         "filesystem_scanner": filesystem_scanner,
+        "readonly_sources": readonly_sources,
         "agent_turn": chat_runtime.agent_turn,
         "final_renderer": render_agent_final,
         "schedule_reminder": schedule_agent_reminder if config_gpt.gpt_agent_schedule_enabled else None,

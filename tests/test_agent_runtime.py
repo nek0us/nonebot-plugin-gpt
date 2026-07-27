@@ -13,6 +13,7 @@ package = types.ModuleType("nonebot_plugin_gpt")
 package.__path__ = [str(PACKAGE_PATH)]
 sys.modules.setdefault("nonebot_plugin_gpt", package)
 agent_runtime = importlib.import_module("nonebot_plugin_gpt.agent_runtime")
+agent_readonly = importlib.import_module("nonebot_plugin_gpt.agent_readonly")
 
 
 class _AgentService:
@@ -45,6 +46,43 @@ def _runtime(decisions, tools, **kwargs):
 
 
 class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_readonly_diagnostics_can_search_logs_and_source_without_writes(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            logs = root / "logs"
+            source = root / "source"
+            logs.mkdir()
+            source.mkdir()
+            (logs / "bot.log").write_text("ERROR: token expired\n", encoding="utf-8")
+            (source / "auth.py").write_text("raise TokenExpired()\n", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="搜索只读文本", arguments={
+                    "根目录": "运行日志",
+                    "文本": "token expired",
+                }),
+                AgentDecision("tool_call", tool="搜索只读文本", arguments={
+                    "根目录": "核心源码",
+                    "文本": "TokenExpired",
+                }),
+                AgentDecision("final", answer="令牌已经过期，认证刷新路径需要重新登录。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                agent_service=service,
+                readonly_sources=agent_readonly.AgentReadonlyRoots([
+                    {"name": "运行日志", "path": logs},
+                    {"name": "核心源码", "path": source},
+                ]),
+                approval_mode=agent_runtime.AgentApprovalMode.FULL,
+            )
+
+            result = await runtime.execute("查日志并定位异常来源", operator_id="admin", scope_id="private:1")
+
+            self.assertIn("令牌已经过期", result)
+            self.assertEqual(len(service.calls), 3)
+            self.assertIn("bot.log:1", service.calls[1]["tool_result"].output)
+            self.assertIn("auth.py:1", service.calls[2]["tool_result"].output)
+
     async def test_final_renderer_can_present_an_agent_result_in_the_current_persona(self):
         rendered = []
 
