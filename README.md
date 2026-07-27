@@ -152,7 +152,7 @@ _✨ NoneBot GPT ✨_
 | gpt_agent_sensitive_task_message | 否 | 默认提示 | str | Agent 任务触及内建敏感范围或自定义敏感词时的面向用户提示；仅影响智能体，不影响普通聊天。 |
 | gpt_agent_sensitive_terms | 否 | `[]` | JSON List[str] | 额外拒绝的 Agent 任务词语。内建的法律、政治及其他高风险敏感范围始终保留，不能通过此项移除。 |
 | gpt_agent_confirm_timeout | 否 | 60 | 10-3600 | 单次待确认操作的有效秒数；超时后需要重新计划或重新执行。 |
-| gpt_agent_approval_mode | 否 | strict | strict/delegate/full | 超级用户 Agent 的审批档位。`strict` 每个需确认步骤都停下；`delegate` 自动执行已标为可委托的受限工作区读写、静态网页截图和图片回传，命令、脚本、网络、服务和跨成员投递仍需确认；`full` 自动执行已注册工具，仅适合完全自用且已理解风险的环境。工具白名单、路径校验和敏感任务预检始终有效。 |
+| gpt_agent_approval_mode | 否 | strict | strict/delegate/full | 超级用户 Agent 的审批档位。`strict` 每个需确认步骤都停下；`delegate` 自动执行已标为可委托的受限工作区读写、目录创建、搜索、复制/移动与静态网页截图，文件回传、删除、命令、脚本、网络、服务和跨成员投递仍需确认；`full` 自动执行已注册工具，仅适合完全自用且已理解风险的环境。工具白名单、路径校验和敏感任务预检始终有效。 |
 | gpt_agent_session_approval_timeout | 否 | 1800 | 60-86400 | 仅“本机只读”临时授权的有效秒数。`strict` 模式下写入、网络和进程控制仍逐次确认；其他档位按 `gpt_agent_approval_mode` 执行。 |
 | gpt_agent_plan_timeout | 否 | 300 | 30-3600 | 模型返回并经插件校验的计划有效秒数；仅原超级用户可在原聊天范围执行一次。 |
 | gpt_agent_max_steps | 否 | 8 | 1-20 | 单个智能体任务可连续执行的最大工具步数；达到上限会停止，避免模型循环消耗额度。 |
@@ -482,7 +482,7 @@ C:\Users\UserName\AppData\Local\nonebot2\nonebot_plugin_gpt\\{bot_name\}
 
 ### 智能体Agent
 
-智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区读写、静态网页截图、可选的 Docker 工作区脚本执行与图片回传、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。模型可以组合这些原子能力完成多步任务，但不能直接获得任意路径、网络、Shell 或主机权限。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
+智能体由 ChatGPTWeb 的结构化 Agent 决策协议驱动：核心只生成受工具白名单约束的下一步，插件负责本地校验、权限确认、实际执行和结果回送。入口仅限 `SUPERUSERS`；它支持受限工作区的目录、读写、搜索、精确替换、复制/移动、单文件删除与产物回传，静态网页截图、可选的 Docker 工作区脚本执行、管理员预配置服务、可选的无 Shell 系统命令和异步提醒。模型可以组合这些原子能力完成多步任务，但不能直接获得任意路径、网络、Shell 或主机权限。普通成员的安全模式只允许管理自己在当前范围的提醒；超级用户若要提醒他人，必须在任务消息中实际 `@` 该成员，机器人会先返回确认编号，确认后才会安排。Agent 默认以本地规则与隔离模型审查拒绝法律、政治和其他高风险敏感任务；可通过 `gpt_agent_sensitive_terms` 追加本地限制，或用 `gpt_agent_sensitive_task_guard=false` 关闭本地预检，但普通聊天不受影响。完整配置、权限与安全边界见 [docs/agent.md](docs/agent.md)。
 
 ### 更新日志
 2026.07.16 1.1.3

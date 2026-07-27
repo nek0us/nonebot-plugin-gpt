@@ -13,6 +13,7 @@ from nonebot_plugin_alconna.uniseg import At, OriginalUniMsg, Target, UniMessage
 from importlib.metadata import version
 import asyncio
 import json
+from pathlib import Path
 from time import time
 
 
@@ -454,8 +455,11 @@ if isinstance(config_gpt.gpt_session,list):
             return text
         message = UniMessage.text(text)
         for artifact in run.artifacts:
-            if artifact.media_type == "image/png":
-                message += UniMessage.image(raw=artifact.content)
+            name = Path(artifact.path).name
+            if artifact.media_type.startswith("image/"):
+                message += UniMessage.image(raw=artifact.content, name=name)
+            else:
+                message += UniMessage.file(raw=artifact.content, name=name)
         return message
 
     managed_services = ManagedServiceRegistry.from_config(config_gpt.gpt_agent_managed_services)

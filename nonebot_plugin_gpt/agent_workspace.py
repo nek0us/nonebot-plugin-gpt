@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -10,6 +12,9 @@ from tempfile import NamedTemporaryFile
 MAX_FILE_BYTES = 64 * 1024
 MAX_ARTIFACT_BYTES = 12 * 1024 * 1024
 MAX_LIST_ENTRIES = 100
+MAX_SEARCH_FILES = 250
+MAX_SEARCH_RESULTS = 100
+MAX_SEARCH_SNIPPET = 240
 
 
 class WorkspaceError(ValueError):
@@ -55,6 +60,25 @@ class AgentWorkspace:
             lines.append(f"- 其余 {len(entries) - MAX_LIST_ENTRIES} 项未显示")
         return "\n".join(lines) if len(lines) > 1 else "工作目录为空。"
 
+    def describe_path(self, value: str = "") -> str:
+        """返回工作区内单一路径的安全元数据，不读取文件正文。"""
+        target = self._path(value, allow_root=True)
+        if not target.exists():
+            raise WorkspaceError("指定路径不存在。")
+        relative = "." if target == self.root else target.relative_to(self.root).as_posix()
+        if target.is_dir():
+            count = sum(1 for _ in target.iterdir())
+            return f"目录：{relative}\n直接子项：{count}"
+        if not target.is_file():
+            raise WorkspaceError("指定路径不是普通文件或目录。")
+        stat = target.stat()
+        modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return "\n".join((
+            f"文件：{relative}",
+            f"大小：{stat.st_size} 字节",
+            f"修改时间：{modified}",
+        ))
+
     def read_text(self, value: str) -> str:
         target = self._path(value)
         if not target.exists() or not target.is_file():
@@ -81,6 +105,146 @@ class AgentWorkspace:
         finally:
             temporary_path.unlink(missing_ok=True)
         return f"已写入工作目录文件：{target.relative_to(self.root).as_posix()}（{len(encoded)} 字节）"
+
+    def make_directory(self, value: str) -> str:
+        target = self._path(value)
+        if target.exists():
+            if target.is_dir():
+                return f"工作目录已存在：{target.relative_to(self.root).as_posix()}/"
+            raise WorkspaceError("同名文件已存在，不能创建目录。")
+        target.mkdir(parents=True, exist_ok=False)
+        return f"已创建工作目录：{target.relative_to(self.root).as_posix()}/"
+
+    def append_text(self, value: str, content: str) -> str:
+        target = self._path(value)
+        if target.exists():
+            if not target.is_file():
+                raise WorkspaceError("指定路径不是普通文件，不能追加文本。")
+            if target.stat().st_size > MAX_FILE_BYTES:
+                raise WorkspaceError(f"文件超过 {MAX_FILE_BYTES // 1024} KiB，拒绝追加。")
+            try:
+                previous = target.read_text(encoding="utf-8")
+            except UnicodeDecodeError as error:
+                raise WorkspaceError("仅支持向 UTF-8 文本文件追加内容。") from error
+        else:
+            previous = ""
+        combined = previous + content
+        encoded = combined.encode("utf-8")
+        if len(encoded) > MAX_FILE_BYTES:
+            raise WorkspaceError(f"追加后内容超过 {MAX_FILE_BYTES // 1024} KiB，已拒绝。")
+        self.write_text(value, combined)
+        return f"已追加工作目录文件：{target.relative_to(self.root).as_posix()}（新增 {len(content.encode('utf-8'))} 字节）"
+
+    def replace_text(self, value: str, search: str, replacement: str, *, maximum: int = 0) -> str:
+        if not search:
+            raise WorkspaceError("待替换文本不能为空。")
+        if maximum < 0:
+            raise WorkspaceError("最大替换次数不能小于 0。")
+        target = self._path(value)
+        if not target.exists() or not target.is_file():
+            raise WorkspaceError("指定文件不存在或不是普通文件。")
+        if target.stat().st_size > MAX_FILE_BYTES:
+            raise WorkspaceError(f"文件超过 {MAX_FILE_BYTES // 1024} KiB，拒绝替换。")
+        try:
+            previous = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError as error:
+            raise WorkspaceError("仅支持替换 UTF-8 文本文件。") from error
+        occurrences = previous.count(search)
+        if not occurrences:
+            raise WorkspaceError("文件中未找到待替换文本，未修改文件。")
+        count = min(occurrences, maximum) if maximum else occurrences
+        updated = previous.replace(search, replacement, count)
+        if len(updated.encode("utf-8")) > MAX_FILE_BYTES:
+            raise WorkspaceError(f"替换后内容超过 {MAX_FILE_BYTES // 1024} KiB，已拒绝。")
+        self.write_text(value, updated)
+        return f"已替换工作目录文件：{target.relative_to(self.root).as_posix()}（{count} 处）"
+
+    def search_text(
+        self,
+        query: str,
+        value: str = "",
+        *,
+        ignore_case: bool = False,
+        maximum_results: int = 30,
+    ) -> str:
+        """在受限目录内搜索小型 UTF-8 文本文件，按行返回有限摘要。"""
+        if not query.strip():
+            raise WorkspaceError("搜索文本不能为空。")
+        if not 1 <= maximum_results <= MAX_SEARCH_RESULTS:
+            raise WorkspaceError(f"结果数量必须在 1 到 {MAX_SEARCH_RESULTS} 之间。")
+        root = self._path(value, allow_root=True)
+        if not root.exists() or not root.is_dir():
+            raise WorkspaceError("搜索路径不存在或不是目录。")
+        needle = query.casefold() if ignore_case else query
+        lines = [f"工作目录搜索：{query}"]
+        scanned = 0
+        matches = 0
+        for directory, subdirectories, files in os.walk(root, followlinks=False):
+            subdirectories[:] = [name for name in subdirectories if not (Path(directory) / name).is_symlink()]
+            for name in sorted(files):
+                if scanned >= MAX_SEARCH_FILES or matches >= maximum_results:
+                    break
+                target = Path(directory) / name
+                if target.is_symlink() or not target.is_file() or target.stat().st_size > MAX_FILE_BYTES:
+                    continue
+                scanned += 1
+                try:
+                    content = target.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                for line_number, line in enumerate(content.splitlines(), start=1):
+                    comparable = line.casefold() if ignore_case else line
+                    if needle not in comparable:
+                        continue
+                    relative = target.relative_to(self.root).as_posix()
+                    snippet = line.strip()
+                    if len(snippet) > MAX_SEARCH_SNIPPET:
+                        snippet = f"{snippet[:MAX_SEARCH_SNIPPET - 1]}…"
+                    lines.append(f"- {relative}:{line_number}: {snippet}")
+                    matches += 1
+                    if matches >= maximum_results:
+                        break
+            if scanned >= MAX_SEARCH_FILES or matches >= maximum_results:
+                break
+        if matches == 0:
+            lines.append("未找到匹配文本。")
+        if scanned >= MAX_SEARCH_FILES:
+            lines.append(f"仅扫描前 {MAX_SEARCH_FILES} 个可读文本文件。")
+        if matches >= maximum_results:
+            lines.append(f"结果已限制为前 {maximum_results} 项。")
+        return "\n".join(lines)
+
+    def copy_file(self, source: str, destination: str) -> str:
+        source_path = self._path(source)
+        destination_path = self._path(destination)
+        if not source_path.exists() or not source_path.is_file():
+            raise WorkspaceError("来源文件不存在或不是普通文件。")
+        if destination_path.exists():
+            raise WorkspaceError("目标路径已存在；为避免覆盖，已拒绝复制。")
+        if source_path.stat().st_size > MAX_ARTIFACT_BYTES:
+            raise WorkspaceError(f"来源文件超过 {MAX_ARTIFACT_BYTES // (1024 * 1024)} MiB，拒绝复制。")
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination_path)
+        return f"已复制工作目录文件：{source_path.relative_to(self.root).as_posix()} -> {destination_path.relative_to(self.root).as_posix()}"
+
+    def move_file(self, source: str, destination: str) -> str:
+        source_path = self._path(source)
+        destination_path = self._path(destination)
+        if not source_path.exists() or not source_path.is_file():
+            raise WorkspaceError("来源文件不存在或不是普通文件。")
+        if destination_path.exists():
+            raise WorkspaceError("目标路径已存在；为避免覆盖，已拒绝移动。")
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source_path, destination_path)
+        return f"已移动工作目录文件：{source_path.relative_to(self.root).as_posix()} -> {destination_path.relative_to(self.root).as_posix()}"
+
+    def delete_file(self, value: str) -> str:
+        target = self._path(value)
+        if not target.exists() or not target.is_file():
+            raise WorkspaceError("只能删除工作目录内存在的普通文件。")
+        relative = target.relative_to(self.root).as_posix()
+        target.unlink()
+        return f"已删除工作目录文件：{relative}"
 
     def write_bytes(self, value: str, content: bytes) -> str:
         target = self._path(value)

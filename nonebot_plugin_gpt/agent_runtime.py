@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -944,6 +945,88 @@ def create_agent_runtime(
             except WorkspaceError as error:
                 return f"工作目录操作已拒绝：{error}"
 
+        async def describe_workspace_path(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.describe_path(arguments.get("路径", ""))
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def create_workspace_directory(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.make_directory(arguments["路径"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        def validate_workspace_search(arguments: dict[str, str]) -> str:
+            raw_limit = arguments.get("结果数量", "").strip()
+            if not raw_limit:
+                return ""
+            try:
+                limit = int(raw_limit)
+            except ValueError:
+                return "结果数量必须是整数。"
+            if not 1 <= limit <= 100:
+                return "结果数量必须在 1 到 100 之间。"
+            return ""
+
+        async def search_workspace_text(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.search_text(
+                    arguments["文本"],
+                    arguments.get("路径", ""),
+                    ignore_case=arguments.get("忽略大小写", "否") == "是",
+                    maximum_results=int(arguments.get("结果数量", "30") or "30"),
+                )
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def append_workspace_text(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.append_text(arguments["路径"], arguments["内容"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        def validate_workspace_replace(arguments: dict[str, str]) -> str:
+            raw_maximum = arguments.get("最大替换数", "").strip()
+            if not raw_maximum:
+                return ""
+            try:
+                maximum = int(raw_maximum)
+            except ValueError:
+                return "最大替换数必须是整数。"
+            if not 1 <= maximum <= 10000:
+                return "最大替换数必须在 1 到 10000 之间。"
+            return ""
+
+        async def replace_workspace_text(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.replace_text(
+                    arguments["路径"],
+                    arguments["查找文本"],
+                    arguments["替换文本"],
+                    maximum=int(arguments.get("最大替换数", "0") or "0"),
+                )
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def copy_workspace_file(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.copy_file(arguments["来源路径"], arguments["目标路径"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def move_workspace_file(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.move_file(arguments["来源路径"], arguments["目标路径"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
+        async def delete_workspace_file(arguments: dict[str, str]) -> str:
+            try:
+                return agent_workspace.delete_file(arguments["路径"])
+            except WorkspaceError as error:
+                return f"工作目录操作已拒绝：{error}"
+
         def validate_sandbox_script(arguments: dict[str, str]) -> str:
             if workspace_sandbox is None:
                 return "工作区脚本执行尚未启用。"
@@ -1004,10 +1087,50 @@ def create_agent_runtime(
             run.artifacts.append(AgentArtifact(path, "image/png", image))
             return f"已登记工作区图片 {path}，会在任务完成时回传当前聊天。"
 
+        def validate_workspace_artifact(arguments: dict[str, str]) -> str:
+            try:
+                path = agent_workspace.resolve_relative(arguments["文件"])
+                if not path.is_file():
+                    return "工作目录产物不存在或不是普通文件。"
+                agent_workspace.read_bytes(arguments["文件"])
+            except WorkspaceError as error:
+                return str(error)
+            return ""
+
+        async def attach_workspace_artifact(arguments: dict[str, str], run: AgentRun) -> str:
+            path = arguments["文件"]
+            try:
+                content = agent_workspace.read_bytes(path)
+            except WorkspaceError as error:
+                return f"工作目录产物回传已拒绝：{error}"
+            resolved = agent_workspace.resolve_relative(path)
+            media_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+            run.artifacts = [artifact for artifact in run.artifacts if artifact.path != path]
+            run.artifacts.append(AgentArtifact(path, media_type, content))
+            return f"已登记工作目录产物 {path}，会在任务完成时回传当前聊天。"
+
         tools.extend([
+            AgentTool("查看工作区路径", "查看受限工作目录内文件或目录的类型、大小和修改时间，不读取文件正文", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, describe_workspace_path, (AgentToolParameter("路径", "工作目录内相对路径；省略时查看工作目录", required=False),), delegable=True),
             AgentTool("列出工作区文件", "列出受限工作目录内的文件和目录", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, list_files, (AgentToolParameter("路径", "工作目录内相对目录，可省略", required=False),), delegable=True),
             AgentTool("读取工作区文件", "读取受限工作目录内的一个 UTF-8 文本文件", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, read_file, (AgentToolParameter("路径", "工作目录内相对文件路径"),), lambda arguments: f"读取工作目录文件 {arguments['路径']}", delegable=True),
             AgentTool("写入工作区文件", "以 UTF-8 原子写入受限工作目录内的一个文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, write_file, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要写入的 UTF-8 文本", sensitive=True)), lambda arguments: f"写入工作目录文件 {arguments['路径']}（内容不在确认消息中展示）", delegable=True),
+            AgentTool("创建工作区目录", "创建受限工作目录内的新目录；同名普通文件会被拒绝", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, create_workspace_directory, (AgentToolParameter("路径", "工作目录内要创建的相对目录路径"),), lambda arguments: f"创建工作目录 {arguments['路径']}", delegable=True),
+            AgentTool("搜索工作区文本", "在受限工作目录内搜索 UTF-8 小文本文件，返回有限行号和摘要；不读取大文件、二进制文件或目录外内容", AgentPermission.READ_LOCAL, AgentApproval.CONFIRM, search_workspace_text, (
+                AgentToolParameter("文本", "要搜索的非空文本"),
+                AgentToolParameter("路径", "可选相对目录；省略时搜索整个工作目录", required=False),
+                AgentToolParameter("忽略大小写", "可选：是 或 否；默认否", required=False, choices=("是", "否")),
+                AgentToolParameter("结果数量", "可选整数，1 到 100；默认 30", required=False),
+            ), lambda arguments: f"搜索工作目录文本：{arguments['文本'][:120]}", argument_validator=validate_workspace_search, delegable=True),
+            AgentTool("追加工作区文件", "向工作目录内 UTF-8 文本文件追加内容；文件不存在时创建，内容不在确认消息中展示", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, append_workspace_text, (AgentToolParameter("路径", "工作目录内相对文件路径"), AgentToolParameter("内容", "要追加的 UTF-8 文本", sensitive=True)), lambda arguments: f"追加工作目录文件 {arguments['路径']}（内容不在确认消息中展示）", delegable=True),
+            AgentTool("替换工作区文本", "在工作目录内 UTF-8 文本文件中精确替换已有文本；未找到时不会改动文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, replace_workspace_text, (
+                AgentToolParameter("路径", "工作目录内相对文件路径"),
+                AgentToolParameter("查找文本", "要精确查找的非空文本", sensitive=True),
+                AgentToolParameter("替换文本", "用于替换的新文本", sensitive=True),
+                AgentToolParameter("最大替换数", "可选整数，1 到 10000；省略时替换全部匹配", required=False),
+            ), lambda arguments: f"替换工作目录文件 {arguments['路径']} 中的文本（具体内容不在确认消息中展示）", argument_validator=validate_workspace_replace, delegable=True),
+            AgentTool("复制工作区文件", "复制一个工作目录内的普通文件到不存在的新路径；拒绝覆盖已有文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, copy_workspace_file, (AgentToolParameter("来源路径", "工作目录内已有的相对文件路径"), AgentToolParameter("目标路径", "工作目录内不存在的相对文件路径")), lambda arguments: f"复制工作目录文件 {arguments['来源路径']} 到 {arguments['目标路径']}", delegable=True),
+            AgentTool("移动工作区文件", "移动或重命名一个工作目录内的普通文件到不存在的新路径；拒绝覆盖已有文件", AgentPermission.WRITE_LOCAL, AgentApproval.CONFIRM, move_workspace_file, (AgentToolParameter("来源路径", "工作目录内已有的相对文件路径"), AgentToolParameter("目标路径", "工作目录内不存在的相对文件路径")), lambda arguments: f"移动工作目录文件 {arguments['来源路径']} 到 {arguments['目标路径']}", delegable=True),
+            AgentTool("删除工作区文件", "删除工作目录内单个普通文件；不支持删除目录、递归删除或目录外路径", AgentPermission.DESTRUCTIVE, AgentApproval.CONFIRM, delete_workspace_file, (AgentToolParameter("路径", "工作目录内要删除的相对文件路径"),), lambda arguments: f"删除工作目录文件 {arguments['路径']}（不可恢复）"),
         ])
         if workspace_sandbox is not None and workspace_sandbox.enabled:
             backend_label = "Docker 隔离容器" if workspace_sandbox.backend == "docker" else "本机开发执行（未隔离）"
@@ -1052,6 +1175,17 @@ def create_agent_runtime(
             run_handler=attach_workspace_image,
             argument_validator=validate_workspace_image,
             delegable=True,
+        ))
+        tools.append(AgentTool(
+            "回传工作区文件",
+            "将工作目录内已有的单个受限产物作为文件回传当前聊天；适用于文本、代码、PDF、压缩包等，最大 12 MiB。",
+            AgentPermission.MESSAGE_SEND,
+            AgentApproval.CONFIRM,
+            _raise_direct_only,
+            (AgentToolParameter("文件", "工作目录内已有的相对文件路径"),),
+            lambda arguments: f"回传工作目录文件 {arguments['文件']}",
+            run_handler=attach_workspace_artifact,
+            argument_validator=validate_workspace_artifact,
         ))
     if registry.process_names or registry.tcp_names:
         async def service_overview(_: dict[str, str]) -> str:

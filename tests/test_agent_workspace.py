@@ -44,3 +44,32 @@ class AgentWorkspaceTests(unittest.TestCase):
                 workspace.read_text("binary.bin")
             with self.assertRaises(WorkspaceError):
                 workspace.read_text("large.txt")
+
+    def test_workspace_project_file_operations_stay_inside_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = AgentWorkspace(Path(temporary))
+            workspace.make_directory("project/assets")
+            workspace.write_text("project/readme.md", "title\nTODO: first\n")
+
+            self.assertIn("目录：project", workspace.describe_path("project"))
+            self.assertIn("TODO: first", workspace.search_text("TODO", "project"))
+            self.assertIn("已追加", workspace.append_text("project/readme.md", "TODO: second\n"))
+            self.assertIn("2 处", workspace.replace_text("project/readme.md", "TODO", "DONE"))
+            self.assertIn("已复制", workspace.copy_file("project/readme.md", "project/assets/copy.md"))
+            self.assertIn("已移动", workspace.move_file("project/assets/copy.md", "project/final.md"))
+            self.assertIn("已删除", workspace.delete_file("project/final.md"))
+            self.assertIn("DONE: first", workspace.read_text("project/readme.md"))
+
+    def test_workspace_rejects_overwrite_and_directory_deletion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = AgentWorkspace(Path(temporary))
+            workspace.write_text("source.txt", "source")
+            workspace.write_text("target.txt", "target")
+            workspace.make_directory("folder")
+
+            with self.assertRaises(WorkspaceError):
+                workspace.copy_file("source.txt", "target.txt")
+            with self.assertRaises(WorkspaceError):
+                workspace.delete_file("folder")
+            with self.assertRaises(WorkspaceError):
+                workspace.search_text("anything", "source.txt")

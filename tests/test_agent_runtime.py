@@ -222,6 +222,78 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rendered[0][1][0].path, "screenshots/page.png")
         self.assertEqual(rendered[0][1][0].content, b"\x89PNG\r\n\x1a\nrendered")
 
+    async def test_workspace_file_is_attached_as_a_generic_artifact(self):
+        rendered = []
+
+        async def final_renderer(run, answer):
+            rendered.append((answer, run.artifacts))
+            return "任务完成"
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "report.txt").write_text("agent report", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="回传工作区文件", arguments={"文件": "report.txt"}),
+                AgentDecision("final", answer="报告已生成。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                workspace=root,
+                agent_service=service,
+                final_renderer=final_renderer,
+                token_factory=iter(("confirm", "next")).__next__,
+            )
+
+            pending = await runtime.execute("把报告发给我", operator_id="admin", scope_id="private:1")
+            completed = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("回传工作目录文件 report.txt", pending)
+        self.assertEqual(completed, "任务完成")
+        self.assertEqual(rendered[0][1][0].path, "report.txt")
+        self.assertEqual(rendered[0][1][0].media_type, "text/plain")
+        self.assertEqual(rendered[0][1][0].content, b"agent report")
+
+    async def test_delegate_mode_keeps_workspace_deletion_pending(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "temporary.txt").write_text("remove me", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="删除工作区文件", arguments={"路径": "temporary.txt"}),
+                AgentDecision("final", answer="清理完成。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                workspace=root,
+                approval_mode=agent_runtime.AgentApprovalMode.DELEGATE,
+                agent_service=service,
+                token_factory=iter(("confirm", "next")).__next__,
+            )
+
+            pending = await runtime.execute("删除临时文件", operator_id="admin", scope_id="private:1")
+            self.assertTrue((root / "temporary.txt").exists())
+            completed = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
+
+        self.assertIn("不可恢复", pending)
+        self.assertIn("清理完成", completed)
+        self.assertFalse((root / "temporary.txt").exists())
+
+    async def test_workspace_tool_catalog_exposes_project_operations_to_the_model(self):
+        service = _AgentService([AgentDecision("final", answer="可以开始。")])
+        with TemporaryDirectory() as temporary:
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                workspace=Path(temporary),
+                agent_service=service,
+            )
+            await runtime.execute("帮我整理一个小项目", operator_id="admin", scope_id="private:1")
+
+        names = {tool.name for tool in service.calls[0]["tools"]}
+        self.assertTrue({
+            "查看工作区路径", "创建工作区目录", "搜索工作区文本", "追加工作区文件",
+            "替换工作区文本", "复制工作区文件", "移动工作区文件", "删除工作区文件",
+            "回传工作区文件",
+        }.issubset(names))
+
     async def test_plan_is_real_first_decision_and_executes_only_after_its_token(self):
         calls = []
 
