@@ -65,6 +65,7 @@ class HistoryViewTests(unittest.TestCase):
     def test_agent_protocol_rounds_are_hidden_and_keep_rewind_mapping(self):
         history = [
             {"Q": "【ChatGPTWeb Agent Protocol】\n工具清单", "A": '{"type":"tool_call"}'},
+            {"Q": "【ChatGPTWeb Agent Safety Review】\n检查危险操作", "A": '{"allow":false}'},
             {"Q": "你好", "A": "你好呀"},
             {"Q": "【ChatGPTWeb Agent Protocol】\n工具结果", "A": '{"type":"final"}'},
             {"Q": "提醒到时", "A": "记得喝水"},
@@ -73,8 +74,20 @@ class HistoryViewTests(unittest.TestCase):
         projection = history_views.project_history(history)
 
         self.assertEqual([item["Q"] for item in projection.entries], ["你好", "提醒到时"])
-        self.assertEqual(projection.resolve_rewind_reference("1"), "2")
-        self.assertEqual(projection.resolve_rewind_reference("2"), "4")
+        self.assertEqual(projection.resolve_rewind_reference("1"), "3")
+        self.assertEqual(projection.resolve_rewind_reference("2"), "5")
+
+    def test_malformed_internal_agent_events_are_hidden_instead_of_leaking(self):
+        history = [
+            {"Q": "【已完成的受控任务】\n缺少原任务字段", "A": "内部答复"},
+            {"Q": "【异步事件】\n缺少提醒内容字段", "A": "内部答复"},
+            {"Q": "普通聊天", "A": "正常答复"},
+        ]
+
+        projection = history_views.project_history(history)
+
+        self.assertEqual([item["Q"] for item in projection.entries], ["普通聊天"])
+        self.assertEqual(projection.resolve_rewind_reference("1"), "3")
 
     def test_agent_presentation_round_shows_original_task_not_control_prompt(self):
         history = [{

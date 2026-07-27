@@ -14,7 +14,10 @@ _UPSTREAM_MARKUP = re.compile("\\ue200(?P<body>.*?)\\ue201", re.DOTALL)
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<url>[^\s)]+)(?:\s+['\"][^)]*['\"])?\)")
 _MARKDOWN_EMPHASIS = re.compile(r"(?<!\\)(?:\*\*|__)(?P<value>.+?)(?<!\\)(?:\*\*|__)")
 _MARKDOWN_CODE = re.compile(r"`(?P<value>[^`]+)`")
-_AGENT_PROTOCOL_MARKER = "【ChatGPTWeb Agent Protocol】"
+_AGENT_PRIVATE_MARKERS = (
+    "【ChatGPTWeb Agent Protocol】",
+    "【ChatGPTWeb Agent Safety Review】",
+)
 _AGENT_PRESENTATION_MARKER = "【已完成的受控任务】"
 _ASYNC_EVENT_MARKER = "【异步事件】"
 _AGENT_PRESENTATION_TASK = re.compile(
@@ -119,11 +122,15 @@ def project_history(
         is_private_setup = (hide_initial and index == 0) or (
             bool(normalized_prompt) and normalized_prompt in question
         )
-        # 智能体决策协议会作为同一 ChatGPT 会话中的内部消息存在；展示给
-        # 群成员既破坏人设，也可能泄露工具描述，因此和私有人设一并隐藏。
-        if is_private_setup or _AGENT_PROTOCOL_MARKER in question:
+        # 智能体决策、工具安全审查都属于内部记录。它们按设计不会写入角色
+        # 会话；若未来链路或上游行为变化导致写入，也必须宁可隐藏而不能展示。
+        if is_private_setup or any(marker in question for marker in _AGENT_PRIVATE_MARKERS):
             continue
-        if presentation_task:
+        if _AGENT_PRESENTATION_MARKER in question:
+            # 只有能还原出原始任务时，才把角色化最终答复展示为一轮对话。
+            # 格式异常的内部提示不应退化为向用户泄露控制文本。
+            if not presentation_task:
+                continue
             # 角色化最终答复必须作为原聊天会话的一轮继续，才能继承人设和
             # 上下文；这里仅在展示层还原用户任务，避免暴露内部控制提示。
             visible_item = dict(item)
@@ -134,7 +141,11 @@ def project_history(
             else:
                 visible_item["input"] = projected_task
             entries.append(visible_item)
-        elif async_event_content:
+        elif _ASYNC_EVENT_MARKER in question:
+            # 异步回调同样只展示可读事件。无法解析时隐藏整个内部事件，避免
+            # 调度、工具或系统实现细节意外出现在聊天记录中。
+            if not async_event_content:
+                continue
             # 到期提醒会进入原逻辑会话以保留角色语气，但它不是新的用户发言。
             visible_item = dict(item)
             event_text = f"提醒到时：{async_event_content}"
