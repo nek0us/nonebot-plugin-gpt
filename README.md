@@ -142,6 +142,9 @@ _✨ NoneBot GPT ✨_
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_session_reauthentication_message | 否 | 连接正在自动恢复，请稍后再试一次。 | str | 核心检测到会话令牌过期并已启动自动重新登录时的提示；与普通失败和原会话失效提示分开，避免暴露账号细节。 |
 | gpt_session_recovery_wait_timeout | 否 | 60 | 1-600 | 账号正在自动恢复时，单条聊天请求等待就绪的秒数。恢复在此时间内完成时会继续发送原消息；仅超时后才发送 `gpt_session_reauthentication_message`，无需用户手动重发。 |
+| gpt_chat_rate_limit_cooldown_seconds | 否 | 18000 | 60-86400 | 上游未给出明确重试时间时，账号聊天额度等待恢复的估计秒数。核心会优先采用上游的明确等待提示；冷却账号不会承接新会话，旧会话会返回 `gpt_rate_limit_message`。 |
+| gpt_account_selection_strategy | 否 | least_recently_used | least_recently_used/usage_balanced | 新逻辑会话的账号选择策略。默认按最久未使用账号分配；`usage_balanced` 会在滚动窗口内优先选择近期被分配次数更少的可用账号。既有会话始终固定原账号。 |
+| gpt_account_selection_window_seconds | 否 | 18000 | 60-86400 | `usage_balanced` 的统计窗口秒数。只统计当前进程内已成功预留的新会话，不代表 OpenAI 的剩余额度；建议与免费账户常见额度窗口保持接近。 |
 | gpt_auto_init_group | 否 | false | bool | 群聊或频道首次有效聊天时自动加载群聊默认人设；不会覆盖已有逻辑会话。 |
 | gpt_auto_init_friend | 否 | false | bool | 私聊首次有效聊天时自动加载私聊默认人设；不会覆盖已有逻辑会话。 |
 | gpt_init_group_persona_name | 否 | 空 | str | 群聊自动初始化使用的人设名称。配置不存在的人设会跳过自动初始化并创建普通会话。 |
@@ -291,6 +294,14 @@ gpt_session_reauthentication_message="bot正在重新连接，请稍后再试一
 
 # 账号自动恢复期间，单条聊天请求等待可用状态的最长秒数；超时后才发送上面的恢复提示
 gpt_session_recovery_wait_timeout=60
+
+# 上游没有给出明确重试时间时，免费账户聊天额度冷却的估计时长
+gpt_chat_rate_limit_cooldown_seconds=18000
+
+# 新会话账号调度：默认保持最久未使用优先；多账号希望均匀消耗额度时改为 usage_balanced
+gpt_account_selection_strategy="least_recently_used"
+# usage_balanced 的滚动统计窗口，旧会话仍固定使用其创建时的账号
+gpt_account_selection_window_seconds=18000
 
 # 原会话依赖的账号已移除或停用时的提示；不会暴露账号和风控细节
 gpt_conversation_recovery_message="当前对话已无法继续，请重新初始化人设后再试。"

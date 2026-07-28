@@ -59,6 +59,9 @@ class Config(BaseModel):
     gpt_session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE
     gpt_rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE
     gpt_session_recovery_wait_timeout: int = Field(default=60, ge=1, le=600)
+    gpt_chat_rate_limit_cooldown_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
+    gpt_account_selection_strategy: Literal["least_recently_used", "usage_balanced"] = "least_recently_used"
+    gpt_account_selection_window_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
     gpt_agent_enabled: bool = False
     gpt_agent_anchor_sessions: bool = True
     gpt_agent_sensitive_task_guard: bool = True

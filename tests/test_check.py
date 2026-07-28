@@ -17,6 +17,7 @@ package = types.ModuleType("nonebot_plugin_gpt")
 package.__path__ = [str(PACKAGE_PATH)]
 sys.modules.setdefault("nonebot_plugin_gpt", package)
 check = importlib.import_module("nonebot_plugin_gpt.check")
+Config = importlib.import_module("nonebot_plugin_gpt.config").Config
 
 
 class ContextlessEvent:
@@ -67,6 +68,18 @@ NoticeEvent.__module__ = "nonebot.adapters.onebot.v11.event"
 
 
 class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
+    def test_account_scheduler_config_accepts_balanced_window(self):
+        config = Config(
+            gpt_session=[],
+            gpt_chat_rate_limit_cooldown_seconds=7200,
+            gpt_account_selection_strategy="usage_balanced",
+            gpt_account_selection_window_seconds=3600,
+        )
+
+        self.assertEqual(config.gpt_chat_rate_limit_cooldown_seconds, 7200)
+        self.assertEqual(config.gpt_account_selection_strategy, "usage_balanced")
+        self.assertEqual(config.gpt_account_selection_window_seconds, 3600)
+
     async def test_contextless_event_is_ignored_by_all_access_rules(self):
         event = ContextlessEvent()
 
