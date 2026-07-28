@@ -17,3 +17,8 @@ Repository = "https://github.com/nek0us/nonebot-plugin-gpt"
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
+
+[dependency-groups]
+dev = [
+    "nonebot2[fastapi]>=2.0.0",
+]

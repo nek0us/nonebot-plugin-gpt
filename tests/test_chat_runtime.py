@@ -159,6 +159,17 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(service.requests[1].conversation_id, "shared-conversation")
             self.assertEqual(service.requests[1].parent_message_id, "message-1")
 
+    async def test_bot_requests_use_interactive_runtime_priority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store, context_policy.ContextPolicy(mode="off"))
+            await runtime.chat(conversation.ConversationKey("onebot.v11:group:100", ""), "hello")
+
+        request = service.requests[0]
+        self.assertEqual(request.client_id, "nonebot-plugin-gpt")
+        self.assertEqual(request.request_priority, 10)
+
     async def test_initialize_persona_stores_a_snapshot_for_future_compaction(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")

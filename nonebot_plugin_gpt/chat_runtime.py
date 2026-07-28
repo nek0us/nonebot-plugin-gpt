@@ -96,6 +96,8 @@ class ChatRuntime:
                 self._service,
                 safety_policy=self._agent_safety_policy,
                 anchor_policy=self._agent_anchor_policy,
+                client_id="nonebot-plugin-gpt",
+                request_priority=20,
             ).turn(
                 task,
                 tools,
@@ -161,6 +163,8 @@ class ChatRuntime:
             files=(files or []).copy(),
             web_search=web_search,
             deep_research=deep_research,
+            client_id="nonebot-plugin-gpt",
+            request_priority=10,
         )
         result = await self._chat_with_context_maintenance(
             key,
@@ -219,6 +223,8 @@ class ChatRuntime:
             conversation_id=state.conversation_id,
             parent_message_id=state.parent_message_id,
             model=state.model,
+            client_id="nonebot-plugin-gpt",
+            request_priority=10,
         ))
         if not summary.ok or not summary.text:
             return await self._service.stream_to_callback(request, on_event)
@@ -230,6 +236,8 @@ class ChatRuntime:
             files=request.files.copy(),
             web_search=request.web_search,
             deep_research=request.deep_research,
+            client_id="nonebot-plugin-gpt",
+            request_priority=10,
         )
         result = await self._service.stream_to_callback(restart_request, on_event)
         if result.ok:
@@ -268,6 +276,8 @@ class ChatRuntime:
             model=model or state.model,
             prefer_paid_account=prefer_paid_account,
             operation=ConversationOperation.START_PERSONA,
+            client_id="nonebot-plugin-gpt",
+            request_priority=10,
         ))
         if result.ok:
             state.persona_name = persona_name
@@ -367,6 +377,8 @@ class ChatRuntime:
             model=state.model,
             operation=ConversationOperation.REWIND,
             reference=reference,
+            client_id="nonebot-plugin-gpt",
+            request_priority=10,
         ))
         if result.ok:
             state.conversation_id = result.conversation_id or state.conversation_id
