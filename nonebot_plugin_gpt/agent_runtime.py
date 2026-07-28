@@ -365,14 +365,14 @@ class AgentRuntime:
 
     def _pending_message(self, action: PendingAgentAction) -> str:
         description = action.tool.describe_action(action.arguments) if action.tool.describe_action else action.tool.description
-        compact_prefix = "".join(self._command_prefix.split())
+        display_prefix = self._command_prefix.strip()
         return "\n".join([
             f"智能体准备执行：{description}",
             f"权限：{_PERMISSION_NAMES[action.tool.permission]}",
             f"参数：{self._format_arguments(action.tool, action.arguments)}",
             f"请在 {self._confirmation_ttl_seconds} 秒内复制并发送以下任一命令：",
-            f"{compact_prefix}确认{action.token}",
-            f"{compact_prefix}取消{action.token}",
+            f"{display_prefix} 确认 {action.token}",
+            f"{display_prefix} 取消 {action.token}",
         ])
 
     @staticmethod

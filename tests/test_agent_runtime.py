@@ -294,8 +294,8 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("猪咪智能体确认plan", pending)
-        self.assertIn("猪咪智能体取消plan", pending)
+        self.assertIn("猪咪 智能体 确认 plan", pending)
+        self.assertIn("猪咪 智能体 取消 plan", pending)
 
     async def test_confirmation_accepts_a_compact_control_command(self):
         called = []
@@ -353,7 +353,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         pending = await runtime.execute("执行变更", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("确认plan", pending)
+        self.assertIn("确认 plan", pending)
 
     async def test_full_mode_runs_registered_change_without_confirmation(self):
         called = []
@@ -414,7 +414,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             pending = await runtime.execute("制作网页截图", operator_id="admin", scope_id="private:1")
             completed = await runtime.execute("确认 confirm", operator_id="admin", scope_id="private:1")
 
-        self.assertIn("确认confirm", pending)
+        self.assertIn("确认 confirm", pending)
         self.assertEqual(completed, "任务完成")
         self.assertEqual(rendered[0][0], "网页已完成。")
         self.assertEqual(rendered[0][1][0].path, "screenshots/page.png")
@@ -662,7 +662,7 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             scope_id="onebot.v11:group:1",
         )
 
-        self.assertIn("确认confirm", pending)
+        self.assertIn("确认 confirm", pending)
         self.assertEqual(scheduled, [("admin", "member-2", 120, "吃饭啦")])
         self.assertEqual(completed, "提醒已经安排好啦。")
 

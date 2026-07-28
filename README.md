@@ -120,9 +120,9 @@ _✨ NoneBot GPT ✨_
 | gpt_save_screen| 否 | false | bool | 保存额外的登录、刷新、渲染失败截图。截图可能含账号或聊天内容，以便debug。 |
 | gpt_headless| 否 | true | bool | 是否无头运行 Firefox。以便debug。 |
 | gpt_local_js| 否 | false | bool | `false` 使用联网兼容脚本，便于跟随网页更新；`true` 使用本地缓存，适合网络排障但可能过期。 |
-| gpt_control_host | 否 | 127.0.0.1 | str | 核心账户控制台监听地址。 |
-| gpt_control_port | 否 | 无 | int | 控制台端口；留空不开启。设置为 `8765` 时从本机访问 `http://127.0.0.1:8765`。 |
-| gpt_control_api_key | 否 | 自动生成 | str | 控制台 API 密钥。 |
+| gpt_control_host | 否 | 127.0.0.1 | str | 核心账户控制台与同一运行时 API 的监听地址；生产环境必须保持本机回环地址。 |
+| gpt_control_port | 否 | 无 | int | 核心控制台和同一运行时 OpenAI 兼容 API 的端口；留空不开启。设置为 `8765` 时从本机访问 `http://127.0.0.1:8765`，客户端 API 基址为 `http://127.0.0.1:8765/v1`。 |
+| gpt_control_api_key | 否 | 自动生成 | str | 控制台管理员 API 密钥。控制台可动态创建、轮换或撤销受限客户端密钥，供 OpenCode 等本机客户端调用聊天接口；不要把管理员密钥交给客户端。 |
 | gpt_free_image| 否 | false | bool | 允许免费账户上传图片；额度较低且受上游限制，默认关闭。 |
 | gpt_file_upload | 否 | false | bool | 允许上传跨平台消息中的普通文件、音频、语音和视频；默认关闭，开启后会下载适配器提供的 URL 或读取原始附件内容。 |
 | gpt_file_max_size | 否 | 20971520 | int | 单个普通附件的最大字节数，默认 20 MiB，范围为 1 KiB 至 100 MiB；超限附件不会下载或上传。 |
@@ -244,7 +244,9 @@ gpt_headless=true
 # 使用本地js
 gpt_local_js=false
 
-# 核心账户控制台，默认关闭；仅建议监听本机地址
+# 核心账户控制台与同一运行时的 OpenAI 兼容 API，默认关闭；仅建议监听本机地址。
+# 在控制台的 API Client Keys 区域可动态创建、轮换、撤销供 OpenCode 等本机客户端使用的密钥，无需重启 bot。
+# 客户端密钥只能调用聊天/模型接口，不能操作账号、查看运维状态或提交登录验证。
 gpt_control_host=127.0.0.1
 gpt_control_port=8765
 gpt_control_api_key='replace-with-a-long-random-secret'
