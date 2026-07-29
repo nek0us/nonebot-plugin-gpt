@@ -302,10 +302,22 @@ class RemoteChatService:
         return await self._json("/bot/capabilities")
 
     async def get_account_status(self) -> dict[str, Any]:
-        # Bot keys intentionally receive only coarse availability data.
+        # Bot keys intentionally receive only coarse availability data. Keep
+        # the real pool totals, but never disclose individual account details
+        # through a bot-scoped key.
         capability = await self.get_runtime_health()
         runtime = capability.get("runtime") if isinstance(capability, dict) else {}
         accounts = runtime.get("accounts") if isinstance(runtime, dict) else {}
+        configured = accounts.get("configured") if isinstance(accounts, dict) else 0
+        available_count = accounts.get("available") if isinstance(accounts, dict) else 0
+        configured = configured if isinstance(configured, int) and not isinstance(configured, bool) else 0
+        available_count = available_count if isinstance(available_count, int) and not isinstance(available_count, bool) else 0
+        available_count = max(0, min(configured, available_count))
+        summary = {
+            "configured": configured,
+            "available": available_count,
+            "attention": max(0, configured - available_count),
+        }
         available = bool(isinstance(runtime, dict) and runtime.get("readiness") == "ready")
         return {"accounts": [{
             "email": "shared-core",
@@ -315,5 +327,5 @@ class RemoteChatService:
             "observed_model_count": 0,
             "usage": {},
             "runtime": {"context_ready": available, "page_ready": available},
-            "remote_accounts": accounts,
-        }]}
+            "shared_core": True,
+        }], "account_summary": summary}

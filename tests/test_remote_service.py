@@ -47,11 +47,20 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
                 "errors": [],
             })
 
+        async def capabilities(_request):
+            return web.json_response({
+                "runtime": {
+                    "readiness": "ready",
+                    "accounts": {"configured": 3, "available": 2},
+                },
+            })
+
         app.router.add_get("/v1/bot/personas", list_personas)
         app.router.add_put("/v1/bot/personas", upsert_persona)
         app.router.add_delete("/v1/bot/personas", delete_persona)
         app.router.add_post("/v1/bot/persona", get_persona)
         app.router.add_post("/v1/bot/chat", chat)
+        app.router.add_get("/v1/bot/capabilities", capabilities)
         self.server = TestServer(app)
         await self.server.start_server()
         # Operators may enter either the server root or an explicit /v1 URL.
@@ -80,3 +89,13 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.account, "shared@example.com")
         self.assertEqual(self.requests[-1]["prompt"], "hello")
         self.assertNotIn("new", self.personas)
+
+    async def test_status_uses_coarse_remote_pool_totals(self):
+        status = await self.service.get_account_status()
+
+        self.assertEqual(status["account_summary"], {
+            "configured": 3,
+            "available": 2,
+            "attention": 1,
+        })
+        self.assertTrue(status["accounts"][0]["shared_core"])

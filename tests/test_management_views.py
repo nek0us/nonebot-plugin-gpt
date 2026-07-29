@@ -13,6 +13,15 @@ management_views = importlib.import_module("nonebot_plugin_gpt.management_views"
 
 
 class ManagementViewTests(unittest.TestCase):
+    def test_status_uses_remote_core_summary_without_exposing_accounts(self):
+        text = management_views.format_account_status({
+            "account_summary": {"configured": 4, "available": 3, "attention": 1},
+            "accounts": [{"email": "shared-core", "available": True, "shared_core": True}],
+        })
+
+        self.assertIn("账户 4 个｜可用 3 个｜需处理 1 个", text)
+        self.assertIn("共享核心（账户明细由核心控制台管理）", text)
+
     def test_status_includes_safe_account_summary(self):
         text = management_views.format_account_status({
             "accounts": [{

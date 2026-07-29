@@ -13,6 +13,17 @@ management_images = importlib.import_module("nonebot_plugin_gpt.management_image
 
 
 class ManagementImageTests(unittest.TestCase):
+    def test_status_image_uses_remote_core_summary_without_account_details(self):
+        html = management_images.build_account_status_html({
+            "account_summary": {"configured": 4, "available": 3, "attention": 1},
+            "accounts": [{"email": "shared-core", "available": True, "shared_core": True}],
+        })
+
+        self.assertIn('metric-value">4', html)
+        self.assertIn('metric-value">3', html)
+        self.assertIn("共享核心", html)
+        self.assertNotIn("shared-core", html)
+
     def test_help_image_keeps_the_requested_topic_and_commands(self):
         html = management_images.build_help_html("会话")
 

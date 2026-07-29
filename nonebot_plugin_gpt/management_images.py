@@ -15,6 +15,7 @@ from .management_views import (
     _plan_name,
     _runtime_name,
     _runtime_summary,
+    _status_counts,
     _usage_requests,
 )
 
@@ -84,10 +85,9 @@ def build_account_status_html(status: dict[str, Any], *, failure_summary: str = 
     """生成管理员账户状态图片的 HTML，不包含凭据与上游原始错误。"""
     accounts = status.get("accounts")
     normalized = [account for account in accounts if isinstance(account, dict)] if isinstance(accounts, list) else []
-    available = sum(_account_available(account) for account in normalized)
-    attention = sum(bool(_action_for(account)) for account in normalized)
+    configured, available, attention = _status_counts(status, normalized)
     metrics = (
-        f"<section class=\"summary\"><div class=\"metric\"><div class=\"metric-label\">已配置账户</div><div class=\"metric-value\">{len(normalized)}</div></div>"
+        f"<section class=\"summary\"><div class=\"metric\"><div class=\"metric-label\">已配置账户</div><div class=\"metric-value\">{configured}</div></div>"
         f"<div class=\"metric\"><div class=\"metric-label\">当前可用</div><div class=\"metric-value\">{available}</div></div>"
         f"<div class=\"metric\"><div class=\"metric-label\">需要处理</div><div class=\"metric-value\">{attention}</div></div></section>"
     )
@@ -97,16 +97,19 @@ def build_account_status_html(status: dict[str, Any], *, failure_summary: str = 
 
     cards = []
     for account in normalized:
-        email = escape(str(account.get("email", "未知账户")))
+        email = "共享核心" if account.get("shared_core") else escape(str(account.get("email", "未知账户")))
         is_available = _account_available(account)
         badge_class = "ready" if is_available else "attention"
         badge = "可用" if is_available else "需处理"
-        details = (
-            f"套餐 {_plan_name(account)}　·　运行 {_runtime_name(account)}<br>"
-            f"会话 {_as_int(account.get('conversation_count'))}　·　"
-            f"已观测模型 {_as_int(account.get('observed_model_count'))}　·　"
-            f"本进程请求 {_usage_requests(account)}"
-        )
+        if account.get("shared_core"):
+            details = f"共享核心汇总　·　运行 {_runtime_name(account)}<br>账户明细仅在核心控制台展示"
+        else:
+            details = (
+                f"套餐 {_plan_name(account)}　·　运行 {_runtime_name(account)}<br>"
+                f"会话 {_as_int(account.get('conversation_count'))}　·　"
+                f"已观测模型 {_as_int(account.get('observed_model_count'))}　·　"
+                f"本进程请求 {_usage_requests(account)}"
+            )
         runtime = _runtime_summary(account)
         action = _action_for(account)
         cards.append(

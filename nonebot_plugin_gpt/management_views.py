@@ -91,6 +91,21 @@ def _account_available(account: dict[str, Any]) -> bool:
     return bool(account.get("available"))
 
 
+def _status_counts(status: dict[str, Any], accounts: list[dict[str, Any]]) -> tuple[int, int, int]:
+    """Use pool totals supplied by a remote core when they are available."""
+    summary = status.get("account_summary")
+    if isinstance(summary, dict):
+        configured = _as_int(summary.get("configured"))
+        available = min(configured, _as_int(summary.get("available")))
+        attention = _as_int(summary.get("attention"))
+        return configured, available, attention
+    return (
+        len(accounts),
+        sum(_account_available(account) for account in accounts),
+        sum(bool(_action_for(account)) for account in accounts),
+    )
+
+
 def format_account_status(status: dict[str, Any], *, failure_summary: str = "") -> str:
     """生成不含凭据、验证码和原始登录错误的账户运行摘要。"""
     accounts = status.get("accounts")
@@ -100,16 +115,15 @@ def format_account_status(status: dict[str, Any], *, failure_summary: str = "") 
     if not normalized:
         return "当前没有已配置账户。"
 
-    available_count = sum(_account_available(account) for account in normalized)
-    attention_count = sum(bool(_action_for(account)) for account in normalized)
+    configured_count, available_count, attention_count = _status_counts(status, normalized)
     lines = [
         "ChatGPT 运行状态",
-        f"账户 {len(normalized)} 个｜可用 {available_count} 个｜需处理 {attention_count} 个",
+        f"账户 {configured_count} 个｜可用 {available_count} 个｜需处理 {attention_count} 个",
     ]
     if failure_summary:
         lines.append(f"聊天失败汇总：{failure_summary}")
     for index, account in enumerate(normalized, start=1):
-        email = str(account.get("email", "未知账户"))
+        email = "共享核心（账户明细由核心控制台管理）" if account.get("shared_core") else str(account.get("email", "未知账户"))
         availability = "可用" if _account_available(account) else "不可用"
         lines.extend([
             "",
