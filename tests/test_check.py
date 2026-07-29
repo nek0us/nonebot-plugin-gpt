@@ -80,6 +80,17 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.gpt_account_selection_strategy, "usage_balanced")
         self.assertEqual(config.gpt_account_selection_window_seconds, 3600)
 
+    def test_remote_core_mode_does_not_require_local_sessions(self):
+        config = Config(
+            gpt_core_mode="remote",
+            gpt_core_base_url="http://127.0.0.1:8000/v1/",
+            gpt_core_api_key="cwk_remote_test_key",
+            gpt_session=[],
+        )
+
+        self.assertEqual(config.gpt_core_base_url, "http://127.0.0.1:8000/v1")
+        self.assertEqual(config.gpt_session, [])
+
     async def test_contextless_event_is_ignored_by_all_access_rules(self):
         event = ContextlessEvent()
 

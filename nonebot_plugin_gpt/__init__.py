@@ -95,6 +95,7 @@ from .table_documents import (
 from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_enabled
 from .personality_service import ensure_default_persona
 from .persona_migration import migrate_legacy_personas
+from .remote_service import RemoteChatService
 from .event_scope import format_group_speaker_prompt, resolve_event_scope
 
 
@@ -319,29 +320,38 @@ __plugin_meta__ = PluginMetadata(
     }
 )
 
-if isinstance(config_gpt.gpt_session,list):
-    migrate_legacy_personas(data_dir)
-    personality = Personality([])
-    
-    chatbot = chatgpt(
-        sessions = config_gpt.gpt_session,
-        plugin = True,
-        storage_dir = data_dir / "chatgptweb",
-        proxy = config_gpt.gpt_proxy,
-        begin_sleep_time = config_gpt.gpt_begin_sleep_time,
-        personality=personality,
-        save_screen=config_gpt.gpt_save_screen,
-        headless=config_gpt.gpt_headless,
-        local_js=config_gpt.gpt_local_js,
-        ready_timeout=config_gpt.gpt_session_recovery_wait_timeout,
-        chat_rate_limit_cooldown_seconds=config_gpt.gpt_chat_rate_limit_cooldown_seconds,
-        account_selection_strategy=config_gpt.gpt_account_selection_strategy,
-        account_selection_window_seconds=config_gpt.gpt_account_selection_window_seconds,
-        control_host=config_gpt.gpt_control_host,
-        control_port=config_gpt.gpt_control_port,
-        control_api_key=config_gpt.gpt_control_api_key,
+if isinstance(config_gpt.gpt_session, list):
+    migrated_personas = migrate_legacy_personas(data_dir)
+    remote_core = config_gpt.gpt_core_mode == "remote"
+    if remote_core:
+        chatbot = RemoteChatService(
+            config_gpt.gpt_core_base_url,
+            config_gpt.gpt_core_api_key,
+            timeout_seconds=config_gpt.gpt_core_request_timeout,
+            personas=migrated_personas,
         )
-    chat_service = ChatService(chatbot)
+        chat_service = chatbot
+    else:
+        personality = Personality([])
+        chatbot = chatgpt(
+            sessions = config_gpt.gpt_session,
+            plugin = True,
+            storage_dir = data_dir / "chatgptweb",
+            proxy = config_gpt.gpt_proxy,
+            begin_sleep_time = config_gpt.gpt_begin_sleep_time,
+            personality=personality,
+            save_screen=config_gpt.gpt_save_screen,
+            headless=config_gpt.gpt_headless,
+            local_js=config_gpt.gpt_local_js,
+            ready_timeout=config_gpt.gpt_session_recovery_wait_timeout,
+            chat_rate_limit_cooldown_seconds=config_gpt.gpt_chat_rate_limit_cooldown_seconds,
+            account_selection_strategy=config_gpt.gpt_account_selection_strategy,
+            account_selection_window_seconds=config_gpt.gpt_account_selection_window_seconds,
+            control_host=config_gpt.gpt_control_host,
+            control_port=config_gpt.gpt_control_port,
+            control_api_key=config_gpt.gpt_control_api_key,
+        )
+        chat_service = ChatService(chatbot)
     failure_diagnostics = ChatFailureDiagnostics()
     chat_runtime = ChatRuntime(
         chat_service,
@@ -583,21 +593,34 @@ if isinstance(config_gpt.gpt_session,list):
     driver = get_driver()
     @driver.on_startup
     async def d():
-        logger.info("登录GPT账号中")
-        loop = asyncio.get_running_loop()
-        chatbot._start_task = asyncio.create_task(chatbot.__start__(loop))
-        await ensure_default_persona(chatbot)
+        remote_ready = True
+        if remote_core:
+            logger.info("连接共享 ChatGPTWeb 核心中")
+            try:
+                await chatbot.start()
+            except Exception as error:
+                logger.warning(f"共享 ChatGPTWeb 核心暂不可达，后续请求会自动重试：{error}")
+                remote_ready = False
+        else:
+            logger.info("登录GPT账号中")
+            loop = asyncio.get_running_loop()
+            chatbot._start_task = asyncio.create_task(chatbot.__start__(loop))
+        if remote_ready:
+            await ensure_default_persona(chatbot)
         if config_gpt.gpt_agent_enabled and config_gpt.gpt_agent_schedule_enabled:
             await agent_scheduler.start()
 
     @driver.on_shutdown
     async def close_chatbot():
         await agent_scheduler.close()
-        start_task = chatbot._start_task
-        if start_task and not start_task.done():
-            start_task.cancel()
-            await asyncio.gather(start_task, return_exceptions=True)
-        await chatbot.close()
+        if remote_core:
+            await chatbot.close()
+        else:
+            start_task = chatbot._start_task
+            if start_task and not start_task.done():
+                start_task.cancel()
+                await asyncio.gather(start_task, return_exceptions=True)
+            await chatbot.close()
 
     async def get_current_render_mode(event: Event) -> str:
         """优先使用当前适配器会话范围的输出偏好。"""

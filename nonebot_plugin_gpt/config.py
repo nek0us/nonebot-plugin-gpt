@@ -20,6 +20,13 @@ DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT = "【对话语境】用户正在直接称
 DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE = "这个请求不适合交给智能体处理咩。猪咪可以帮你做不涉及法律、政治或其他敏感事务的日常任务。"
 
 class Config(BaseModel):
+    # ``embedded`` preserves the original out-of-the-box browser runtime.
+    # ``remote`` delegates browser/accounts to a separately managed core via a
+    # restricted Bot API key, which allows several clients to share one pool.
+    gpt_core_mode: Literal["embedded", "remote"] = "embedded"
+    gpt_core_base_url: str = ""
+    gpt_core_api_key: str = ""
+    gpt_core_request_timeout: int = Field(default=90, ge=5, le=600)
     gpt_proxy: Optional[str] = None
     gpt_session: Optional[List[dict]] | str = Field(default_factory=list)
     gpt_group_chat: bool = True
@@ -233,9 +240,8 @@ class Config(BaseModel):
             return v 
         
     @validator("gpt_session", always=True, pre=True)
-    def check_gpt_session(cls,v):
+    def check_gpt_session(cls, v, values):
         if v is None or v == "" or v == []:
-            logger.warning("未检测到账户信息，请检查 gpt_session 配置")
             return []
 
         if isinstance(v, list):
@@ -260,8 +266,6 @@ class Config(BaseModel):
 
         if sessions:
             logger.success(f"已配置 {len(sessions)} 个 ChatGPT 账号")
-        else:
-            logger.warning("gpt_session 账号列表为空")
         return sessions
 
         # 以下旧逻辑保留用于兼容历史版本，正常流程会在上方返回。
@@ -280,12 +284,23 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_plus(self) -> "Config":
+        if self.gpt_core_mode == "remote":
+            self.gpt_core_base_url = self.gpt_core_base_url.strip().rstrip("/")
+            self.gpt_core_api_key = self.gpt_core_api_key.strip()
+            if not self.gpt_core_base_url:
+                raise ValueError("gpt_core_mode=remote requires gpt_core_base_url")
+            if not self.gpt_core_api_key:
+                raise ValueError("gpt_core_mode=remote requires gpt_core_api_key")
+            if not self.gpt_core_api_key.startswith("cwk_"):
+                raise ValueError("gpt_core_api_key must be a scoped dynamic Bot key (cwk_...)")
         sessions = []
         for session in self.gpt_session or []:
             if "gptplus" not in session:
                 session["gptplus"] = False
             sessions.append(session)
         self.gpt_session = sessions
+        if self.gpt_core_mode == "embedded" and not self.gpt_session:
+            logger.warning("未检测到账户信息，请检查 gpt_session 配置")
         if not self.gpt_init_group_persona_name and self.gpt_init_group_pernal_name:
             self.gpt_init_group_persona_name = self.gpt_init_group_pernal_name
             logger.warning(
