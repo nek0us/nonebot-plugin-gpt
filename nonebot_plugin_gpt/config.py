@@ -264,8 +264,6 @@ class Config(BaseModel):
             logger.warning("gpt_session 配置格式错误，列表成员应为账号对象")
             return []
 
-        if sessions:
-            logger.success(f"已配置 {len(sessions)} 个 ChatGPT 账号")
         return sessions
 
         # 以下旧逻辑保留用于兼容历史版本，正常流程会在上方返回。
@@ -293,6 +291,9 @@ class Config(BaseModel):
                 raise ValueError("gpt_core_mode=remote requires gpt_core_api_key")
             if not self.gpt_core_api_key.startswith("cwk_"):
                 raise ValueError("gpt_core_api_key must be a scoped dynamic Bot key (cwk_...)")
+            # Browser sessions belong exclusively to the shared core. Ignore
+            # migrated local settings so startup output cannot imply otherwise.
+            self.gpt_session = []
         sessions = []
         for session in self.gpt_session or []:
             if "gptplus" not in session:
@@ -301,6 +302,8 @@ class Config(BaseModel):
         self.gpt_session = sessions
         if self.gpt_core_mode == "embedded" and not self.gpt_session:
             logger.warning("未检测到账户信息，请检查 gpt_session 配置")
+        elif self.gpt_core_mode == "embedded":
+            logger.success(f"已配置 {len(self.gpt_session)} 个 ChatGPT 账号")
         if not self.gpt_init_group_persona_name and self.gpt_init_group_pernal_name:
             self.gpt_init_group_persona_name = self.gpt_init_group_pernal_name
             logger.warning(

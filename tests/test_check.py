@@ -85,7 +85,7 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
             gpt_core_mode="remote",
             gpt_core_base_url="http://127.0.0.1:8000/v1/",
             gpt_core_api_key="cwk_remote_test_key",
-            gpt_session=[],
+            gpt_session=[{"email": "legacy@example.com"}],
         )
 
         self.assertEqual(config.gpt_core_base_url, "http://127.0.0.1:8000/v1")
