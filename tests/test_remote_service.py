@@ -3,6 +3,7 @@ import unittest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from ChatGPTWeb import AgentState, AgentTool, AgentToolResult
 from ChatGPTWeb.service import ChatRequest
 
 from nonebot_plugin_gpt.remote_service import RemoteChatService
@@ -12,6 +13,7 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.personas = {}
         self.requests = []
+        self.response_requests = []
         app = web.Application()
 
         async def list_personas(_request):
@@ -55,11 +57,41 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
                 },
             })
 
+        async def responses(request):
+            payload = await request.json()
+            self.response_requests.append(payload)
+            if payload.get("previous_response_id"):
+                return web.json_response({
+                    "id": "resp-final",
+                    "status": "completed",
+                    "model": "gpt-agent",
+                    "usage": {"input_tokens": 3, "output_tokens": 2},
+                    "output_text": "tool result reviewed",
+                    "output": [{
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "tool result reviewed"}],
+                    }],
+                })
+            return web.json_response({
+                "id": "resp-tool",
+                "status": "completed",
+                "model": "gpt-agent",
+                "usage": {"input_tokens": 2, "output_tokens": 1},
+                "output": [{
+                    "type": "function_call",
+                    "call_id": "call-read",
+                    "name": "workspace.read_text",
+                    "arguments": '{"path":"README.md"}',
+                }],
+            })
+
         app.router.add_get("/v1/bot/personas", list_personas)
         app.router.add_put("/v1/bot/personas", upsert_persona)
         app.router.add_delete("/v1/bot/personas", delete_persona)
         app.router.add_post("/v1/bot/persona", get_persona)
         app.router.add_post("/v1/bot/chat", chat)
+        app.router.add_post("/v1/bot/responses", responses)
         app.router.add_get("/v1/bot/capabilities", capabilities)
         self.server = TestServer(app)
         await self.server.start_server()
@@ -99,3 +131,37 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
             "attention": 1,
         })
         self.assertTrue(status["accounts"][0]["shared_core"])
+
+    async def test_agent_turn_uses_bot_responses_cursor(self):
+        tool = AgentTool(
+            "workspace.read_text",
+            "Read a text file in the workspace.",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        )
+
+        first = await self.service.agent_turn(
+            "read the README",
+            [tool],
+            state=AgentState(model="auto"),
+        )
+        second = await self.service.agent_turn(
+            "",
+            [tool],
+            state=first.state,
+            tool_result=AgentToolResult("workspace.read_text", "README content"),
+        )
+
+        self.assertTrue(first.ok)
+        self.assertEqual(first.decision.kind, "tool_call")
+        self.assertEqual(first.decision.arguments, {"path": "README.md"})
+        self.assertEqual(first.state.conversation_id, "responses:resp-tool")
+        self.assertEqual(first.state.parent_message_id, "call-read")
+        self.assertTrue(second.ok)
+        self.assertEqual(second.decision.answer, "tool result reviewed")
+        self.assertIn("tools", self.response_requests[0])
+        self.assertEqual(self.response_requests[1]["previous_response_id"], "resp-tool")
+        self.assertEqual(self.response_requests[1]["input"][0]["call_id"], "call-read")

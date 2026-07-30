@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator
 
 from aiohttp import ClientSession, ClientTimeout
 
+from ChatGPTWeb import AgentDecision, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn
 from ChatGPTWeb.api import ChatStreamEvent
 from ChatGPTWeb.content import build_chat_content
 from ChatGPTWeb.config import Personality
@@ -18,6 +19,9 @@ from ChatGPTWeb.service import ChatRequest, ChatResult, ConversationContextEstim
 
 class RemoteCoreError(RuntimeError):
     """A safe transport error from the configured shared core service."""
+
+
+_RESPONSES_CURSOR_PREFIX = "responses:"
 
 
 class RemoteChatService:
@@ -163,6 +167,188 @@ class RemoteChatService:
         await self._ensure_started()
         value = await self._json("/bot/chat", self._request_payload(request))
         return self._result(value, request)
+
+    @staticmethod
+    def _responses_tools(tools: list[AgentTool]) -> list[dict[str, Any]]:
+        return [{
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": tool.input_schema,
+        } for tool in tools]
+
+    @staticmethod
+    def _response_text(value: dict[str, Any]) -> str:
+        text = value.get("output_text")
+        if isinstance(text, str):
+            return text
+        output = value.get("output")
+        if not isinstance(output, list):
+            return ""
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    chunks.append(part["text"])
+        return "\n".join(chunks)
+
+    @staticmethod
+    def _response_function_call(value: dict[str, Any]) -> dict[str, Any] | None:
+        output = value.get("output")
+        if not isinstance(output, list):
+            return None
+        for item in output:
+            if isinstance(item, dict) and item.get("type") == "function_call":
+                return item
+        return None
+
+    async def agent_turn(
+        self,
+        task: str,
+        tools: list[AgentTool],
+        *,
+        state: AgentState | None = None,
+        tool_result: AgentToolResult | None = None,
+        model: str = "auto",
+    ) -> AgentTurn:
+        """Use the Bot-scoped Responses bridge for one host-executed turn.
+
+        The core owns the opaque Responses cursor.  Its response and function
+        call IDs are encoded in the existing plugin-only ``AgentState`` cursor,
+        so the local approval and scheduler flow can continue unchanged.
+        """
+        await self._ensure_started()
+        state = state or AgentState(model=model)
+        selected_model = model if model and model != "auto" else state.model or "auto"
+        active_task = task.strip() or state.task
+        previous_response_id = ""
+        if state.conversation_id.startswith(_RESPONSES_CURSOR_PREFIX):
+            previous_response_id = state.conversation_id[len(_RESPONSES_CURSOR_PREFIX):]
+
+        try:
+            if previous_response_id:
+                if tool_result is None or not state.parent_message_id:
+                    return AgentTurn(
+                        False,
+                        state,
+                        AgentDecision("error", error="remote_agent_cursor_requires_tool_result"),
+                        requested_model=selected_model,
+                    )
+                payload: dict[str, Any] = {
+                    "model": selected_model,
+                    "previous_response_id": previous_response_id,
+                    "input": [{
+                        "type": "function_call_output",
+                        "call_id": state.parent_message_id,
+                        "output": tool_result.output[:12000],
+                    }],
+                }
+            else:
+                if not active_task:
+                    return AgentTurn(
+                        False,
+                        state,
+                        AgentDecision("error", error="remote_agent_task_missing"),
+                        requested_model=selected_model,
+                    )
+                payload = {
+                    "model": selected_model,
+                    "input": active_task,
+                    "tools": self._responses_tools(tools),
+                }
+            value = await self._json("/bot/responses", payload)
+        except RemoteCoreError as error:
+            # Permit a rolling upgrade: an older shared core does not expose
+            # the Bot-scoped Responses route yet, but can still serve the
+            # original Bot chat bridge until the core is updated.
+            if "HTTP 404" in str(error):
+                return await AgentService(self).turn(
+                    task,
+                    tools,
+                    state=state,
+                    tool_result=tool_result,
+                    model=selected_model,
+                )
+            return AgentTurn(
+                False,
+                state,
+                AgentDecision("error", error="remote_agent_request_failed"),
+                requested_model=selected_model,
+                errors=[{"kind": "remote_agent_request_failed", "message": "shared core Responses request failed"}],
+            )
+
+        response_id = value.get("id")
+        used_model = value.get("model")
+        response_id = response_id if isinstance(response_id, str) else ""
+        used_model = used_model if isinstance(used_model, str) and used_model else selected_model
+        usage = value.get("usage") if isinstance(value.get("usage"), dict) else {}
+        if value.get("status") != "completed" or not response_id:
+            return AgentTurn(
+                False,
+                state,
+                AgentDecision("error", error="remote_agent_response_failed"),
+                requested_model=selected_model,
+                used_model=used_model,
+                usage=dict(usage),
+                errors=[{"kind": "remote_agent_response_failed", "message": "shared core Responses turn failed"}],
+            )
+
+        function_call = self._response_function_call(value)
+        next_state = AgentState(
+            conversation_id=f"{_RESPONSES_CURSOR_PREFIX}{response_id}",
+            parent_message_id="",
+            model=used_model,
+            task=active_task,
+        )
+        if function_call is not None:
+            name = function_call.get("name")
+            call_id = function_call.get("call_id")
+            arguments = function_call.get("arguments")
+            try:
+                parsed_arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+            except json.JSONDecodeError:
+                parsed_arguments = None
+            if (
+                not isinstance(name, str)
+                or not isinstance(call_id, str)
+                or not isinstance(parsed_arguments, dict)
+            ):
+                return AgentTurn(
+                    False,
+                    next_state,
+                    AgentDecision("error", error="remote_agent_response_invalid"),
+                    requested_model=selected_model,
+                    used_model=used_model,
+                    usage=dict(usage),
+                    errors=[{"kind": "remote_agent_response_invalid", "message": "shared core returned an invalid function call"}],
+                )
+            next_state = AgentState(
+                conversation_id=next_state.conversation_id,
+                parent_message_id=call_id,
+                model=used_model,
+                task=active_task,
+            )
+            return AgentTurn(
+                True,
+                next_state,
+                AgentDecision("tool_call", tool=name, arguments=parsed_arguments, summary=f"请求执行 {name}"),
+                requested_model=selected_model,
+                used_model=used_model,
+                usage=dict(usage),
+            )
+        return AgentTurn(
+            True,
+            next_state,
+            AgentDecision("final", answer=self._response_text(value)),
+            requested_model=selected_model,
+            used_model=used_model,
+            usage=dict(usage),
+        )
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatStreamEvent]:
         await self._ensure_started()

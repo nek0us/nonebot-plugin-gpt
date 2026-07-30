@@ -92,6 +92,15 @@ class ChatRuntime:
             conversation = await self._conversations.get(key)
             selected_model = model if model and model != "auto" else (conversation.model or "auto")
             cursor = state or AgentState(model=selected_model)
+            remote_agent_turn = getattr(self._service, "agent_turn", None)
+            if callable(remote_agent_turn):
+                return await remote_agent_turn(
+                    task,
+                    tools,
+                    state=cursor,
+                    tool_result=tool_result,
+                    model=selected_model,
+                )
             return await AgentService(
                 self._service,
                 safety_policy=self._agent_safety_policy,
