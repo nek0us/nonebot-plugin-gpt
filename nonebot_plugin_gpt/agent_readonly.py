@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,12 @@ class ReadonlyRoot:
     path: Path
 
 
+@dataclass(frozen=True)
+class ReadonlyRoute:
+    root_name: str
+    relative_path: str
+
+
 class AgentReadonlyRoots:
     """只允许在管理员配置的命名目录内读取、搜索，不跟随符号链接。"""
 
@@ -60,6 +67,59 @@ class AgentReadonlyRoots:
     @property
     def root_choices(self) -> tuple[str, ...]:
         return tuple(self._roots)
+
+    def routing_guide(self) -> str:
+        """Return host-provided path mappings for agent decision prompts.
+
+        Agent tools accept a named root and a relative path, whereas people
+        naturally refer to project-relative or absolute paths. This guide keeps
+        the model from treating a source path as a path in the separate
+        writable workspace. Local validation remains the security boundary.
+        """
+        if not self._roots:
+            return ""
+        lines = [
+            "【主机路径路由】以下是已注册只读工具的真实路径映射，不是用户猜测。",
+            "对这些路径，必须选择对应的“根目录”枚举值，并只填写根目录后的相对部分；"
+            "不要把它们交给工作区工具，也不要在最终回答中猜测未读取到的源码内容。",
+        ]
+        for root in self._roots.values():
+            host_path = root.path.as_posix()
+            segment = root.path.name
+            example = f"{segment}/..." if segment else "<根目录>/..."
+            lines.append(
+                f"- “{root.name}” = `{host_path}`。用户提到 `{host_path}/...` 或"
+                f"项目相对路径 `{example}` 时，选择“{root.name}”，"
+                f"并去掉 `{host_path}/` 或 `{segment}/` 前缀。"
+            )
+        return "\n".join(lines)
+
+    def route_path(self, value: str) -> ReadonlyRoute | None:
+        """Map an absolute or project-relative user path to a named root."""
+        candidate = value.strip().strip("`'\"，。；：！？（）()[]{}")
+        if not candidate:
+            return None
+        normalized = candidate.replace("\\", "/").rstrip("/")
+        for root in self._roots.values():
+            host_path = root.path.as_posix().rstrip("/")
+            if normalized == host_path:
+                return ReadonlyRoute(root.name, "")
+            if normalized.startswith(f"{host_path}/"):
+                return ReadonlyRoute(root.name, normalized[len(host_path) + 1:])
+            segment = root.path.name
+            if segment and normalized == segment:
+                return ReadonlyRoute(root.name, "")
+            if segment and normalized.startswith(f"{segment}/"):
+                return ReadonlyRoute(root.name, normalized[len(segment) + 1:])
+        return None
+
+    def route_task_path(self, task: str) -> ReadonlyRoute | None:
+        """Find the most specific configured path reference in a task."""
+        matches: list[tuple[int, ReadonlyRoute]] = []
+        for candidate in re.findall(r"(?:[A-Za-z]:)?[A-Za-z0-9_./\\-]+", task):
+            if route := self.route_path(candidate):
+                matches.append((len(candidate), route))
+        return max(matches, default=(0, None), key=lambda item: item[0])[1]
 
     @staticmethod
     def _integer(value: str, *, label: str, minimum: int, maximum: int) -> int:

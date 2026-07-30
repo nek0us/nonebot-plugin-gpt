@@ -126,6 +126,48 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("认证异常", result)
             self.assertIn("总行数：2", service.calls[1]["tool_result"].output)
 
+    async def test_readonly_root_routes_project_relative_paths_away_from_workspace(self):
+        with TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            source = project / "src"
+            plugin = source / "plugins_my"
+            workspace = project / "agent-workspace"
+            plugin.mkdir(parents=True)
+            workspace.mkdir()
+            (plugin / "pool.py").write_text(
+                "def eligible(member):\n    return member.active\n",
+                encoding="utf-8",
+            )
+            service = _AgentService([
+                AgentDecision("tool_call", tool="列出工作区文件", arguments={
+                    "路径": "src/plugins_my",
+                }),
+                AgentDecision("final", answer="已定位到插件目录。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                agent_service=service,
+                readonly_sources=agent_readonly.AgentReadonlyRoots([
+                    {"name": "机器人自定义插件", "path": source},
+                ]),
+                workspace=workspace,
+                approval_mode=agent_runtime.AgentApprovalMode.FULL,
+            )
+
+            result = await runtime.execute(
+                "查看 src/plugins_my 的筛选规则",
+                operator_id="admin",
+                scope_id="private:1",
+            )
+
+            self.assertIn("已定位", result)
+            prompt_task = service.calls[0]["task"]
+            self.assertIn("【主机路径路由】", prompt_task)
+            self.assertIn("`src/...`", prompt_task)
+            self.assertIn("机器人自定义插件", prompt_task)
+            self.assertEqual(service.calls[1]["tool_result"].tool, "列出只读目录")
+            self.assertIn("plugins_my/", service.calls[1]["tool_result"].output)
+
     async def test_final_renderer_can_present_an_agent_result_in_the_current_persona(self):
         rendered = []
 

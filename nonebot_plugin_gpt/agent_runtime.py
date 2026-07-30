@@ -32,6 +32,7 @@ AgentActionHandler = Callable[[dict[str, str]], Awaitable[str]]
 AgentTurnHandler = Callable[..., Awaitable[AgentTurn]]
 AgentRunActionHandler = Callable[[dict[str, str], "AgentRun"], Awaitable[str]]
 AgentRunArgumentValidator = Callable[[dict[str, str], "AgentRun"], str]
+ReadonlyPathRouter = Callable[[str], tuple[str, str] | None]
 ReminderScheduleHandler = Callable[["AgentRun", int, str], Awaitable[str]]
 TargetReminderScheduleHandler = Callable[["AgentRun", int, str, str], Awaitable[str]]
 ReminderOperationHandler = Callable[["AgentRun", str, str], Awaitable[str]]
@@ -236,6 +237,9 @@ class AgentRuntime:
         access: AgentAccess = AgentAccess.SUPERUSER,
         approval_mode: AgentApprovalMode | str = AgentApprovalMode.STRICT,
         command_prefix: str = "智能体",
+        host_task_context: str = "",
+        workspace_path_router: ReadonlyPathRouter | None = None,
+        workspace_task_router: ReadonlyPathRouter | None = None,
     ):
         self._tools = {tool.name: tool for tool in tools}
         if len(self._tools) != len(tools):
@@ -247,6 +251,9 @@ class AgentRuntime:
         self._access = access
         self._approval_mode = AgentApprovalMode(approval_mode)
         self._command_prefix = command_prefix.strip() or "智能体"
+        self._host_task_context = host_task_context.strip()
+        self._workspace_path_router = workspace_path_router
+        self._workspace_task_router = workspace_task_router
         self._confirmation_ttl_seconds = confirmation_ttl_seconds
         self._session_approval_ttl_seconds = session_approval_ttl_seconds
         self._plan_ttl_seconds = plan_ttl_seconds
@@ -502,6 +509,49 @@ class AgentRuntime:
         run.state = turn.state
         return await self._handle_turn(turn, run)
 
+    def _redirect_workspace_read(
+        self,
+        tool: AgentTool,
+        arguments: dict[str, str],
+        run: AgentRun,
+    ) -> tuple[AgentTool, dict[str, str]]:
+        """Safely route an obvious source path away from the writable workspace."""
+        if self._workspace_path_router is None:
+            return tool, arguments
+        route = self._workspace_path_router(arguments.get("路径", ""))
+        if route is None and tool.name == "搜索工作区文本" and self._workspace_task_router is not None:
+            route = self._workspace_task_router(run.task)
+        if route is None:
+            return tool, arguments
+        root_name, relative_path = route
+        redirects: dict[str, tuple[str, dict[str, str]]] = {
+            "列出工作区文件": ("列出只读目录", {"根目录": root_name, "路径": relative_path}),
+            "查看工作区路径": ("查看只读路径", {"根目录": root_name, "路径": relative_path}),
+            "读取工作区文件": (
+                "读取只读文件片段",
+                {"根目录": root_name, "文件": relative_path, "起始行": "1", "行数": "120"},
+            ),
+            "搜索工作区文本": (
+                "搜索只读文本",
+                {
+                    "根目录": root_name,
+                    "文本": arguments.get("文本", ""),
+                    "路径": relative_path,
+                    **({"忽略大小写": arguments["忽略大小写"]} if "忽略大小写" in arguments else {}),
+                    **({"结果数量": arguments["结果数量"]} if "结果数量" in arguments else {}),
+                },
+            ),
+        }
+        redirect = redirects.get(tool.name)
+        if redirect is None:
+            return tool, arguments
+        target_name, target_arguments = redirect
+        target = self._tools.get(target_name)
+        if target is None:
+            return tool, arguments
+        self._audit.record("工作区路径改路", f"{tool.name} -> {target_name}", _PERMISSION_NAMES[target.permission])
+        return target, target_arguments
+
     async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> Any:
         if not turn.ok or turn.decision.kind == "error":
             self._audit.record("模型决策失败", "智能体模型")
@@ -525,6 +575,7 @@ class AgentRuntime:
         if error:
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
+        tool, arguments = self._redirect_workspace_read(tool, arguments, run)
         if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
@@ -563,7 +614,11 @@ class AgentRuntime:
             agent_context=agent_context,
             access=self._access,
         )
-        model_task = "\n".join(part for part in (task.strip(), agent_context.strip()) if part)
+        model_task = "\n".join(part for part in (
+            self._host_task_context,
+            task.strip(),
+            agent_context.strip(),
+        ) if part)
         turn = await self._request_turn(model_task, run=run)
         run.state = turn.state
         if plan_only:
@@ -1468,6 +1523,19 @@ def create_agent_runtime(
         except Exception as error:
             raise RuntimeError("智能体附加工具提供者初始化失败。") from error
     visible_tools = [tool for tool in tools if tool.minimum_access is AgentAccess.MEMBER or access is AgentAccess.SUPERUSER]
+    host_task_context = ""
+    workspace_path_router = None
+    workspace_task_router = None
+    if access is AgentAccess.SUPERUSER and readonly_sources is not None and readonly_sources.root_choices:
+        host_task_context = readonly_sources.routing_guide()
+        workspace_path_router = lambda value: (
+            (route.root_name, route.relative_path)
+            if (route := readonly_sources.route_path(value)) is not None else None
+        )
+        workspace_task_router = lambda value: (
+            (route.root_name, route.relative_path)
+            if (route := readonly_sources.route_task_path(value)) is not None else None
+        )
     return AgentRuntime(
         service,
         visible_tools,
@@ -1489,5 +1557,8 @@ def create_agent_runtime(
         access=access,
         approval_mode=approval_mode,
         command_prefix=command_prefix,
+        host_task_context=host_task_context,
+        workspace_path_router=workspace_path_router,
+        workspace_task_router=workspace_task_router,
         token_factory=token_factory,
     )
