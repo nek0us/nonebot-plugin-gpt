@@ -682,6 +682,13 @@ if isinstance(config_gpt.gpt_session, list):
                 upload_images=image_upload_enabled,
                 upload_files=config_gpt.gpt_file_upload,
                 max_file_size=config_gpt.gpt_file_max_size,
+                max_total_size=config_gpt.gpt_attachment_max_total_size,
+                max_count=config_gpt.gpt_attachment_max_count,
+                allowed_local_roots=config_gpt.gpt_attachment_local_roots,
+                allow_private_urls=config_gpt.gpt_attachment_allow_private_urls,
+                allowed_hosts=config_gpt.gpt_attachment_allowed_hosts,
+                download_timeout=config_gpt.gpt_attachment_download_timeout,
+                max_redirects=config_gpt.gpt_attachment_max_redirects,
             )
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,

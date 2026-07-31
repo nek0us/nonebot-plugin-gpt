@@ -52,6 +52,17 @@ class Config(BaseModel):
     gpt_free_image: bool = False
     gpt_file_upload: bool = False
     gpt_file_max_size: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
+    gpt_attachment_max_total_size: int = Field(
+        default=40 * 1024 * 1024,
+        ge=1024,
+        le=500 * 1024 * 1024,
+    )
+    gpt_attachment_max_count: int = Field(default=8, ge=1, le=32)
+    gpt_attachment_download_timeout: int = Field(default=30, ge=5, le=300)
+    gpt_attachment_max_redirects: int = Field(default=3, ge=0, le=10)
+    gpt_attachment_allow_private_urls: bool = False
+    gpt_attachment_allowed_hosts: list[str] = Field(default_factory=list)
+    gpt_attachment_local_roots: list[Path] = Field(default_factory=list)
     gpt_force_upgrade_model: bool = True
     gpt_render_mode: Literal["auto", "text", "image"] = "auto"
     gpt_chat_image_template: str = "native"
