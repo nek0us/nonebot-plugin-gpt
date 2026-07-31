@@ -82,6 +82,22 @@ class AgentReadonlyRootsTests(unittest.TestCase):
             self.assertIn("命中行数：2", result)
             self.assertIn("2: ERROR token expired", result)
 
+    def test_finds_package_paths_by_name_without_reading_file_contents(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            packages = Path(temporary) / "site-packages"
+            package = packages / "nonebot_plugin_gpt"
+            package.mkdir(parents=True)
+            (package / "config.py").write_text("gpt_free_image = False\n", encoding="utf-8")
+            roots = AgentReadonlyRoots([{"name": "已安装插件源码", "path": packages}])
+
+            result = roots.find_paths({
+                "根目录": "已安装插件源码",
+                "名称": "nonebot_plugin_gpt",
+            })
+
+            self.assertIn("nonebot_plugin_gpt/", result)
+            self.assertNotIn("gpt_free_image", result)
+
     def test_rejects_unknown_roots_and_paths_outside_the_named_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

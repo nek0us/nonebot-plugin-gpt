@@ -11,6 +11,8 @@ from typing import Any
 
 
 MAX_LIST_ENTRIES = 120
+MAX_FIND_ENTRIES = 10_000
+MAX_FIND_RESULTS = 100
 MAX_EXCERPT_LINES = 400
 MAX_TAIL_LINES = 400
 MAX_LINE_CHARS = 1_200
@@ -91,6 +93,59 @@ class AgentReadonlyRoots:
                 f"- “{root.name}” = `{host_path}`。用户提到 `{host_path}/...` 或"
                 f"项目相对路径 `{example}` 时，选择“{root.name}”，"
                 f"并去掉 `{host_path}/` 或 `{segment}/` 前缀。"
+            )
+        return "\n".join(lines)
+
+    def find_paths(self, arguments: dict[str, str]) -> str:
+        """Find files or directories by name without opening their contents."""
+        error = self.validate_find(arguments)
+        if error:
+            raise ReadonlySourceError(error)
+        root = self._root(arguments["根目录"])
+        start = self._path(root, arguments.get("路径", ""), allow_root=True)
+        if not start.exists() or not start.is_dir():
+            raise ReadonlySourceError("定位路径不存在或不是目录。")
+        name = arguments["名称"].strip()
+        needle = name.casefold()
+        maximum = self._integer(
+            arguments.get("结果数量", "30"),
+            label="结果数量",
+            minimum=1,
+            maximum=MAX_FIND_RESULTS,
+        )
+        lines = [f"只读路径定位：{root.name}，名称：{name}"]
+        matches = 0
+        scanned = 0
+        truncated = False
+        for directory, directories, files in os.walk(start, followlinks=False):
+            directories[:] = sorted(
+                item for item in directories if not (Path(directory) / item).is_symlink()
+            )
+            entries = [(item, True) for item in directories]
+            entries.extend((item, False) for item in sorted(files))
+            for item_name, is_dir in entries:
+                target = Path(directory) / item_name
+                if target.is_symlink():
+                    continue
+                scanned += 1
+                if scanned > MAX_FIND_ENTRIES:
+                    truncated = True
+                    break
+                if needle not in item_name.casefold():
+                    continue
+                matches += 1
+                if matches <= maximum:
+                    lines.append(f"- {self._relative(root, target)}{'/' if is_dir else ''}")
+            if truncated:
+                break
+        if matches == 0:
+            lines.append("未找到匹配的文件或目录名称。")
+        elif matches > maximum:
+            lines.append(f"其余 {matches - maximum} 项未显示；请缩小路径或使用更具体的名称。")
+        if truncated:
+            lines.append(
+                f"路径定位在 {MAX_FIND_ENTRIES} 项后停止；"
+                "请缩小路径范围或使用更具体的名称。"
             )
         return "\n".join(lines)
 
@@ -215,6 +270,25 @@ class AgentReadonlyRoots:
             root = self._root(arguments.get("根目录", ""))
             self._path(root, arguments.get("路径", ""), allow_root=True)
             self._integer(arguments.get("结果数量", "30"), label="结果数量", minimum=1, maximum=MAX_SEARCH_RESULTS)
+        except ReadonlySourceError as error:
+            return str(error)
+        return ""
+
+    def validate_find(self, arguments: dict[str, str]) -> str:
+        try:
+            name = arguments.get("名称", "").strip()
+            if not name:
+                raise ReadonlySourceError("路径名称不能为空。")
+            if len(name) > 256:
+                raise ReadonlySourceError("路径名称不能超过 256 个字符。")
+            root = self._root(arguments.get("根目录", ""))
+            self._path(root, arguments.get("路径", ""), allow_root=True)
+            self._integer(
+                arguments.get("结果数量", "30"),
+                label="结果数量",
+                minimum=1,
+                maximum=MAX_FIND_RESULTS,
+            )
         except ReadonlySourceError as error:
             return str(error)
         return ""

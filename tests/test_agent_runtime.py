@@ -126,6 +126,40 @@ class AgentRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("认证异常", result)
             self.assertIn("总行数：2", service.calls[1]["tool_result"].output)
 
+    async def test_readonly_path_locator_can_narrow_a_package_configuration_search(self):
+        with TemporaryDirectory() as temporary:
+            packages = Path(temporary) / "site-packages"
+            package = packages / "nonebot_plugin_gpt"
+            package.mkdir(parents=True)
+            (package / "config.py").write_text("gpt_free_image = False\n", encoding="utf-8")
+            service = _AgentService([
+                AgentDecision("tool_call", tool="搜索只读文本", arguments={
+                    "根目录": "已安装插件源码",
+                    "文本": "nonebot_plugin_gpt",
+                }),
+                AgentDecision("tool_call", tool="搜索只读文本", arguments={
+                    "根目录": "已安装插件源码",
+                    "路径": "nonebot_plugin_gpt",
+                    "文本": "gpt_free_image",
+                }),
+                AgentDecision("final", answer="识图开关是 gpt_free_image。"),
+            ])
+            runtime = agent_runtime.create_agent_runtime(
+                _Service(),
+                agent_service=service,
+                readonly_sources=agent_readonly.AgentReadonlyRoots([
+                    {"name": "已安装插件源码", "path": packages},
+                ]),
+                approval_mode=agent_runtime.AgentApprovalMode.FULL,
+            )
+
+            result = await runtime.execute("查看插件识图配置", operator_id="admin", scope_id="private:1")
+
+            self.assertIn("gpt_free_image", result)
+            self.assertEqual(service.calls[1]["tool_result"].tool, "定位只读路径")
+            self.assertIn("nonebot_plugin_gpt/", service.calls[1]["tool_result"].output)
+            self.assertIn("config.py:1", service.calls[2]["tool_result"].output)
+
     async def test_readonly_root_routes_project_relative_paths_away_from_workspace(self):
         with TemporaryDirectory() as temporary:
             project = Path(temporary)

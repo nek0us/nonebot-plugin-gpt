@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -552,6 +553,35 @@ class AgentRuntime:
         self._audit.record("工作区路径改路", f"{tool.name} -> {target_name}", _PERMISSION_NAMES[target.permission])
         return target, target_arguments
 
+    def _prelocate_readonly_path_name(
+        self,
+        tool: AgentTool,
+        arguments: dict[str, str],
+    ) -> tuple[AgentTool, dict[str, str]]:
+        """Turn an unscoped package-like text search into a path-only lookup.
+
+        Module and package names (for example ``nonebot_plugin_gpt``) are far
+        more efficiently resolved from directory entries than by opening a
+        bounded prefix of every source file. This remains generic: ordinary
+        prose, error messages, and searches already narrowed to a path keep
+        their original text-search behavior.
+        """
+        if tool.name != "搜索只读文本" or arguments.get("路径", "").strip():
+            return tool, arguments
+        query = arguments.get("文本", "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9]+(?:[_.-][A-Za-z0-9]+)+", query):
+            return tool, arguments
+        locator = self._tools.get("定位只读路径")
+        if locator is None:
+            return tool, arguments
+        target_arguments = {
+            "根目录": arguments["根目录"],
+            "名称": query,
+            **({"结果数量": arguments["结果数量"]} if "结果数量" in arguments else {}),
+        }
+        self._audit.record("只读文本路径预定位", f"{tool.name} -> {locator.name}", _PERMISSION_NAMES[locator.permission])
+        return locator, target_arguments
+
     async def _handle_turn(self, turn: AgentTurn, run: AgentRun) -> Any:
         if not turn.ok or turn.decision.kind == "error":
             self._audit.record("模型决策失败", "智能体模型")
@@ -576,6 +606,7 @@ class AgentRuntime:
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
         tool, arguments = self._redirect_workspace_read(tool, arguments, run)
+        tool, arguments = self._prelocate_readonly_path_name(tool, arguments)
         if tool.argument_validator is not None and (error := tool.argument_validator(arguments)):
             self._audit.record("工具参数被拒绝", tool.name, _PERMISSION_NAMES[tool.permission])
             return f"智能体工具参数未通过本地校验：{error}"
@@ -1027,6 +1058,12 @@ def create_agent_runtime(
             except ReadonlySourceError as error:
                 return f"只读诊断访问已拒绝：{error}"
 
+        async def find_readonly_paths(arguments: dict[str, str]) -> str:
+            try:
+                return await asyncio.to_thread(readonly_sources.find_paths, arguments)
+            except ReadonlySourceError as error:
+                return f"只读路径定位已拒绝：{error}"
+
         async def analyze_readonly_text(arguments: dict[str, str]) -> str:
             try:
                 return await asyncio.to_thread(readonly_sources.analyze_text, arguments)
@@ -1109,6 +1146,22 @@ def create_agent_runtime(
                 ),
                 lambda arguments: f"读取只读文件尾部：{arguments['根目录']}/{arguments['文件']}，{arguments.get('行数', '120')} 行",
                 argument_validator=readonly_sources.validate_tail,
+                delegable=True,
+            ),
+            AgentTool(
+                "定位只读路径",
+                "按文件或目录名称在管理员命名的只读根目录中定位路径，不读取文件正文。分析未知插件、包、配置或日志前，先用它找到目标目录或文件，再把后续文本搜索限定到该路径；不会写入文件或跟随符号链接。",
+                AgentPermission.READ_LOCAL,
+                AgentApproval.CONFIRM,
+                find_readonly_paths,
+                (
+                    AgentToolParameter("根目录", "管理员配置的只读诊断根目录", choices=readonly_sources.root_choices),
+                    AgentToolParameter("名称", "要定位的文件、目录、包或模块名称，例如 nonebot_plugin_gpt"),
+                    AgentToolParameter("路径", "根目录内的可选相对目录；留空表示整个根目录", required=False),
+                    AgentToolParameter("结果数量", "可选整数，1 到 100；默认 30", required=False),
+                ),
+                lambda arguments: f"定位只读路径：{arguments['根目录']}，{arguments['名称'][:120]}",
+                argument_validator=readonly_sources.validate_find,
                 delegable=True,
             ),
             AgentTool(
