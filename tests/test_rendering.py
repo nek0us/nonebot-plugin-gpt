@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from ChatGPTWeb import ChatContent, ChatResult, CodeBlock, RichContentItem
+from ChatGPTWeb.config import IOFile
 
 
 _MODULE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt" / "rendering.py"
@@ -40,6 +41,7 @@ class RenderingTests(unittest.TestCase):
             message_id="message",
             used_model="gpt-5",
             image_urls=["https://example.invalid/image.png"],
+            files=[IOFile(content=b"report", name="report.txt", mime_type="text/plain")],
             usage={"total_tokens": 42},
             content=content,
         )
@@ -51,6 +53,9 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(plan.model, "gpt-5")
         self.assertEqual(plan.usage["total_tokens"], 42)
         self.assertEqual(plan.image_urls, ["https://example.invalid/image.png"])
+        self.assertEqual(len(plan.files), 1)
+        self.assertEqual(plan.files[0].name, "report.txt")
+        self.assertEqual(plan.files[0].content, b"report")
         self.assertEqual(plan.markdown, "# Title")
 
     def test_markdown_image_plan_keeps_original_markdown(self):

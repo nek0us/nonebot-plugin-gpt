@@ -12,6 +12,7 @@ from nonebot_plugin_alconna import Match, on_alconna
 from nonebot_plugin_alconna.uniseg import At, OriginalUniMsg, Target, UniMessage, get_target
 from importlib.metadata import version
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from time import time
@@ -329,27 +330,44 @@ if isinstance(config_gpt.gpt_session, list):
             config_gpt.gpt_core_api_key,
             timeout_seconds=config_gpt.gpt_core_request_timeout,
             personas=migrated_personas,
+            max_output_file_size=config_gpt.gpt_file_max_size,
+            max_output_total_size=config_gpt.gpt_attachment_max_total_size,
+            max_output_file_count=config_gpt.gpt_attachment_max_count,
         )
         chat_service = chatbot
     else:
         personality = Personality([])
+        embedded_options = {
+            "sessions": config_gpt.gpt_session,
+            "plugin": True,
+            "storage_dir": data_dir / "chatgptweb",
+            "proxy": config_gpt.gpt_proxy,
+            "begin_sleep_time": config_gpt.gpt_begin_sleep_time,
+            "personality": personality,
+            "save_screen": config_gpt.gpt_save_screen,
+            "headless": config_gpt.gpt_headless,
+            "local_js": config_gpt.gpt_local_js,
+            "ready_timeout": config_gpt.gpt_session_recovery_wait_timeout,
+            "chat_rate_limit_cooldown_seconds": config_gpt.gpt_chat_rate_limit_cooldown_seconds,
+            "account_selection_strategy": config_gpt.gpt_account_selection_strategy,
+            "account_selection_window_seconds": config_gpt.gpt_account_selection_window_seconds,
+            "control_host": config_gpt.gpt_control_host,
+            "control_port": config_gpt.gpt_control_port,
+            "control_api_key": config_gpt.gpt_control_api_key,
+        }
+        output_options = {
+            "output_file_max_size": config_gpt.gpt_file_max_size,
+            "output_file_max_total_size": config_gpt.gpt_attachment_max_total_size,
+            "output_file_max_count": config_gpt.gpt_attachment_max_count,
+        }
+        core_parameters = inspect.signature(chatgpt).parameters
+        embedded_options.update({
+            name: value
+            for name, value in output_options.items()
+            if name in core_parameters
+        })
         chatbot = chatgpt(
-            sessions = config_gpt.gpt_session,
-            plugin = True,
-            storage_dir = data_dir / "chatgptweb",
-            proxy = config_gpt.gpt_proxy,
-            begin_sleep_time = config_gpt.gpt_begin_sleep_time,
-            personality=personality,
-            save_screen=config_gpt.gpt_save_screen,
-            headless=config_gpt.gpt_headless,
-            local_js=config_gpt.gpt_local_js,
-            ready_timeout=config_gpt.gpt_session_recovery_wait_timeout,
-            chat_rate_limit_cooldown_seconds=config_gpt.gpt_chat_rate_limit_cooldown_seconds,
-            account_selection_strategy=config_gpt.gpt_account_selection_strategy,
-            account_selection_window_seconds=config_gpt.gpt_account_selection_window_seconds,
-            control_host=config_gpt.gpt_control_host,
-            control_port=config_gpt.gpt_control_port,
-            control_api_key=config_gpt.gpt_control_api_key,
+            **embedded_options,
         )
         chat_service = ChatService(chatbot)
     failure_diagnostics = ChatFailureDiagnostics()

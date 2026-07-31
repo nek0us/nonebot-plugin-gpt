@@ -1,4 +1,10 @@
+import base64
+import importlib
+import json
+import sys
+import types
 import unittest
+from pathlib import Path
 
 from aiohttp import web
 from aiohttp.test_utils import TestServer
@@ -6,7 +12,13 @@ from aiohttp.test_utils import TestServer
 from ChatGPTWeb import AgentState, AgentTool, AgentToolResult
 from ChatGPTWeb.service import ChatRequest
 
-from nonebot_plugin_gpt.remote_service import RemoteChatService
+PACKAGE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt"
+package = types.ModuleType("nonebot_plugin_gpt")
+package.__path__ = [str(PACKAGE_PATH)]
+sys.modules.setdefault("nonebot_plugin_gpt", package)
+RemoteChatService = importlib.import_module(
+    "nonebot_plugin_gpt.remote_service"
+).RemoteChatService
 
 
 class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -47,7 +59,35 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
                 "usage": {},
                 "metadata": {},
                 "errors": [],
+                "files": [{
+                    "name": "report.txt",
+                    "mime_type": "text/plain",
+                    "size": 13,
+                    "content_base64": base64.b64encode(b"remote report").decode("ascii"),
+                }],
             })
+
+        async def chat_stream(request):
+            self.requests.append(await request.json())
+            response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
+            await response.prepare(request)
+            payload = {
+                "type": "final",
+                "text": "stream response",
+                "conversation_id": "conversation-stream",
+                "message_id": "message-stream",
+                "model": "auto",
+                "files": [{
+                    "name": "stream.txt",
+                    "mime_type": "text/plain",
+                    "content_base64": base64.b64encode(b"stream report").decode("ascii"),
+                }],
+            }
+            await response.write(
+                f"event: chatgptweb.event\ndata: {json.dumps(payload)}\n\n".encode()
+            )
+            await response.write_eof()
+            return response
 
         async def capabilities(_request):
             return web.json_response({
@@ -91,6 +131,7 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
         app.router.add_delete("/v1/bot/personas", delete_persona)
         app.router.add_post("/v1/bot/persona", get_persona)
         app.router.add_post("/v1/bot/chat", chat)
+        app.router.add_post("/v1/bot/chat/stream", chat_stream)
         app.router.add_post("/v1/bot/responses", responses)
         app.router.add_get("/v1/bot/capabilities", capabilities)
         self.server = TestServer(app)
@@ -119,8 +160,57 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.text, "remote response")
         self.assertEqual(result.account, "shared@example.com")
+        self.assertEqual(len(result.files), 1)
+        self.assertEqual(result.files[0].name, "report.txt")
+        self.assertEqual(result.files[0].content, b"remote report")
+        self.assertEqual(result.files[0].mime_type, "text/plain")
         self.assertEqual(self.requests[-1]["prompt"], "hello")
         self.assertNotIn("new", self.personas)
+
+    async def test_rejects_invalid_or_oversized_output_files(self):
+        service = RemoteChatService(
+            str(self.server.make_url("/")).rstrip("/"),
+            "bot-secret",
+            max_output_file_size=4,
+            max_output_total_size=6,
+            max_output_file_count=3,
+        )
+        try:
+            files = service._output_files([
+                {"name": "invalid.txt", "content_base64": "%%%"},
+                {
+                    "name": "../too-large.txt",
+                    "content_base64": base64.b64encode(b"12345").decode("ascii"),
+                },
+                {
+                    "name": "../first.txt",
+                    "mime_type": "text/plain",
+                    "content_base64": base64.b64encode(b"1234").decode("ascii"),
+                },
+                {
+                    "name": "second.txt",
+                    "content_base64": base64.b64encode(b"5678").decode("ascii"),
+                },
+            ])
+        finally:
+            await service.close()
+
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0].name, "first.txt")
+        self.assertEqual(files[0].content, b"1234")
+
+    async def test_stream_result_keeps_output_files(self):
+        events = []
+        result = await self.service.stream_to_callback(
+            ChatRequest(prompt="stream"),
+            events.append,
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.text, "stream response")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].files[0].name, "stream.txt")
+        self.assertEqual(result.files[0].content, b"stream report")
 
     async def test_status_uses_coarse_remote_pool_totals(self):
         status = await self.service.get_account_status()

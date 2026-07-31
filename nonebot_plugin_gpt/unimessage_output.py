@@ -34,4 +34,9 @@ async def build_unimessage(plan: RenderPlan, render_markdown: MarkdownRenderer |
         message += UniMessage.text(plan.text)
     for image_url in plan.image_urls:
         message += UniMessage.image(url=image_url)
+    for file in plan.files:
+        if (file.mime_type or "").startswith("image/"):
+            message += UniMessage.image(raw=file.content, name=file.name)
+        else:
+            message += UniMessage.file(raw=file.content, name=file.name)
     return message

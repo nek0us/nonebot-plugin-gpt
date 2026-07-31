@@ -6,6 +6,7 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from ChatGPTWeb import ChatContent, ChatResult
+from ChatGPTWeb.config import IOFile
 
 
 _COMPLEX_MARKDOWN = re.compile(r"(?m)^#{1,6}\s|^\s*[-*+]\s|^\s*\||```")
@@ -22,6 +23,7 @@ class RenderPlan:
     native_markdown: bool = False
     reference_text: str = ""
     image_urls: list[str] = field(default_factory=list)
+    files: list[IOFile] = field(default_factory=list)
     model: str = ""
     usage: dict = field(default_factory=dict)
 
@@ -98,6 +100,7 @@ def build_render_plan(
         native_markdown=bool(supports_markdown and markdown),
         reference_text=reference_text,
         image_urls=(result.image_urls or content.image_urls).copy(),
+        files=list(getattr(result, "files", [])),
         model=result.used_model or result.requested_model,
         usage=result.usage.copy(),
     )

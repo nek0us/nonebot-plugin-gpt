@@ -4,6 +4,8 @@ import types
 import unittest
 from pathlib import Path
 
+from ChatGPTWeb.config import IOFile
+
 
 PACKAGE_PATH = Path(__file__).parents[1] / "nonebot_plugin_gpt"
 package = types.ModuleType("nonebot_plugin_gpt")
@@ -60,3 +62,20 @@ class UniMessageOutputTests(unittest.IsolatedAsyncioTestCase):
             for segment in message
             for style in segment.styles.values()
         ))
+
+    async def test_generated_files_use_native_file_and_image_segments(self):
+        message = await output.build_unimessage(
+            rendering.RenderPlan(
+                text="done",
+                files=[
+                    IOFile(content=b"report", name="report.txt", mime_type="text/plain"),
+                    IOFile(content=b"image", name="preview.png", mime_type="image/png"),
+                ],
+            ),
+        )
+
+        segments = [(segment.type, segment.name, segment.raw) for segment in message if segment.type in {"file", "image"}]
+        self.assertEqual(segments, [
+            ("file", "report.txt", b"report"),
+            ("image", "preview.png", b"image"),
+        ])

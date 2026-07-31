@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import asyncio
+import binascii
 import inspect
 import json
 from typing import Any, AsyncIterator
@@ -13,7 +14,7 @@ from aiohttp import ClientSession, ClientTimeout
 from ChatGPTWeb import AgentDecision, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn
 from ChatGPTWeb.api import ChatStreamEvent
 from ChatGPTWeb.content import build_chat_content
-from ChatGPTWeb.config import Personality
+from ChatGPTWeb.config import IOFile, Personality
 from ChatGPTWeb.service import ChatRequest, ChatResult, ConversationContextEstimate
 
 
@@ -34,6 +35,9 @@ class RemoteChatService:
         *,
         timeout_seconds: int = 90,
         personas: list[dict[str, str]] | None = None,
+        max_output_file_size: int = 20 * 1024 * 1024,
+        max_output_total_size: int = 40 * 1024 * 1024,
+        max_output_file_count: int = 8,
     ):
         base = base_url.strip().rstrip("/")
         if not base:
@@ -47,6 +51,9 @@ class RemoteChatService:
         self.personality = Personality(personas or [])
         self._initialized = False
         self._sync_lock = asyncio.Lock()
+        self._max_output_file_size = max_output_file_size
+        self._max_output_total_size = max_output_total_size
+        self._max_output_file_count = max_output_file_count
 
     async def close(self) -> None:
         if self._session and not self._session.closed:
@@ -143,12 +150,47 @@ class RemoteChatService:
         }
 
     @staticmethod
-    def _result(value: dict[str, Any], request: ChatRequest) -> ChatResult:
+    def _safe_file_name(value: Any) -> str:
+        name = str(value or "attachment").replace("\\", "/").rsplit("/", maxsplit=1)[-1]
+        return name.strip(" .")[:255] or "attachment"
+
+    def _output_files(self, value: Any) -> list[IOFile]:
+        files: list[IOFile] = []
+        total_size = 0
+        if not isinstance(value, list):
+            return files
+        for item in value[: self._max_output_file_count]:
+            if not isinstance(item, dict):
+                continue
+            encoded = item.get("content_base64")
+            if not isinstance(encoded, str):
+                continue
+            try:
+                content = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                continue
+            if not content or len(content) > self._max_output_file_size:
+                continue
+            if total_size + len(content) > self._max_output_total_size:
+                break
+            files.append(IOFile(
+                content=content,
+                name=self._safe_file_name(item.get("name")),
+                mime_type=(
+                    item.get("mime_type")
+                    if isinstance(item.get("mime_type"), str)
+                    else None
+                ),
+            ))
+            total_size += len(content)
+        return files
+
+    def _result(self, value: dict[str, Any], request: ChatRequest) -> ChatResult:
         raw_text = value.get("text") if isinstance(value.get("text"), str) else ""
         images = value.get("image_urls") if isinstance(value.get("image_urls"), list) else []
         metadata = value.get("metadata") if isinstance(value.get("metadata"), dict) else {}
         errors = value.get("errors") if isinstance(value.get("errors"), list) else []
-        return ChatResult(
+        result = ChatResult(
             ok=bool(value.get("ok")),
             text=raw_text,
             conversation_id=str(value.get("conversation_id") or request.conversation_id),
@@ -162,6 +204,8 @@ class RemoteChatService:
             account=str(value.get("account") or ""),
             content=build_chat_content(raw_text, images, metadata),
         )
+        result.files = self._output_files(value.get("files"))
+        return result
 
     async def send(self, request: ChatRequest) -> ChatResult:
         await self._ensure_started()
@@ -372,7 +416,7 @@ class RemoteChatService:
                             raise RemoteCoreError("shared core emitted invalid stream JSON") from error
                         if not isinstance(value, dict):
                             raise RemoteCoreError("shared core emitted an invalid stream event")
-                        yield ChatStreamEvent(
+                        event = ChatStreamEvent(
                             type=str(value.get("type") or "error"),
                             text=str(value.get("text") or ""),
                             raw_text=str(value.get("raw_text") or ""),
@@ -383,6 +427,8 @@ class RemoteChatService:
                             usage=dict(value.get("usage") or {}),
                             metadata=dict(value.get("metadata") or {}),
                         )
+                        event.files = self._output_files(value.get("files"))
+                        yield event
                     event_name = ""
                     data_lines = []
                     continue
@@ -396,6 +442,7 @@ class RemoteChatService:
         image_urls: list[str] = []
         final_event: ChatStreamEvent | None = None
         errors: list[dict[str, Any]] = []
+        files: list[IOFile] = []
         last_event: ChatStreamEvent | None = None
         async for event in self.stream(request):
             last_event = event
@@ -407,6 +454,8 @@ class RemoteChatService:
                 final_event = event
                 if event.image_urls:
                     image_urls = event.image_urls.copy()
+                if event.files:
+                    files = event.files.copy()
             elif event.type == "error":
                 errors.append({
                     "kind": str(event.metadata.get("error_kind") or "stream_error"),
@@ -420,7 +469,7 @@ class RemoteChatService:
         text = final_event.text if final_event and final_event.text else "".join(chunks)
         metadata = dict(terminal.metadata) if terminal else {}
         raw_text = final_event.raw_text if final_event and final_event.raw_text else text
-        return ChatResult(
+        result = ChatResult(
             ok=bool(final_event and not errors),
             text=text,
             conversation_id=terminal.conversation_id if terminal else request.conversation_id,
@@ -433,6 +482,8 @@ class RemoteChatService:
             errors=errors,
             content=build_chat_content(raw_text, image_urls, metadata),
         )
+        result.files = files
+        return result
 
     async def get_history(self, conversation_id: str) -> list[dict[str, Any]]:
         await self._ensure_started()
