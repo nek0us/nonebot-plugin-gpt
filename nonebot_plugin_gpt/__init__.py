@@ -58,7 +58,7 @@ from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_upload_files
 from .auto_persona import AutoPersonaInitializer
-from .chat_input import build_chat_prompt, extract_chat_message
+from .chat_input import attachment_segment_counts, build_chat_prompt, extract_chat_message
 from .persona_views import list_personas, show_persona
 from .persona_editor import (
     PersonaValidationError,
@@ -674,11 +674,50 @@ if isinstance(config_gpt.gpt_session, list):
         creator = ConversationCreator.from_event(event)
         model, prefer_paid_account = await select_model(event)
         image_upload_enabled = config_gpt.gpt_free_image or prefer_paid_account
+        requested_images, requested_files = attachment_segment_counts(original_message)
+        files = []
+        if image_upload_enabled or config_gpt.gpt_file_upload:
+            files = await extract_upload_files(
+                original_message,
+                proxy=config_gpt.gpt_proxy,
+                upload_images=image_upload_enabled,
+                upload_files=config_gpt.gpt_file_upload,
+                max_file_size=config_gpt.gpt_file_max_size,
+                max_total_size=config_gpt.gpt_attachment_max_total_size,
+                max_count=config_gpt.gpt_attachment_max_count,
+                allowed_local_roots=config_gpt.gpt_attachment_local_roots,
+                allow_private_urls=config_gpt.gpt_attachment_allow_private_urls,
+                allowed_hosts=config_gpt.gpt_attachment_allowed_hosts,
+                download_timeout=config_gpt.gpt_attachment_download_timeout,
+                max_redirects=config_gpt.gpt_attachment_max_redirects,
+            )
+        if requested_images or requested_files:
+            logger.info(
+                "聊天附件提取完成：请求图片 %s、其他文件 %s，成功 %s",
+                requested_images,
+                requested_files,
+                len(files),
+            )
+        if (requested_images or requested_files) and not files:
+            logger.warning(
+                "本条聊天包含附件，但没有附件可传给核心："
+                "gpt_free_image=%s, paid_preferred=%s, gpt_file_upload=%s",
+                config_gpt.gpt_free_image,
+                prefer_paid_account,
+                config_gpt.gpt_file_upload,
+            )
+            await finish_message(
+                matcher,
+                event,
+                UniMessage.text(config_gpt.gpt_attachment_unavailable_message),
+            )
+            return
         message_text = extract_chat_message(
             original_message,
             self_id=str(getattr(event, "self_id", "")),
             image_upload_enabled=image_upload_enabled,
             file_upload_enabled=config_gpt.gpt_file_upload,
+            uploaded_files=files,
         )
         if is_registered_command_text(
             message_text,
@@ -707,22 +746,6 @@ if isinstance(config_gpt.gpt_session, list):
         )
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
-        files = []
-        if image_upload_enabled or config_gpt.gpt_file_upload:
-            files = await extract_upload_files(
-                original_message,
-                proxy=config_gpt.gpt_proxy,
-                upload_images=image_upload_enabled,
-                upload_files=config_gpt.gpt_file_upload,
-                max_file_size=config_gpt.gpt_file_max_size,
-                max_total_size=config_gpt.gpt_attachment_max_total_size,
-                max_count=config_gpt.gpt_attachment_max_count,
-                allowed_local_roots=config_gpt.gpt_attachment_local_roots,
-                allow_private_urls=config_gpt.gpt_attachment_allow_private_urls,
-                allowed_hosts=config_gpt.gpt_attachment_allowed_hosts,
-                download_timeout=config_gpt.gpt_attachment_download_timeout,
-                max_redirects=config_gpt.gpt_attachment_max_redirects,
-            )
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,
             key,

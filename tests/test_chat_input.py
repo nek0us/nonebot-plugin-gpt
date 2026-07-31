@@ -2,6 +2,7 @@ import importlib
 import sys
 import types
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 from nonebot_plugin_alconna.uniseg import Audio, At, File, Image, Text, UniMessage, Video
@@ -64,6 +65,38 @@ class ChatInputTests(unittest.TestCase):
             "【文件附件：notes.pdf，已附加】",
             chat_input.extract_chat_message(message, file_upload_enabled=True),
         )
+
+    def test_attachment_labels_follow_actual_uploaded_files(self):
+        message = UniMessage([
+            Image(name="first.png"),
+            Image(name="second.png"),
+            File(name="notes.pdf"),
+        ])
+        uploaded = [
+            SimpleNamespace(content_type="image_asset_pointer", mime_type="image/png"),
+            SimpleNamespace(content_type=None, mime_type="application/pdf"),
+        ]
+
+        text = chat_input.extract_chat_message(
+            message,
+            image_upload_enabled=True,
+            file_upload_enabled=True,
+            uploaded_files=uploaded,
+        )
+
+        self.assertIn("【图片附件：first.png，已附加】", text)
+        self.assertIn("【图片附件：second.png，未上传，无法读取】", text)
+        self.assertIn("【文件附件：notes.pdf，已附加】", text)
+
+    def test_attachment_segment_counts_are_platform_neutral(self):
+        message = UniMessage([
+            Image(name="cat.png"),
+            Audio(name="voice.mp3"),
+            Video(name="clip.mp4"),
+            File(name="notes.pdf"),
+        ])
+
+        self.assertEqual(chat_input.attachment_segment_counts(message), (1, 3))
 
     def test_nickname_preserves_the_original_natural_subject_by_default(self):
         prompt = chat_input.build_chat_prompt(

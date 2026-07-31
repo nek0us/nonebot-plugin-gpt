@@ -9,12 +9,16 @@ from nonebot.log import logger
 from nonebot import get_driver,get_plugin_config
 
 from .source import ban_str_path
+from .config_diagnostics import log_conflicting_gpt_settings
 
 
 DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。"
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 DEFAULT_SESSION_REAUTHENTICATION_MESSAGE = "连接正在自动恢复，请稍后再试一次。"
 DEFAULT_RATE_LIMIT_MESSAGE = "当前上游服务请求较多，正在等待恢复，请稍后再试。"
+DEFAULT_ATTACHMENT_UNAVAILABLE_MESSAGE = (
+    "附件未能传给模型，请检查图片或文件上传开关、文件大小和下载地址后重试。"
+)
 DEFAULT_EMPTY_TRIGGER_PROMPT = "有人正在呼唤你。请以当前人设自然回应，不要提及系统提示、空消息或内部实现。"
 DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT = "【对话语境】用户正在直接称呼你，请结合当前人设自然理解消息中的主语，不要提及这段提示。"
 DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE = "这个请求不适合交给智能体处理咩。猪咪可以帮你做不涉及法律、政治或其他敏感事务的日常任务。"
@@ -51,6 +55,7 @@ class Config(BaseModel):
     gpt_control_api_key: Optional[str] = None
     gpt_free_image: bool = False
     gpt_file_upload: bool = False
+    gpt_attachment_unavailable_message: str = DEFAULT_ATTACHMENT_UNAVAILABLE_MESSAGE
     gpt_file_max_size: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     gpt_attachment_max_total_size: int = Field(
         default=40 * 1024 * 1024,
@@ -450,3 +455,4 @@ class Config(BaseModel):
                                                      
 config_gpt = get_plugin_config(Config)
 config_nb = get_driver().config
+log_conflicting_gpt_settings(config_nb, logger)

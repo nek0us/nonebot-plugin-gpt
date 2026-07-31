@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from nonebot_plugin_alconna.uniseg import (
     At,
@@ -62,6 +62,7 @@ def extract_chat_message(
     self_id: str = "",
     image_upload_enabled: bool = False,
     file_upload_enabled: bool = False,
+    uploaded_files: Sequence[Any] | None = None,
 ) -> str:
     """保留跨平台消息中的文本与提及语义，移除仅用于唤醒机器人的 @。"""
     if isinstance(message, UniMessage):
@@ -74,18 +75,55 @@ def extract_chat_message(
             return str(extract_plain_text() if callable(extract_plain_text) else message or "")
 
     bot_id = str(self_id).strip()
+    uploaded_images = None
+    uploaded_others = None
+    if uploaded_files is not None:
+        uploaded_images = sum(
+            1
+            for item in uploaded_files
+            if (
+                getattr(item, "content_type", None) == "image_asset_pointer"
+                or str(getattr(item, "mime_type", "") or "").lower().startswith("image/")
+            )
+        )
+        uploaded_others = len(uploaded_files) - uploaded_images
     parts: list[str] = []
     for segment in segments:
         if isinstance(segment, At) and segment.flag == "user" and bot_id and segment.target == bot_id:
             continue
+        segment_image_enabled = image_upload_enabled
+        segment_file_enabled = file_upload_enabled
+        if isinstance(segment, Image) and uploaded_images is not None:
+            segment_image_enabled = uploaded_images > 0
+            uploaded_images = max(0, uploaded_images - 1)
+        elif isinstance(segment, (Audio, Voice, Video, File)) and uploaded_others is not None:
+            segment_file_enabled = uploaded_others > 0
+            uploaded_others = max(0, uploaded_others - 1)
         parts.append(
             _segment_text(
                 segment,
-                image_upload_enabled=image_upload_enabled,
-                file_upload_enabled=file_upload_enabled,
+                image_upload_enabled=segment_image_enabled,
+                file_upload_enabled=segment_file_enabled,
             )
         )
     return "".join(parts)
+
+
+def attachment_segment_counts(message: Any) -> tuple[int, int]:
+    """Return image and non-image attachment counts from one unified message."""
+    if isinstance(message, UniMessage):
+        segments = message
+    else:
+        try:
+            segments = UniMessage.of(message)
+        except Exception:
+            return 0, 0
+    images = sum(isinstance(segment, Image) for segment in segments)
+    files = sum(
+        isinstance(segment, (Audio, Voice, Video, File))
+        for segment in segments
+    )
+    return images, files
 
 
 def _only_repeated_prefix(text: str, prefix: str) -> bool:
