@@ -43,6 +43,59 @@ class ManagementViewTests(unittest.TestCase):
         self.assertIn("上下文已就绪，页面已就绪", text)
         self.assertNotIn("password", text)
 
+    def test_status_includes_capability_budget_estimates(self):
+        text = management_views.format_account_status({
+            "accounts": [{
+                "email": "account@example.test",
+                "status": "Ready",
+                "available": True,
+                "capability_quota": {
+                    "enabled": True,
+                    "upload_total": 2,
+                    "image_upload": {
+                        "used": 1,
+                        "budget_used": 2,
+                        "limit": 3,
+                    },
+                    "file_upload": {
+                        "used": 1,
+                        "budget_used": 2,
+                        "limit": 3,
+                    },
+                    "image_generation": {
+                        "used": 2,
+                        "budget_used": 2,
+                        "limit": 2,
+                        "limit_reason": "local_soft_budget",
+                    },
+                },
+            }],
+        })
+
+        self.assertIn("高级能力（本地估算）：上传 2/3", text)
+        self.assertIn("（图片 1，文件 1）", text)
+        self.assertIn("生图 2/2", text)
+
+    def test_remote_status_includes_coarse_capability_availability(self):
+        text = management_views.format_account_status({
+            "account_summary": {"configured": 3, "available": 2, "attention": 1},
+            "accounts": [{
+                "email": "shared-core",
+                "available": True,
+                "shared_core": True,
+                "capability_quota": {
+                    "shared_core": True,
+                    "available_accounts": {
+                        "image_upload": 2,
+                        "file_upload": 1,
+                        "image_generation": 2,
+                    },
+                },
+            }],
+        })
+
+        self.assertIn("高级能力可用账号：图片 2，文件 1，生图 2", text)
+
     def test_status_highlights_manual_action_without_raw_error(self):
         text = management_views.format_account_status({
             "accounts": [

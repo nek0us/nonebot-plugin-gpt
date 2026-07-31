@@ -140,6 +140,9 @@ class RemoteChatService:
                 }
                 for item in request.files
             ],
+            "required_capabilities": list(
+                getattr(request, "required_capabilities", [])
+            ),
             "web_search": request.web_search,
             "deep_research": request.deep_research,
             "prefer_paid_account": request.prefer_paid_account,
@@ -173,15 +176,21 @@ class RemoteChatService:
                 continue
             if total_size + len(content) > self._max_output_total_size:
                 break
-            files.append(IOFile(
+            declared_mime = (
+                item.get("mime_type")
+                if isinstance(item.get("mime_type"), str)
+                else None
+            )
+            output_file = IOFile(
                 content=content,
                 name=self._safe_file_name(item.get("name")),
-                mime_type=(
-                    item.get("mime_type")
-                    if isinstance(item.get("mime_type"), str)
-                    else None
-                ),
-            ))
+                mime_type=declared_mime,
+            )
+            # Older ChatGPTWeb releases overwrite an explicitly supplied MIME
+            # type with application/octet-stream when bytes are not sniffable.
+            if declared_mime and output_file.mime_type == "application/octet-stream":
+                output_file.mime_type = declared_mime
+            files.append(output_file)
             total_size += len(content)
         return files
 
@@ -550,6 +559,12 @@ class RemoteChatService:
         configured = configured if isinstance(configured, int) and not isinstance(configured, bool) else 0
         available_count = available_count if isinstance(available_count, int) and not isinstance(available_count, bool) else 0
         available_count = max(0, min(configured, available_count))
+        capability_quota = (
+            runtime.get("capability_quota")
+            if isinstance(runtime, dict)
+            and isinstance(runtime.get("capability_quota"), dict)
+            else {}
+        )
         summary = {
             "configured": configured,
             "available": available_count,
@@ -563,6 +578,10 @@ class RemoteChatService:
             "conversation_count": 0,
             "observed_model_count": 0,
             "usage": {},
+            "capability_quota": {
+                "shared_core": True,
+                **capability_quota,
+            },
             "runtime": {"context_ready": available, "page_ready": available},
             "shared_core": True,
         }], "account_summary": summary}

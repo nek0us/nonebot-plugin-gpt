@@ -12,6 +12,7 @@ from .management_views import (
     _action_for,
     _account_available,
     _as_int,
+    _capability_summary,
     _plan_name,
     _runtime_name,
     _runtime_summary,
@@ -111,11 +112,16 @@ def build_account_status_html(status: dict[str, Any], *, failure_summary: str = 
                 f"本进程请求 {_usage_requests(account)}"
             )
         runtime = _runtime_summary(account)
+        capability = _capability_summary(account)
         action = _action_for(account)
         cards.append(
             f"<section class=\"account\"><div class=\"account-head\"><div class=\"email\">{email}</div>"
             f"<span class=\"badge {badge_class}\">{badge}</span></div><div class=\"details\">{details}</div>"
             + (f"<div class=\"runtime\">{escape(runtime)}</div>" if runtime else "")
+            + (
+                f"<div class=\"runtime\">{escape(capability)}</div>"
+                if capability else ""
+            )
             + (f"<div class=\"action\">{escape(action)}</div>" if action else "")
             + "</section>"
         )

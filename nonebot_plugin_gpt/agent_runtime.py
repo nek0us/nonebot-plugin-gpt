@@ -501,7 +501,12 @@ class AgentRuntime:
             for item in turn.errors
             if isinstance(item, dict)
         }
-        if error_kinds & {"rate_limited", "conversation_rate_limited"}:
+        if error_kinds & {
+            "rate_limited",
+            "conversation_rate_limited",
+            "capability_rate_limited",
+            "conversation_capability_rate_limited",
+        }:
             return self._rate_limit_message
         return self._error_message
 

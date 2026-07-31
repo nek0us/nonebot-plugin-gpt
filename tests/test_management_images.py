@@ -57,3 +57,26 @@ class ManagementImageTests(unittest.TestCase):
         self.assertIn("account@example.com", html)
         self.assertIn("套餐 Plus", html)
         self.assertIn("本进程请求 5", html)
+
+    def test_status_image_includes_capability_budget(self):
+        html = management_images.build_account_status_html({
+            "accounts": [{
+                "email": "account@example.com",
+                "available": True,
+                "status": "Ready",
+                "capability_quota": {
+                    "enabled": True,
+                    "upload_total": 1,
+                    "image_upload": {"used": 1, "budget_used": 1, "limit": 2},
+                    "file_upload": {"used": 0, "budget_used": 1, "limit": 2},
+                    "image_generation": {
+                        "used": 1,
+                        "budget_used": 1,
+                        "limit": 2,
+                    },
+                },
+            }],
+        })
+
+        self.assertIn("高级能力（本地估算）：上传 1/2", html)
+        self.assertIn("生图 1/2", html)

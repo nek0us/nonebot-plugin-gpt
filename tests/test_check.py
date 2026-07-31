@@ -80,6 +80,23 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.gpt_account_selection_strategy, "usage_balanced")
         self.assertEqual(config.gpt_account_selection_window_seconds, 3600)
 
+    def test_capability_quota_config_accepts_observe_only_limits(self):
+        config = Config(
+            gpt_session=[],
+            gpt_capability_quota_enabled=True,
+            gpt_free_upload_daily_limit=0,
+            gpt_free_image_generation_daily_limit=3,
+            gpt_capability_rate_limit_cooldown_seconds=7200,
+        )
+
+        self.assertTrue(config.gpt_capability_quota_enabled)
+        self.assertEqual(config.gpt_free_upload_daily_limit, 0)
+        self.assertEqual(config.gpt_free_image_generation_daily_limit, 3)
+        self.assertEqual(
+            config.gpt_capability_rate_limit_cooldown_seconds,
+            7200,
+        )
+
     def test_remote_core_mode_does_not_require_local_sessions(self):
         config = Config(
             gpt_core_mode="remote",

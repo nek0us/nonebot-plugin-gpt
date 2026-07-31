@@ -54,6 +54,61 @@ def _usage_requests(account: dict[str, Any]) -> int:
     return _as_int(usage.get("requests")) if isinstance(usage, dict) else 0
 
 
+def _capability_summary(account: dict[str, Any]) -> str:
+    quota = account.get("capability_quota")
+    if not isinstance(quota, dict):
+        return ""
+    if quota.get("shared_core"):
+        available = quota.get("available_accounts")
+        if not isinstance(available, dict):
+            return ""
+        return (
+            "高级能力可用账号："
+            f"图片 {_as_int(available.get('image_upload'))}，"
+            f"文件 {_as_int(available.get('file_upload'))}，"
+            f"生图 {_as_int(available.get('image_generation'))}"
+        )
+    if not quota.get("enabled"):
+        return "高级能力本地预算：已关闭"
+
+    image_upload = quota.get("image_upload")
+    file_upload = quota.get("file_upload")
+    image_generation = quota.get("image_generation")
+    if not all(isinstance(item, dict) for item in (
+        image_upload,
+        file_upload,
+        image_generation,
+    )):
+        return ""
+    upload_limit = _as_int(image_upload.get("limit")) or _as_int(
+        file_upload.get("limit")
+    )
+    generation_limit = _as_int(image_generation.get("limit"))
+    upload_budget = (
+        f"{_as_int(quota.get('upload_total'))}/{upload_limit}"
+        if upload_limit else f"{_as_int(quota.get('upload_total'))}（仅统计）"
+    )
+    generation_budget = (
+        f"{_as_int(image_generation.get('budget_used'))}/{generation_limit}"
+        if generation_limit
+        else f"{_as_int(image_generation.get('budget_used'))}（仅统计）"
+    )
+    summary = (
+        f"高级能力（本地估算）：上传 {upload_budget}"
+        f"（图片 {_as_int(image_upload.get('used'))}，"
+        f"文件 {_as_int(file_upload.get('used'))}）；"
+        f"生图 {generation_budget}"
+    )
+    cooling = [
+        _as_int(item.get("retry_after_seconds"))
+        for item in (image_upload, file_upload, image_generation)
+        if item.get("limit_reason") == "upstream"
+    ]
+    if cooling:
+        summary += f"；上游冷却约 {max(1, min(cooling) // 60)} 分钟"
+    return summary
+
+
 def _action_for(account: dict[str, Any]) -> str:
     if account.get("manual_disabled"):
         return "已由管理员停用；需要时可在控制台恢复。"
@@ -138,6 +193,9 @@ def format_account_status(status: dict[str, Any], *, failure_summary: str = "") 
         runtime = _runtime_summary(account)
         if runtime:
             lines.append(f"运行时：{runtime}")
+        capability = _capability_summary(account)
+        if capability:
+            lines.append(capability)
         action = _action_for(account)
         if action:
             lines.append(f"处理：{action}")

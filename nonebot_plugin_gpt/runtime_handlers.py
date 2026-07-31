@@ -36,7 +36,12 @@ _SESSION_REAUTHENTICATION_KINDS = {
     "session_recovery_timeout",
     "conversation_session_recovery_timeout",
 }
-_RATE_LIMIT_KINDS = {"rate_limited", "conversation_rate_limited"}
+_RATE_LIMIT_KINDS = {
+    "rate_limited",
+    "conversation_rate_limited",
+    "capability_rate_limited",
+    "conversation_capability_rate_limited",
+}
 
 
 async def _render_markdown(markdown: str) -> bytes | None:

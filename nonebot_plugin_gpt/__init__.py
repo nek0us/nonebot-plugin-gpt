@@ -360,10 +360,23 @@ if isinstance(config_gpt.gpt_session, list):
             "output_file_max_total_size": config_gpt.gpt_attachment_max_total_size,
             "output_file_max_count": config_gpt.gpt_attachment_max_count,
         }
+        capability_quota_options = {
+            "capability_quota_enabled": config_gpt.gpt_capability_quota_enabled,
+            "free_upload_daily_limit": config_gpt.gpt_free_upload_daily_limit,
+            "free_image_generation_daily_limit": (
+                config_gpt.gpt_free_image_generation_daily_limit
+            ),
+            "capability_rate_limit_cooldown_seconds": (
+                config_gpt.gpt_capability_rate_limit_cooldown_seconds
+            ),
+        }
         core_parameters = inspect.signature(chatgpt).parameters
         embedded_options.update({
             name: value
-            for name, value in output_options.items()
+            for name, value in {
+                **output_options,
+                **capability_quota_options,
+            }.items()
             if name in core_parameters
         })
         chatbot = chatgpt(

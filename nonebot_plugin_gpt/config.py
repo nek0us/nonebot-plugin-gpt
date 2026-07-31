@@ -78,6 +78,14 @@ class Config(BaseModel):
     gpt_rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE
     gpt_session_recovery_wait_timeout: int = Field(default=60, ge=1, le=600)
     gpt_chat_rate_limit_cooldown_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
+    gpt_capability_quota_enabled: bool = True
+    gpt_free_upload_daily_limit: int = Field(default=2, ge=0, le=1000)
+    gpt_free_image_generation_daily_limit: int = Field(default=2, ge=0, le=1000)
+    gpt_capability_rate_limit_cooldown_seconds: int = Field(
+        default=24 * 60 * 60,
+        ge=60,
+        le=7 * 24 * 60 * 60,
+    )
     gpt_account_selection_strategy: Literal["least_recently_used", "usage_balanced"] = "least_recently_used"
     gpt_account_selection_window_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
     gpt_agent_enabled: bool = False

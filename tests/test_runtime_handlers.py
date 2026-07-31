@@ -220,6 +220,36 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.extract_plain_text(), "请求较多，请稍后再试。")
         self.assertNotIn("secret", message.extract_plain_text())
 
+    async def test_capability_limit_uses_the_same_safe_rate_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal image quota detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{
+                        "kind": "capability_rate_limited",
+                        "message": "secret",
+                        "capability": "image_generation",
+                    }],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "生成一张图片",
+            render_markdown=None,
+            error_message="普通失败提示",
+            rate_limit_message="高级能力额度正在恢复，请稍后再试。",
+        )
+
+        self.assertEqual(
+            message.extract_plain_text(),
+            "高级能力额度正在恢复，请稍后再试。",
+        )
+        self.assertNotIn("secret", message.extract_plain_text())
+
     async def test_runtime_exception_returns_safe_message(self):
         class Runtime:
             async def chat(self, *args, **kwargs):

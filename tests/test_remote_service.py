@@ -94,6 +94,14 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
                 "runtime": {
                     "readiness": "ready",
                     "accounts": {"configured": 3, "available": 2},
+                    "capability_quota": {
+                        "policy": {"enabled": True},
+                        "available_accounts": {
+                            "image_upload": 2,
+                            "file_upload": 1,
+                            "image_generation": 2,
+                        },
+                    },
                 },
             })
 
@@ -166,6 +174,14 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.files[0].mime_type, "text/plain")
         self.assertEqual(self.requests[-1]["prompt"], "hello")
         self.assertNotIn("new", self.personas)
+
+    async def test_remote_status_keeps_only_coarse_capability_counts(self):
+        status = await self.service.get_account_status()
+
+        self.assertEqual(status["account_summary"]["configured"], 3)
+        quota = status["accounts"][0]["capability_quota"]
+        self.assertTrue(quota["shared_core"])
+        self.assertEqual(quota["available_accounts"]["file_upload"], 1)
 
     async def test_rejects_invalid_or_oversized_output_files(self):
         service = RemoteChatService(
