@@ -13,7 +13,11 @@ from typing import Any
 
 from nonebot.adapters import Event
 
-from .event_scope import resolve_event_scope, resolve_participant_identity
+from .event_scope import (
+    resolve_event_scope,
+    resolve_participant_display_name,
+    resolve_participant_identity,
+)
 
 
 def _now() -> str:
@@ -40,6 +44,25 @@ class ConversationKey:
         return f"{self.session_id}:{self.user_id}" if self.user_id else self.session_id
 
 
+@dataclass(frozen=True)
+class ConversationCreator:
+    """A cross-adapter identity snapshot for the member who created a session."""
+
+    user_id: str
+    name: str = ""
+    identity: str = ""
+    scope: str = ""
+
+    @classmethod
+    def from_event(cls, event: Event) -> "ConversationCreator":
+        return cls(
+            user_id=str(event.get_user_id()).strip(),
+            name=resolve_participant_display_name(event),
+            identity=resolve_participant_identity(event),
+            scope=resolve_event_scope(event).identifier,
+        )
+
+
 @dataclass
 class ConversationCheckpoint:
     """一个逻辑会话内由自动压缩产生的物理会话检查点。"""
@@ -63,6 +86,11 @@ class ConversationState:
     logical_id: str = ""
     owner_key: str = ""
     label: str = ""
+    original_title: str = ""
+    creator_id: str = ""
+    creator_name: str = ""
+    creator_identity: str = ""
+    creator_scope: str = ""
     persona_name: str = ""
     persona_prompt: str = ""
     checkpoints: list[ConversationCheckpoint] = field(default_factory=list)
@@ -101,6 +129,11 @@ class ConversationStore:
             logical_id=str(value.get("logical_id", "")),
             owner_key=str(value.get("owner_key", owner_key)),
             label=str(value.get("label", "")),
+            original_title=str(value.get("original_title", "")),
+            creator_id=str(value.get("creator_id", "")),
+            creator_name=str(value.get("creator_name", "")),
+            creator_identity=str(value.get("creator_identity", "")),
+            creator_scope=str(value.get("creator_scope", "")),
             conversation_id=str(value.get("conversation_id", "")),
             parent_message_id=str(value.get("parent_message_id", "")),
             model=str(value.get("model", "auto")),
@@ -159,7 +192,7 @@ class ConversationStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
         payload = {
-            "version": 3,
+            "version": 4,
             "bindings": archive.bindings,
             "sessions": {logical_id: asdict(state) for logical_id, state in archive.sessions.items()},
             "preferences": archive.preferences,
@@ -222,10 +255,25 @@ class ConversationStore:
             self._write_unlocked(archive)
             return state
 
-    async def create(self, key: ConversationKey, label: str = "") -> ConversationState:
+    async def create(
+        self,
+        key: ConversationKey,
+        label: str = "",
+        *,
+        creator: ConversationCreator | None = None,
+    ) -> ConversationState:
+        creator = creator or ConversationCreator("")
         return await self.save(
             key,
-            ConversationState(logical_id=uuid.uuid4().hex, owner_key=key.value, label=label),
+            ConversationState(
+                logical_id=uuid.uuid4().hex,
+                owner_key=key.value,
+                label=label,
+                creator_id=creator.user_id,
+                creator_name=creator.name,
+                creator_identity=creator.identity,
+                creator_scope=creator.scope,
+            ),
         )
 
     async def list(self, key: ConversationKey) -> list[ConversationState]:

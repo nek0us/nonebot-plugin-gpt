@@ -7,7 +7,7 @@ import asyncio
 from ChatGPTWeb import ChatResult
 
 from .chat_runtime import ChatRuntime
-from .conversation import ConversationKey
+from .conversation import ConversationCreator, ConversationKey
 
 
 class AutoPersonaInitializer:
@@ -43,6 +43,7 @@ class AutoPersonaInitializer:
         is_shared: bool,
         model: str,
         prefer_paid_account: bool,
+        creator: ConversationCreator | None = None,
     ) -> ChatResult | None:
         """仅在用户尚未开始逻辑会话时初始化，避免覆盖手动选择。"""
         persona_name = self.persona_for_scope(is_shared=is_shared)
@@ -60,6 +61,7 @@ class AutoPersonaInitializer:
                         persona_name,
                         model=model,
                         prefer_paid_account=prefer_paid_account,
+                        creator=creator,
                     )
                 except ValueError:
                     # 配置的人设尚未创建或已删除时，直接让用户首条消息创建无

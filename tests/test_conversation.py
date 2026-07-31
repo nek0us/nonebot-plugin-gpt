@@ -13,6 +13,7 @@ sys.modules.setdefault("nonebot_plugin_gpt", package)
 from nonebot_plugin_gpt import conversation
 
 ConversationKey = conversation.ConversationKey
+ConversationCreator = conversation.ConversationCreator
 ConversationState = conversation.ConversationState
 ConversationStore = conversation.ConversationStore
 
@@ -88,6 +89,29 @@ class ConversationStoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual({state.label for state in sessions}, {"角色扮演", "普通聊天"})
             self.assertEqual(active.conversation_id, "conversation-a")
             self.assertEqual((await store.get(key)).logical_id, first.logical_id)
+
+    async def test_creator_and_original_title_survive_reload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sessions.json"
+            store = ConversationStore(path)
+            key = ConversationKey("onebot.v11:group:100", "")
+            creator = ConversationCreator(
+                user_id="1130131059",
+                name="nekous",
+                identity="onebot.v11:user:1130131059",
+                scope=key.session_id,
+            )
+            state = await store.create(key, "第一句话", creator=creator)
+            state.original_title = "网页生成的原始标题"
+            await store.save(key, state)
+
+            restored = await ConversationStore(path).get(key)
+
+        self.assertEqual(restored.creator_id, "1130131059")
+        self.assertEqual(restored.creator_name, "nekous")
+        self.assertEqual(restored.creator_identity, "onebot.v11:user:1130131059")
+        self.assertEqual(restored.creator_scope, key.session_id)
+        self.assertEqual(restored.original_title, "网页生成的原始标题")
 
     async def test_checkpoint_keeps_the_same_logical_session(self):
         with tempfile.TemporaryDirectory() as directory:

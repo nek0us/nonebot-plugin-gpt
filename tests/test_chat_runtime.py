@@ -170,6 +170,88 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.client_id, "nonebot-plugin-gpt")
         self.assertEqual(request.request_priority, 10)
 
+    async def test_chat_records_creator_and_first_upstream_title(self):
+        class MetadataService(FakeService):
+            async def stream_to_callback(self, request, _callback):
+                self.requests.append(request)
+                return ChatResult(
+                    ok=True,
+                    text="回复",
+                    conversation_id="conversation-metadata",
+                    message_id=f"message-{len(self.requests)}",
+                    used_model="gpt-5",
+                    metadata={
+                        "conversation_title": (
+                            "最初网页标题"
+                            if len(self.requests) == 1 else "后来修改的网页标题"
+                        ),
+                        "conversation_created_at": 1_700_000_000,
+                        "conversation_updated_at": 1_700_000_100,
+                    },
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            runtime = chat_runtime.ChatRuntime(
+                MetadataService(),
+                store,
+                context_policy.ContextPolicy(mode="off"),
+            )
+            key = conversation.ConversationKey("onebot.v11:group:100", "")
+            creator = conversation.ConversationCreator(
+                user_id="1130131059",
+                name="nekous",
+                identity="onebot.v11:user:1130131059",
+                scope=key.session_id,
+            )
+            tagged_prompt = (
+                '[群聊发言者] {"id":"onebot.v11:user:1130131059",'
+                '"name":"nekous","current":true}\n猪咪今天吃什么'
+            )
+
+            await runtime.chat(key, tagged_prompt, creator=creator)
+            await runtime.chat(
+                key,
+                "第二句话",
+                creator=conversation.ConversationCreator(
+                    user_id="other",
+                    name="其他人",
+                ),
+            )
+            state = await store.get(key)
+
+        self.assertEqual(state.label, "猪咪今天吃什么")
+        self.assertEqual(state.creator_id, "1130131059")
+        self.assertEqual(state.creator_name, "nekous")
+        self.assertEqual(state.original_title, "最初网页标题")
+        self.assertEqual(state.metadata["upstream_created_at"], 1_700_000_000)
+        self.assertEqual(state.metadata["upstream_updated_at"], 1_700_000_100)
+
+    async def test_chat_does_not_guess_creator_for_legacy_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            key = conversation.ConversationKey("onebot.v11:group:100", "")
+            legacy = await store.create(key, "旧会话")
+            runtime = chat_runtime.ChatRuntime(
+                FakeService(),
+                store,
+                context_policy.ContextPolicy(mode="off"),
+            )
+
+            await runtime.chat(
+                key,
+                "升级后的第一句话",
+                creator=conversation.ConversationCreator(
+                    user_id="later-speaker",
+                    name="后来发言的人",
+                ),
+            )
+            state = await store.get(key)
+
+        self.assertEqual(state.logical_id, legacy.logical_id)
+        self.assertEqual(state.creator_id, "")
+        self.assertEqual(state.creator_name, "")
+
     async def test_initialize_persona_stores_a_snapshot_for_future_compaction(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")

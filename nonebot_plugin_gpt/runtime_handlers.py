@@ -12,7 +12,7 @@ from nonebot_plugin_alconna.uniseg import UniMessage
 
 from .chat_runtime import ChatRuntime
 from .chat_images import render_chat_markdown
-from .conversation import ConversationKey
+from .conversation import ConversationCreator, ConversationKey
 from .failure_diagnostics import ChatFailureDiagnostics
 from .rendering import build_render_plan
 from .unimessage_output import build_unimessage
@@ -143,17 +143,19 @@ async def chat_reply(
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
     rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
+    creator: ConversationCreator | None = None,
 ) -> UniMessage:
     """处理一条普通聊天消息并返回跨平台输出。"""
     try:
-        result = await runtime.chat(
-            key,
-            prompt,
-            model=model,
-            prefer_paid_account=prefer_paid_account,
-            files=files,
-            web_search=web_search,
-        )
+        options = {
+            "model": model,
+            "prefer_paid_account": prefer_paid_account,
+            "files": files,
+            "web_search": web_search,
+        }
+        if creator is not None:
+            options["creator"] = creator
+        result = await runtime.chat(key, prompt, **options)
     except Exception:
         return _unexpected_error_message("聊天", error_message, failure_diagnostics)
     return await render_result(
@@ -185,16 +187,18 @@ async def persona_reply(
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
     rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
+    creator: ConversationCreator | None = None,
 ) -> UniMessage:
     """初始化人设并将结果投影为跨平台输出。"""
     try:
-        result = await runtime.initialize_persona(
-            key,
-            persona_name,
-            model=model,
-            prefer_paid_account=prefer_paid_account,
-            continue_existing=continue_existing,
-        )
+        options = {
+            "model": model,
+            "prefer_paid_account": prefer_paid_account,
+            "continue_existing": continue_existing,
+        }
+        if creator is not None:
+            options["creator"] = creator
+        result = await runtime.initialize_persona(key, persona_name, **options)
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:
@@ -224,10 +228,14 @@ async def restart_persona_reply(
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
     rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
+    creator: ConversationCreator | None = None,
 ) -> UniMessage:
     """重置当前人设并创建新的逻辑会话。"""
     try:
-        result = await runtime.restart_persona(key)
+        if creator is None:
+            result = await runtime.restart_persona(key)
+        else:
+            result = await runtime.restart_persona(key, creator=creator)
     except ValueError as error:
         return UniMessage.text(str(error))
     except Exception:

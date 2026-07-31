@@ -52,7 +52,7 @@ from .command_compat import (
 )
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
-from .conversation import ConversationKey, ConversationStore
+from .conversation import ConversationCreator, ConversationKey, ConversationStore
 from .runtime_handlers import create_markdown_renderer, chat_reply, persona_reply, restart_persona_reply, rewind_reply
 from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
@@ -671,6 +671,7 @@ if isinstance(config_gpt.gpt_session, list):
         if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
         key = ConversationKey.from_event(event)
+        creator = ConversationCreator.from_event(event)
         model, prefer_paid_account = await select_model(event)
         image_upload_enabled = config_gpt.gpt_free_image or prefer_paid_account
         message_text = extract_chat_message(
@@ -702,6 +703,7 @@ if isinstance(config_gpt.gpt_session, list):
             is_shared=_is_group_context(event),
             model=model,
             prefer_paid_account=prefer_paid_account,
+            creator=creator,
         )
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
@@ -736,6 +738,7 @@ if isinstance(config_gpt.gpt_session, list):
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
             rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
+            creator=creator,
         ))
 
     help_command = legacy_command(
@@ -805,6 +808,7 @@ if isinstance(config_gpt.gpt_session, list):
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
             rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
+            creator=ConversationCreator.from_event(event),
         ))
     
             
@@ -895,6 +899,7 @@ if isinstance(config_gpt.gpt_session, list):
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
             rate_limit_message=config_gpt.gpt_rate_limit_message,
             failure_diagnostics=failure_diagnostics,
+            creator=ConversationCreator.from_event(event),
         ))
 
     personality_list = legacy_command("人设列表",aliases={"预设列表","人格列表"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -1033,7 +1038,7 @@ if isinstance(config_gpt.gpt_session, list):
         sessions = await chat_runtime.list_sessions(key)
         text = await list_sessions(chat_runtime, key)
         await _finish_management_table(
-            matcher, event, title="逻辑会话", pages=session_table_pages(sessions, active.logical_id), fallback=text,
+            matcher, event, title="历史会话", pages=session_table_pages(sessions, active.logical_id), fallback=text,
         )
 
     change_conversation = legacy_command("change_conversation",aliases={"切换会话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
@@ -1066,15 +1071,18 @@ if isinstance(config_gpt.gpt_session, list):
         if agent_safety_policy.refusal_for(value):
             await matcher.finish(config_gpt.gpt_agent_sensitive_task_message)
         key = ConversationKey.from_event(event)
+        creator = ConversationCreator.from_event(event)
         model, prefer_paid_account = await select_model(event)
         auto_result = await auto_persona.ensure_initialized(
             key,
             is_shared=_is_group_context(event),
             model=model,
             prefer_paid_account=prefer_paid_account,
+            creator=creator,
         )
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
+        await chat_runtime.ensure_session_creator(key, creator)
         runtime = agent_runtime if is_superuser else member_agent_runtime
         mentioned_user_ids, mention_context = _agent_mention_context(
             original_message,

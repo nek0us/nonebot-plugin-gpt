@@ -8,6 +8,11 @@ from html import escape
 from typing import Any
 
 from .image_fallback import render_table_page, use_local_font_renderer
+from .session_commands import (
+    session_creator_display,
+    session_detail_display,
+    session_time_display,
+)
 
 
 _STYLE = """
@@ -50,6 +55,7 @@ def build_table_pages(
     *,
     subtitle: str = "",
     rows_per_page: int = 18,
+    column_widths: Sequence[str] | None = None,
 ) -> tuple[TablePage, ...]:
     """将结构化行分页为可换行、可阅读的 HTML 表格。"""
     normalized_rows = [tuple(_as_text(value) for value in row) for row in rows]
@@ -58,6 +64,12 @@ def build_table_pages(
         pages = [[]]
     total = len(pages)
     header_cells = "".join(f"<th>{escape(_as_text(column))}</th>" for column in columns)
+    colgroup = ""
+    if column_widths and len(column_widths) == len(columns):
+        colgroup = "<colgroup>" + "".join(
+            f'<col style="width:{escape(str(width), quote=True)}">'
+            for width in column_widths
+        ) + "</colgroup>"
     result: list[TablePage] = []
     for index, page_rows in enumerate(pages, start=1):
         if page_rows:
@@ -65,7 +77,10 @@ def build_table_pages(
                 "<tr>" + "".join(f"<td>{escape(cell)}</td>" for cell in row) + "</tr>"
                 for row in page_rows
             )
-            table = f"<table><thead><tr>{header_cells}</tr></thead><tbody>{body}</tbody></table>"
+            table = (
+                f"<table>{colgroup}<thead><tr>{header_cells}</tr></thead>"
+                f"<tbody>{body}</tbody></table>"
+            )
         else:
             table = '<div class="empty">暂无可展示内容。</div>'
         page_subtitle = subtitle or "结构化管理信息"
@@ -152,12 +167,18 @@ def session_table_pages(sessions: Iterable[Any], active_logical_id: str) -> tupl
         rows.append((
             index,
             "当前" if getattr(state, "logical_id", "") == active_logical_id else "可切换",
-            getattr(state, "label", "") or getattr(state, "persona_name", "") or "未命名会话",
-            getattr(state, "persona_name", "") or "无",
-            getattr(state, "model", "") or "auto",
-            len(getattr(state, "checkpoints", [])),
+            session_detail_display(state),
+            session_creator_display(state),
+            session_time_display(state),
         ))
-    return build_table_pages("逻辑会话", ("序号", "状态", "名称", "人设", "模型", "检查点"), rows, subtitle="按最近使用排序；用“切换会话 序号”切换")
+    return build_table_pages(
+        "历史会话",
+        ("序号", "状态", "会话详情", "创建者", "时间"),
+        rows,
+        subtitle="按最近使用排序；序号保持当前列表顺序，可用“切换会话 序号”切换",
+        rows_per_page=10,
+        column_widths=("7%", "10%", "39%", "19%", "25%"),
+    )
 
 
 def _reading_style(font_scale: float) -> str:

@@ -9,7 +9,12 @@ from ChatGPTWeb import AgentAnchorPolicy, AgentSafetyPolicy, AgentService, Agent
 from ChatGPTWeb.api import ChatStreamEvent
 from ChatGPTWeb.config import IOFile
 
-from .conversation import ConversationKey, ConversationState, ConversationStore
+from .conversation import (
+    ConversationCreator,
+    ConversationKey,
+    ConversationState,
+    ConversationStore,
+)
 from .context_policy import (
     ContextPolicy,
     build_reinforced_prompt,
@@ -18,6 +23,7 @@ from .context_policy import (
     decide_context_maintenance,
 )
 from .history_views import HistoryProjection, project_history
+from .event_scope import strip_group_speaker_prompt
 
 
 StreamObserver = Callable[[ChatStreamEvent], None | Awaitable[None]]
@@ -59,6 +65,7 @@ class ChatRuntime:
         web_search: bool = False,
         deep_research: bool = False,
         on_event: StreamObserver | None = None,
+        creator: ConversationCreator | None = None,
     ) -> ChatResult:
         async with self._conversation_lock(key):
             return await self._chat_locked(
@@ -70,6 +77,7 @@ class ChatRuntime:
                 web_search=web_search,
                 deep_research=deep_research,
                 on_event=on_event,
+                creator=creator,
             )
 
     async def agent_turn(
@@ -154,8 +162,10 @@ class ChatRuntime:
         web_search: bool = False,
         deep_research: bool = False,
         on_event: StreamObserver | None = None,
+        creator: ConversationCreator | None = None,
     ) -> ChatResult:
         state = await self._conversations.get(key)
+        self._apply_creator(state, creator)
         if not state.label:
             state.label = self._build_session_label(prompt)
         use_paid_account = (
@@ -190,14 +200,59 @@ class ChatRuntime:
                 "usage": result.usage,
                 "prefer_paid_account": use_paid_account,
             })
+            self._apply_upstream_metadata(state, result)
             await self._conversations.save(key, state)
         return result
 
     @staticmethod
     def _build_session_label(prompt: str) -> str:
         """从首条用户消息生成简短的默认逻辑会话名称。"""
-        normalized = " ".join(prompt.split())
+        normalized = " ".join(strip_group_speaker_prompt(prompt).split())
         return normalized[:28] or "未命名会话"
+
+    @staticmethod
+    def _apply_creator(
+        state: ConversationState,
+        creator: ConversationCreator | None,
+    ) -> bool:
+        if creator is None:
+            return False
+        # Legacy sessions predate creator snapshots. Once such a session has
+        # been persisted, the next speaker is not evidence of who created it.
+        if state.logical_id and not state.creator_id:
+            return False
+        changed = False
+        if not state.creator_id:
+            state.creator_id = creator.user_id
+            changed = True
+        if not state.creator_name:
+            state.creator_name = creator.name
+            changed = bool(creator.name) or changed
+        if not state.creator_identity:
+            state.creator_identity = creator.identity
+            changed = bool(creator.identity) or changed
+        if not state.creator_scope:
+            state.creator_scope = creator.scope
+            changed = bool(creator.scope) or changed
+        return changed
+
+    @staticmethod
+    def _apply_upstream_metadata(
+        state: ConversationState,
+        result: ChatResult,
+    ) -> None:
+        title = str(result.metadata.get("conversation_title") or "").strip()
+        if title and not state.original_title:
+            state.original_title = title[:240]
+        created_at = result.metadata.get("conversation_created_at")
+        if (
+            created_at not in (None, "")
+            and "upstream_created_at" not in state.metadata
+        ):
+            state.metadata["upstream_created_at"] = created_at
+        updated_at = result.metadata.get("conversation_updated_at")
+        if updated_at not in (None, ""):
+            state.metadata["upstream_updated_at"] = updated_at
 
     async def _chat_with_context_maintenance(
         self,
@@ -260,9 +315,15 @@ class ChatRuntime:
             )
         return result
 
-    async def create_session(self, key: ConversationKey, label: str = "") -> ConversationState:
+    async def create_session(
+        self,
+        key: ConversationKey,
+        label: str = "",
+        *,
+        creator: ConversationCreator | None = None,
+    ) -> ConversationState:
         """创建并切换到一条用户可见的逻辑会话。"""
-        return await self._conversations.create(key, label)
+        return await self._conversations.create(key, label, creator=creator)
 
     async def initialize_persona(
         self,
@@ -272,12 +333,18 @@ class ChatRuntime:
         model: str = "auto",
         prefer_paid_account: bool = False,
         continue_existing: bool = False,
+        creator: ConversationCreator | None = None,
     ) -> ChatResult:
         """初始化人设，并保存自动压缩所需的人设提示词快照。"""
         persona_prompt = await self._service.get_persona_prompt(persona_name)
         if not persona_prompt:
             raise ValueError("未找到指定人设")
-        state = await self._conversations.get(key) if continue_existing else await self.create_session(key, persona_name)
+        state = (
+            await self._conversations.get(key)
+            if continue_existing
+            else await self.create_session(key, persona_name, creator=creator)
+        )
+        self._apply_creator(state, creator)
         result = await self._service.send(ChatRequest(
             prompt=persona_name,
             conversation_id=state.conversation_id if continue_existing else "",
@@ -299,8 +366,20 @@ class ChatRuntime:
                 "usage": result.usage,
                 "prefer_paid_account": prefer_paid_account,
             })
+            self._apply_upstream_metadata(state, result)
             await self._conversations.save(key, state)
         return result
+
+    async def ensure_session_creator(
+        self,
+        key: ConversationKey,
+        creator: ConversationCreator,
+    ) -> ConversationState:
+        """Record a new session creator without guessing for legacy sessions."""
+        state = await self._conversations.get(key)
+        if self._apply_creator(state, creator):
+            return await self._conversations.save(key, state)
+        return state
 
     async def list_sessions(self, key: ConversationKey) -> list[ConversationState]:
         """列出当前用户在本会话范围内可切换的逻辑会话。"""
@@ -361,7 +440,12 @@ class ChatRuntime:
         """切换逻辑会话，而不是切到自动压缩产生的检查点。"""
         return await self._conversations.switch(key, logical_id)
 
-    async def restart_persona(self, key: ConversationKey) -> ChatResult:
+    async def restart_persona(
+        self,
+        key: ConversationKey,
+        *,
+        creator: ConversationCreator | None = None,
+    ) -> ChatResult:
         """以当前逻辑会话的人设开始一段新的逻辑会话。"""
         state = await self._conversations.get(key)
         if not state.persona_name:
@@ -372,6 +456,7 @@ class ChatRuntime:
             model=state.model,
             prefer_paid_account=bool(state.metadata.get("prefer_paid_account", False)),
             continue_existing=False,
+            creator=creator,
         )
 
     async def rewind(self, key: ConversationKey, reference: str) -> ChatResult:

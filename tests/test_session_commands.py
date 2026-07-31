@@ -19,14 +19,24 @@ class SessionCommandTests(unittest.IsolatedAsyncioTestCase):
         state = conversation.ConversationState(
             conversation_id="physical-id-must-not-appear",
             label="港口剧情",
+            original_title="船长与港口",
+            creator_id="alice",
+            creator_name="爱丽丝",
             persona_name="船长",
             model="gpt-5",
+            created_at="2026-07-19T06:37:14+00:00",
+            updated_at="2026-07-20T07:38:15+00:00",
+            metadata={"upstream_created_at": 1_700_000_000},
         )
         state.logical_id = "logical-id"
 
         text = session_commands.format_sessions([state], state.logical_id)
 
         self.assertIn("港口剧情", text)
+        self.assertIn("船长与港口", text)
+        self.assertIn("爱丽丝（alice）", text)
+        self.assertIn("2026-07-19 14:37", text)
+        self.assertIn("网页创建", text)
         self.assertIn("船长", text)
         self.assertNotIn("physical-id-must-not-appear", text)
 

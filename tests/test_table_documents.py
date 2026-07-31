@@ -76,3 +76,27 @@ class TableDocumentTests(unittest.TestCase):
         ))
 
         self.assertEqual(pages[0].rows[0][0], "new")
+
+    def test_session_table_shows_creator_titles_and_times(self):
+        state = type("State", (), {
+            "logical_id": "logical-1",
+            "label": "本地首句",
+            "original_title": "网页原始标题",
+            "creator_id": "1130131059",
+            "creator_name": "nekous",
+            "persona_name": "猪咪",
+            "model": "gpt-5",
+            "checkpoints": [object()],
+            "created_at": "2026-07-19T06:37:14+00:00",
+            "updated_at": "2026-07-20T07:38:15+00:00",
+            "metadata": {"upstream_created_at": 1_700_000_000},
+        })()
+
+        pages = tables.session_table_pages([state], "logical-1")
+
+        self.assertEqual(pages[0].columns, ("序号", "状态", "会话详情", "创建者", "时间"))
+        self.assertIn("网页原始标题", pages[0].rows[0][2])
+        self.assertIn("本地首句", pages[0].rows[0][2])
+        self.assertEqual(pages[0].rows[0][3], "nekous（1130131059）")
+        self.assertIn("2026-07-19 14:37", pages[0].rows[0][4])
+        self.assertIn("<colgroup>", pages[0].html)
