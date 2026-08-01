@@ -86,6 +86,35 @@ class SequentialService(FakeService):
         )
 
 
+class PersonaThenChatService(FakeService):
+    def __init__(self):
+        super().__init__()
+        self.persona_request_started = asyncio.Event()
+        self.release_persona_request = asyncio.Event()
+
+    async def send(self, request):
+        self.requests.append(request)
+        self.persona_request_started.set()
+        await self.release_persona_request.wait()
+        return ChatResult(
+            ok=True,
+            text="persona initialized",
+            conversation_id="conversation-persona",
+            message_id="message-persona",
+            used_model="gpt-5",
+        )
+
+    async def stream_to_callback(self, request, _callback):
+        self.requests.append(request)
+        return ChatResult(
+            ok=True,
+            text="group reply",
+            conversation_id="conversation-persona",
+            message_id="message-chat",
+            used_model="gpt-5",
+        )
+
+
 class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_uses_an_isolated_control_conversation(self):
         class AgentService(FakeService):
@@ -158,6 +187,35 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(service.requests), 2)
             self.assertEqual(service.requests[1].conversation_id, "shared-conversation")
             self.assertEqual(service.requests[1].parent_message_id, "message-1")
+
+    async def test_chat_waits_for_concurrent_persona_initialization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = PersonaThenChatService()
+            runtime = chat_runtime.ChatRuntime(
+                service,
+                store,
+                context_policy.ContextPolicy(mode="off"),
+            )
+            key = conversation.ConversationKey("onebot.v11:group:100", "")
+
+            initializing = asyncio.create_task(runtime.initialize_persona(key, "船长"))
+            await service.persona_request_started.wait()
+            chat = asyncio.create_task(runtime.chat(key, "群友的第一句话"))
+            await asyncio.sleep(0)
+            self.assertEqual(len(service.requests), 1)
+
+            service.release_persona_request.set()
+            initialized, reply = await asyncio.gather(initializing, chat)
+            state = await store.get(key)
+
+        self.assertTrue(initialized.ok)
+        self.assertTrue(reply.ok)
+        self.assertEqual(len(service.requests), 2)
+        self.assertEqual(service.requests[1].conversation_id, "conversation-persona")
+        self.assertEqual(service.requests[1].parent_message_id, "message-persona")
+        self.assertEqual(state.conversation_id, "conversation-persona")
+        self.assertEqual(state.parent_message_id, "message-chat")
 
     async def test_bot_requests_use_interactive_runtime_priority(self):
         with tempfile.TemporaryDirectory() as directory:

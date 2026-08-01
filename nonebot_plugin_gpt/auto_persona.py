@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from ChatGPTWeb import ChatResult
 
 from .chat_runtime import ChatRuntime
@@ -27,7 +25,6 @@ class AutoPersonaInitializer:
         self._friend_enabled = friend_enabled
         self._group_persona_name = group_persona_name.strip()
         self._friend_persona_name = friend_persona_name.strip()
-        self._locks: dict[str, asyncio.Lock] = {}
 
     def persona_for_scope(self, *, is_shared: bool) -> str:
         if is_shared and self._group_enabled:
@@ -49,24 +46,15 @@ class AutoPersonaInitializer:
         persona_name = self.persona_for_scope(is_shared=is_shared)
         if not persona_name:
             return None
-        lock = self._locks.setdefault(key.value, asyncio.Lock())
         try:
-            async with lock:
-                state = await self._runtime.get_active_session(key)
-                if state.conversation_id or state.persona_name:
-                    return None
-                try:
-                    return await self._runtime.initialize_persona(
-                        key,
-                        persona_name,
-                        model=model,
-                        prefer_paid_account=prefer_paid_account,
-                        creator=creator,
-                    )
-                except ValueError:
-                    # 配置的人设尚未创建或已删除时，直接让用户首条消息创建无
-                    # 人设会话；不能用默认人设悄悄改变用户的对话语境。
-                    return None
-        finally:
-            if not lock.locked():
-                self._locks.pop(key.value, None)
+            return await self._runtime.ensure_persona_initialized(
+                key,
+                persona_name,
+                model=model,
+                prefer_paid_account=prefer_paid_account,
+                creator=creator,
+            )
+        except ValueError:
+            # 配置的人设尚未创建或已删除时，直接让用户首条消息创建无
+            # 人设会话；不能用默认人设悄悄改变用户的对话语境。
+            return None

@@ -27,10 +27,9 @@ class _Runtime:
         self.state = state or _State()
         self.calls = []
 
-    async def get_active_session(self, _key):
-        return self.state
-
-    async def initialize_persona(self, key, persona_name, **kwargs):
+    async def ensure_persona_initialized(self, key, persona_name, **kwargs):
+        if self.state.conversation_id or self.state.persona_name:
+            return None
         self.calls.append((key, persona_name, kwargs))
         self.state = _State(conversation_id="conversation", persona_name=persona_name)
         return ChatResult(ok=True, text="", conversation_id="conversation", message_id="message")
@@ -76,7 +75,7 @@ class AutoPersonaTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_missing_configured_persona_leaves_first_message_unpersonaed(self):
         class MissingPersonaRuntime(_Runtime):
-            async def initialize_persona(self, *args, **kwargs):
+            async def ensure_persona_initialized(self, *args, **kwargs):
                 raise ValueError("未找到指定人设")
 
         runtime = MissingPersonaRuntime()

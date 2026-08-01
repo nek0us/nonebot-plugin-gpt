@@ -336,6 +336,54 @@ class ChatRuntime:
         creator: ConversationCreator | None = None,
     ) -> ChatResult:
         """初始化人设，并保存自动压缩所需的人设提示词快照。"""
+        async with self._conversation_lock(key):
+            return await self._initialize_persona_locked(
+                key,
+                persona_name,
+                model=model,
+                prefer_paid_account=prefer_paid_account,
+                continue_existing=continue_existing,
+                creator=creator,
+            )
+
+    async def ensure_persona_initialized(
+        self,
+        key: ConversationKey,
+        persona_name: str,
+        *,
+        model: str = "auto",
+        prefer_paid_account: bool = False,
+        creator: ConversationCreator | None = None,
+    ) -> ChatResult | None:
+        """Initialize a default persona only when this scope has no session yet.
+
+        Manual initialization and normal chat use the same scope lock.  Checking
+        session state under that lock keeps a concurrent first group message from
+        creating a second physical conversation while initialization is in flight.
+        """
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            if state.conversation_id or state.persona_name:
+                return None
+            return await self._initialize_persona_locked(
+                key,
+                persona_name,
+                model=model,
+                prefer_paid_account=prefer_paid_account,
+                creator=creator,
+            )
+
+    async def _initialize_persona_locked(
+        self,
+        key: ConversationKey,
+        persona_name: str,
+        *,
+        model: str = "auto",
+        prefer_paid_account: bool = False,
+        continue_existing: bool = False,
+        creator: ConversationCreator | None = None,
+    ) -> ChatResult:
+        """Initialize a persona while the caller owns the conversation lock."""
         persona_prompt = await self._service.get_persona_prompt(persona_name)
         if not persona_prompt:
             raise ValueError("未找到指定人设")
