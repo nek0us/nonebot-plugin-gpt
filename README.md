@@ -104,6 +104,12 @@ _✨ NoneBot GPT ✨_
 | gpt_session | 是 | 无 | JSON List[Dict] | ChatGPT 账号列表；`email`、`password` 必填，`mode` 可为 `openai`（默认）、`microsoft`、`google`。请使用 JSON。 |
 | gpt_proxy | 否 | 无 | str | 提供给核心浏览器运行时的代理地址，例如 `http://127.0.0.1:7890`；用于访问 ChatGPT，不影响 NoneBot 的其他网络请求。 |
 | gpt_group_chat | 否 | true | bool | 群聊/频道向模型附加固定 `[群聊发言者]` 标签，包含稳定身份与可用显示名，帮助模型区分成员。 |
+| gpt_group_context_enabled | 否 | false | bool | 是否在普通群聊/频道聊天被呼唤时，将机器人上次成功回复后的近期消息作为背景交给模型；不影响私聊、插件命令和智能体任务。 |
+| gpt_group_context_max_messages | 否 | 20 | int | 每次最多附带的近期群聊消息数，取值范围为 1～100。 |
+| gpt_group_context_max_age_seconds | 否 | 600 | int | 近期群聊消息的最大时间跨度，单位为秒；超过时间窗的消息不会附带。 |
+| gpt_group_context_max_chars | 否 | 6000 | int | 近期群聊文字的总字符预算；达到上限时优先保留较新的内容。 |
+| gpt_group_context_include_images | 否 | false | bool | 是否同时传递近期群聊消息中的图片；需要当前账户具备图片上传能力，并继续受全局附件限制。 |
+| gpt_group_context_max_images | 否 | 4 | int | 每次最多附带的历史群聊图片数；当前触发消息的附件优先。 |
 | gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
 | gpt_chat_start_in_msg | 否 | false | bool | 是否把 `gpt_chat_start` 路由前缀原样交给模型；false 时会移除纯路由前缀，但 `NICKNAME` 的自然称呼会保留原句主语 |
 | gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
@@ -211,6 +217,15 @@ gpt_proxy='http://127.0.0.1:8080'
 
 gpt_group_chat=true
 
+# 可选：把机器人上次成功回复后、当前呼唤前的近期群聊作为普通聊天背景
+gpt_group_context_enabled=false
+gpt_group_context_max_messages=20
+gpt_group_context_max_age_seconds=600
+gpt_group_context_max_chars=6000
+# 历史图片默认不传；开启后仍需当前账户具备图片上传能力
+gpt_group_context_include_images=false
+gpt_group_context_max_images=4
+
 gpt_chat_start=[]
 
 gpt_chat_start_in_msg=false
@@ -251,7 +266,7 @@ gpt_control_host=127.0.0.1
 gpt_control_port=8765
 gpt_control_api_key='replace-with-a-long-random-secret'
 
-# 开启免费账户图片识别（大概每天5额度）
+# 允许免费账户上传图片；额度较低并受上游动态限制
 gpt_free_image=false
 
 # 上传文件、音频和视频给当前 ChatGPT 会话；默认关闭以避免自动下载大文件
@@ -415,6 +430,9 @@ SUPERUSERS=["admin user id"]
 ### 群聊、上下文与图片输出
 
 - `gpt_group_chat=true` 时，每一条群聊输入都会在发送给模型前附加固定的 `[群聊发言者]` 标签，包含稳定身份、适配器可用的显示名与“当前发言者”标记。它只辅助模型区分成员，不会强制替换模型回复。
+- `gpt_group_context_enabled=true` 时，插件会在内存中缓存群聊/频道消息，并在普通聊天被呼唤时，将机器人上一次成功回复之后、当前消息之前的记录作为 `[最近群聊上下文]` 交给模型。私聊、管理命令和智能体任务不使用这份背景。
+- 近期上下文同时受 `gpt_group_context_max_messages`、`gpt_group_context_max_age_seconds` 和 `gpt_group_context_max_chars` 限制：高频群最多取满消息数，低频群只取时间窗内的实际消息，不使用难以预测的频率算法。回复成功后会推进游标，已经交给模型的消息不会重复注入；缓存不落盘，重启后清空，内部上下文也不会显示在“历史聊天”中。
+- `gpt_group_context_include_images=true` 时，近期记录里的图片会按消息位置和附件名传递。当前触发消息的附件优先，历史图片最多 `gpt_group_context_max_images` 张，并继续受 `gpt_attachment_max_count`、`gpt_attachment_max_total_size` 和账户图片上传能力限制；下载或上传失败只会标为不可读取，不会中断本轮聊天。
 - `gpt_history_anonymize=false` 时，历史聊天会将上述内部标签投影为“用户 · 昵称”；默认还会显示稳定 ID 与保存时间，可分别通过 `gpt_history_show_identity`、`gpt_history_show_timestamp` 关闭。开启匿名化后，昵称与 ID 都不会显示。
 - 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
 - `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。
