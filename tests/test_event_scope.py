@@ -86,6 +86,25 @@ class EventScopeTests(unittest.TestCase):
 
         self.assertEqual(event_scope.strip_group_speaker_prompt(message), "你好")
 
+    def test_recent_group_context_is_removed_before_history_projection(self):
+        message = (
+            f"{event_scope.RECENT_GROUP_CONTEXT_TAG}\n"
+            "ambient context\n"
+            f"{event_scope.RECENT_GROUP_CONTEXT_END_TAG}\n"
+            f'{event_scope.GROUP_SPEAKER_TAG} '
+            '{"id":"onebot.v11:user:42","name":"Alice","current":true}\n'
+            "current message"
+        )
+
+        identity, body = event_scope.project_group_speaker_prompt(message)
+
+        self.assertEqual(identity, "用户 · Alice")
+        self.assertEqual(body, "current message")
+        self.assertEqual(
+            event_scope.group_speaker_identity(message),
+            "onebot.v11:user:42",
+        )
+
     def test_extract_group_speaker_tag_finds_it_inside_an_internal_event(self):
         message = (
             "【已完成的受控任务】\n用户原任务：检查状态\n"

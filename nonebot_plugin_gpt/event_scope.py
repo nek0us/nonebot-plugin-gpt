@@ -10,6 +10,17 @@ from nonebot.adapters import Event
 
 
 GROUP_SPEAKER_TAG = "[群聊发言者]"
+RECENT_GROUP_CONTEXT_TAG = "[最近群聊上下文]"
+RECENT_GROUP_CONTEXT_END_TAG = "[最近群聊上下文结束]"
+
+
+def strip_recent_group_context_prompt(message: str) -> str:
+    """Remove ambient group context before projecting stored user messages."""
+    value = str(message or "")
+    if not value.startswith(RECENT_GROUP_CONTEXT_TAG):
+        return value
+    _context, separator, remainder = value.partition(RECENT_GROUP_CONTEXT_END_TAG)
+    return remainder.lstrip("\r\n") if separator else value
 
 
 @dataclass(frozen=True)
@@ -135,6 +146,7 @@ def format_group_speaker_prompt(event: Event, message: str) -> str:
 
 def project_group_speaker_prompt(message: str, *, anonymize: bool = False) -> tuple[str, str]:
     """将内部群聊发言者标签投影为历史视图可用的身份与正文。"""
+    message = strip_recent_group_context_prompt(message)
     if message.startswith(GROUP_SPEAKER_TAG):
         header, separator, body = message.partition("\n")
         try:
@@ -156,6 +168,7 @@ def project_group_speaker_prompt(message: str, *, anonymize: bool = False) -> tu
 
 def group_speaker_identity(message: str) -> str:
     """提取历史投影可选展示的稳定发言者 ID，不把内部标签原样暴露给用户。"""
+    message = strip_recent_group_context_prompt(message)
     if not message.startswith(GROUP_SPEAKER_TAG):
         return ""
     header, separator, _ = message.partition("\n")
@@ -184,6 +197,7 @@ def extract_group_speaker_tag(message: str) -> str:
 
 def strip_group_speaker_prompt(message: str) -> str:
     """从上游历史记录中移除插件写入的群聊发言者标签。"""
+    message = strip_recent_group_context_prompt(message)
     if message.startswith(GROUP_SPEAKER_TAG):
         header, separator, body = message.partition("\n")
         metadata = header.removeprefix(GROUP_SPEAKER_TAG).strip()

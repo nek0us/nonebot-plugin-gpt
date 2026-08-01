@@ -3,7 +3,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from nonebot_plugin_alconna.uniseg import SerializeFailed, UniMessage
 
@@ -39,6 +39,39 @@ class MessageOutputTests(unittest.IsolatedAsyncioTestCase):
 
         message.send.assert_awaited_once_with(event)
         matcher.finish.assert_awaited_once_with()
+
+    async def test_after_send_runs_only_after_successful_delivery(self):
+        matcher = _Matcher()
+        event = object()
+        message = UniMessage.text("test")
+        order = []
+        message.send = AsyncMock(side_effect=lambda *_args, **_kwargs: order.append("send"))
+        matcher.finish.side_effect = lambda *_args, **_kwargs: order.append("finish")
+
+        await finish_message(
+            matcher,
+            event,
+            message,
+            after_send=lambda: order.append("after"),
+        )
+
+        self.assertEqual(order, ["send", "after", "finish"])
+
+    async def test_after_send_does_not_run_when_delivery_fails(self):
+        matcher = _Matcher()
+        message = UniMessage.text("test")
+        message.send = AsyncMock(side_effect=RuntimeError("send failed"))
+        callback = Mock()
+
+        with self.assertRaises(RuntimeError):
+            await finish_message(
+                matcher,
+                object(),
+                message,
+                after_send=callback,
+            )
+
+        callback.assert_not_called()
 
     async def test_plain_text_is_sent_by_matcher(self):
         matcher = _Matcher()

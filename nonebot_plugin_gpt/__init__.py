@@ -98,6 +98,12 @@ from .personality_service import ensure_default_persona
 from .persona_migration import migrate_legacy_personas
 from .remote_service import RemoteChatService
 from .event_scope import format_group_speaker_prompt, resolve_event_scope
+from .group_context import (
+    GroupContextBuffer,
+    GroupContextSelection,
+    format_recent_group_context,
+    prepend_recent_group_context,
+)
 
 
 cdk_registry = CdkRegistry(
@@ -620,6 +626,24 @@ if isinstance(config_gpt.gpt_session, list):
         group_persona_name=config_gpt.gpt_init_group_persona_name,
         friend_persona_name=config_gpt.gpt_init_friend_persona_name,
     )
+    group_context_buffer = (
+        GroupContextBuffer(
+            max_entries_per_scope=max(64, config_gpt.gpt_group_context_max_messages * 4),
+            retention_seconds=max(3600, config_gpt.gpt_group_context_max_age_seconds * 2),
+            store_images=config_gpt.gpt_group_context_include_images,
+            max_cached_image_bytes=config_gpt.gpt_attachment_max_total_size * 2,
+        )
+        if config_gpt.gpt_group_context_enabled
+        else None
+    )
+    if group_context_buffer is not None:
+        logger.success(
+            "已开启共享聊天最近语境：最多 {} 条、{} 秒、{} 字符，历史图片={}",
+            config_gpt.gpt_group_context_max_messages,
+            config_gpt.gpt_group_context_max_age_seconds,
+            config_gpt.gpt_group_context_max_chars,
+            config_gpt.gpt_group_context_include_images,
+        )
     
     driver = get_driver()
     @driver.on_startup
@@ -644,6 +668,8 @@ if isinstance(config_gpt.gpt_session, list):
     @driver.on_shutdown
     async def close_chatbot():
         await agent_scheduler.close()
+        if group_context_buffer is not None:
+            group_context_buffer.clear()
         if remote_core:
             await chatbot.close()
         else:
@@ -661,6 +687,91 @@ if isinstance(config_gpt.gpt_session, list):
         )
         return mode
 
+    async def extract_group_context_images(
+        selection: GroupContextSelection,
+        current_files: list,
+        *,
+        image_upload_enabled: bool,
+    ) -> dict[tuple[int, int], str]:
+        """Use only attachment capacity left after the current user message."""
+        if (
+            not config_gpt.gpt_group_context_include_images
+            or not image_upload_enabled
+            or config_gpt.gpt_group_context_max_images <= 0
+        ):
+            return {}
+        remaining_count = min(
+            config_gpt.gpt_group_context_max_images,
+            max(0, config_gpt.gpt_attachment_max_count - len(current_files)),
+        )
+        remaining_size = max(
+            0,
+            config_gpt.gpt_attachment_max_total_size
+            - sum(len(item.content) for item in current_files),
+        )
+        if not remaining_count or not remaining_size:
+            return {}
+        attachment_names: dict[tuple[int, int], str] = {}
+        uploaded = 0
+        for order, entry in enumerate(selection.entries, start=1):
+            for image in entry.images:
+                if image.source is None or uploaded >= remaining_count or remaining_size <= 0:
+                    continue
+                extracted = await extract_upload_files(
+                    UniMessage([image.source]),
+                    proxy=config_gpt.gpt_proxy,
+                    upload_images=True,
+                    upload_files=False,
+                    max_file_size=min(config_gpt.gpt_file_max_size, remaining_size),
+                    max_total_size=remaining_size,
+                    max_count=1,
+                    allowed_local_roots=config_gpt.gpt_attachment_local_roots,
+                    allow_private_urls=config_gpt.gpt_attachment_allow_private_urls,
+                    allowed_hosts=config_gpt.gpt_attachment_allowed_hosts,
+                    download_timeout=config_gpt.gpt_attachment_download_timeout,
+                    max_redirects=config_gpt.gpt_attachment_max_redirects,
+                )
+                if not extracted:
+                    continue
+                file = extracted[0]
+                suffix = Path(file.name).suffix.lower()
+                if not suffix or len(suffix) > 10 or not suffix[1:].isalnum():
+                    suffix = ".png"
+                file.name = f"group-context-{order}-image-{image.index}{suffix}"
+                current_files.append(file)
+                attachment_names[(entry.sequence, image.index)] = file.name
+                uploaded += 1
+                remaining_size -= len(file.content)
+        if any(entry.images for entry in selection.entries):
+            logger.info(
+                "共享聊天语境图片处理完成：记录 {} 条，成功附加 {} 张，剩余附件位 {}",
+                len(selection.entries),
+                uploaded,
+                max(0, config_gpt.gpt_attachment_max_count - len(current_files)),
+            )
+        return attachment_names
+
+    if group_context_buffer is not None:
+        group_context_capture = on_message(priority=0, block=False)
+
+        @group_context_capture.handle()
+        async def capture_group_context(
+            event: Event,
+            original_message: OriginalUniMsg,
+        ) -> None:
+            if not _is_group_context(event):
+                return
+            message_text = extract_chat_message(
+                original_message,
+                self_id=str(getattr(event, "self_id", "")),
+            )
+            if is_registered_command_text(
+                message_text,
+                [*getattr(config_nb, "nickname", []), *config_gpt.gpt_chat_start],
+            ):
+                return
+            group_context_buffer.capture(event, original_message)
+
     chat = on_message(priority=config_gpt.gpt_chat_priority,rule=gpt_rule)
     @chat.handle()
     async def chat_handle(
@@ -670,6 +781,19 @@ if isinstance(config_gpt.gpt_session, list):
     ):
         if _is_reply_event(event) and not config_gpt.gpt_replay_to_replay:
             await matcher.finish()
+        group_context_selection = (
+            group_context_buffer.select_before(
+                event,
+                original_message,
+                max_messages=config_gpt.gpt_group_context_max_messages,
+                max_age_seconds=config_gpt.gpt_group_context_max_age_seconds,
+                max_chars=config_gpt.gpt_group_context_max_chars,
+            )
+            if group_context_buffer is not None and _is_group_context(event)
+            else None
+        )
+        if group_context_buffer is not None and group_context_selection is not None:
+            group_context_buffer.begin_chat(group_context_selection)
         key = ConversationKey.from_event(event)
         creator = ConversationCreator.from_event(event)
         model, prefer_paid_account = await select_model(event)
@@ -717,6 +841,8 @@ if isinstance(config_gpt.gpt_session, list):
                 prefer_paid_account,
                 config_gpt.gpt_file_upload,
             )
+            if group_context_buffer is not None and group_context_selection is not None:
+                group_context_buffer.mark_consumed(group_context_selection)
             await finish_message(
                 matcher,
                 event,
@@ -735,6 +861,8 @@ if isinstance(config_gpt.gpt_session, list):
             [*getattr(config_nb, "nickname", []), *config_gpt.gpt_chat_start],
         ):
             logger.debug("已跳过被 Alconna 命令接管的普通聊天消息")
+            if group_context_buffer is not None and group_context_selection is not None:
+                group_context_buffer.mark_consumed(group_context_selection)
             await matcher.finish()
         prompt = build_chat_prompt(
             message_text,
@@ -746,8 +874,24 @@ if isinstance(config_gpt.gpt_session, list):
             direct_address_context_enabled=config_gpt.gpt_direct_address_context_enabled,
             direct_address_context_prompt=config_gpt.gpt_direct_address_context_prompt,
         )
-        if config_gpt.gpt_group_chat and _is_group_context(event):
+        if (
+            config_gpt.gpt_group_chat or config_gpt.gpt_group_context_enabled
+        ) and _is_group_context(event):
             prompt = format_group_speaker_prompt(event, prompt)
+        if group_context_selection is not None and group_context_selection.entries:
+            attachment_names = await extract_group_context_images(
+                group_context_selection,
+                files,
+                image_upload_enabled=image_upload_enabled,
+            )
+            prompt = prepend_recent_group_context(
+                prompt,
+                format_recent_group_context(
+                    group_context_selection.entries,
+                    attachment_names=attachment_names,
+                    max_chars=config_gpt.gpt_group_context_max_chars,
+                ),
+            )
         auto_result = await auto_persona.ensure_initialized(
             key,
             is_shared=_is_group_context(event),
@@ -757,23 +901,33 @@ if isinstance(config_gpt.gpt_session, list):
         )
         if auto_result is not None and not auto_result.ok:
             logger.warning("当前会话的自动人设初始化失败：{}，将继续使用普通聊天", auto_result.text)
-        await finish_message(matcher, event, await chat_reply(
-            chat_runtime,
-            key,
-            prompt,
-            model=model,
-            prefer_paid_account=prefer_paid_account,
-            files=files,
-            supports_markdown=supports_native_markdown(event),
-            render_mode=await get_current_render_mode(event),
-            render_markdown=chat_markdown_renderer,
-            error_message=config_gpt.gpt_error_message,
-            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
-            session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
-            rate_limit_message=config_gpt.gpt_rate_limit_message,
-            failure_diagnostics=failure_diagnostics,
-            creator=creator,
-        ))
+        try:
+            reply = await chat_reply(
+                chat_runtime,
+                key,
+                prompt,
+                model=model,
+                prefer_paid_account=prefer_paid_account,
+                files=files,
+                supports_markdown=supports_native_markdown(event),
+                render_mode=await get_current_render_mode(event),
+                render_markdown=chat_markdown_renderer,
+                error_message=config_gpt.gpt_error_message,
+                conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
+                session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+                rate_limit_message=config_gpt.gpt_rate_limit_message,
+                failure_diagnostics=failure_diagnostics,
+                creator=creator,
+            )
+        except BaseException:
+            if group_context_buffer is not None and group_context_selection is not None:
+                group_context_buffer.cancel_chat(group_context_selection)
+            raise
+        if group_context_buffer is not None and group_context_selection is not None:
+            after_send = lambda: group_context_buffer.mark_replied(group_context_selection)
+        else:
+            after_send = None
+        await finish_message(matcher, event, reply, after_send=after_send)
 
     help_command = legacy_command(
         "gpt_help",

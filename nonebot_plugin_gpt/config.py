@@ -34,6 +34,12 @@ class Config(BaseModel):
     gpt_proxy: Optional[str] = None
     gpt_session: Optional[List[dict]] | str = Field(default_factory=list)
     gpt_group_chat: bool = True
+    gpt_group_context_enabled: bool = False
+    gpt_group_context_max_messages: int = Field(default=20, ge=1, le=100)
+    gpt_group_context_max_age_seconds: int = Field(default=600, ge=10, le=86400)
+    gpt_group_context_max_chars: int = Field(default=6000, ge=500, le=50000)
+    gpt_group_context_include_images: bool = False
+    gpt_group_context_max_images: int = Field(default=4, ge=0, le=16)
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
     gpt_empty_trigger_prompt: str = DEFAULT_EMPTY_TRIGGER_PROMPT

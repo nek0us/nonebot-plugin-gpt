@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+from collections.abc import Callable
 from typing import Any
 
 from nonebot.adapters import Event
@@ -100,17 +102,32 @@ async def finish_message(
     message: Any,
     *,
     recall_after: int = 0,
+    after_send: Callable[[], Any] | None = None,
 ) -> None:
     """发送跨平台消息后结束当前匹配器。"""
+    async def sent() -> None:
+        if after_send is None:
+            return
+        result = after_send()
+        if inspect.isawaitable(result):
+            await result
+
     if isinstance(message, TextPages):
         for page in message.pages:
             receipt = await UniMessage.text(page).send(event)
             if len(message.pages) > 1:
                 _schedule_recall(receipt, recall_after)
+        await sent()
         await matcher.finish()
         return
     if isinstance(message, UniMessage):
         await message.send(event)
+        await sent()
+        await matcher.finish()
+        return
+    if after_send is not None:
+        await UniMessage.text(str(message)).send(event)
+        await sent()
         await matcher.finish()
         return
     await matcher.finish(message)
