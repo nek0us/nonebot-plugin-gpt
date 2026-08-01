@@ -69,7 +69,11 @@ class UniMessageOutputTests(unittest.IsolatedAsyncioTestCase):
                 text="done",
                 files=[
                     IOFile(content=b"report", name="report.txt", mime_type="text/plain"),
-                    IOFile(content=b"image", name="preview.png", mime_type="image/png"),
+                    IOFile(
+                        content=b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
+                        name="preview.png",
+                        mime_type="image/png",
+                    ),
                 ],
             ),
         )
@@ -77,5 +81,5 @@ class UniMessageOutputTests(unittest.IsolatedAsyncioTestCase):
         segments = [(segment.type, segment.name, segment.raw) for segment in message if segment.type in {"file", "image"}]
         self.assertEqual(segments, [
             ("file", "report.txt", b"report"),
-            ("image", "preview.png", b"image"),
+            ("image", "preview.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"),
         ])

@@ -13,6 +13,15 @@ _COMPLEX_MARKDOWN = re.compile(r"(?m)^#{1,6}\s|^\s*[-*+]\s|^\s*\||```")
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]+)\]\((?P<url>[^\s)]+)(?:\s+['\"][^)]*['\"])?\)")
 
 
+def _is_private_chatgpt_asset_url(value: str) -> bool:
+    """Adapters cannot download ChatGPT's cookie-protected asset endpoints."""
+    parsed = urlparse(value)
+    return (
+        parsed.hostname in {"chatgpt.com", "chat.openai.com"}
+        and parsed.path.startswith("/backend-api/")
+    )
+
+
 @dataclass(frozen=True)
 class RenderPlan:
     """可直接转换为 UniMessage 的平台无关响应投影。"""
@@ -99,7 +108,11 @@ def build_render_plan(
         markdown_image_required=markdown_image_required,
         native_markdown=bool(supports_markdown and markdown),
         reference_text=reference_text,
-        image_urls=(result.image_urls or content.image_urls).copy(),
+        image_urls=[
+            url
+            for url in (result.image_urls or content.image_urls)
+            if not _is_private_chatgpt_asset_url(url)
+        ],
         files=list(getattr(result, "files", [])),
         model=result.used_model or result.requested_model,
         usage=result.usage.copy(),

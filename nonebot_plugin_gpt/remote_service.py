@@ -461,8 +461,9 @@ class RemoteChatService:
                 image_urls = event.image_urls.copy()
             elif event.type == "final":
                 final_event = event
-                if event.image_urls:
-                    image_urls = event.image_urls.copy()
+                # A reconciled final event is authoritative. It may intentionally
+                # replace an earlier private URL with an in-band image file.
+                image_urls = event.image_urls.copy()
                 if event.files:
                     files = event.files.copy()
             elif event.type == "error":

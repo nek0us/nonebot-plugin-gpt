@@ -41,10 +41,10 @@ class RenderingTests(unittest.TestCase):
             message_id="message",
             used_model="gpt-5",
             image_urls=["https://example.invalid/image.png"],
-            files=[IOFile(content=b"report", name="report.txt", mime_type="text/plain")],
             usage={"total_tokens": 42},
             content=content,
         )
+        result.files = [IOFile(content=b"report", name="report.txt", mime_type="text/plain")]
 
         plan = rendering.build_render_plan(result)
 
@@ -57,6 +57,31 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(plan.files[0].name, "report.txt")
         self.assertEqual(plan.files[0].content, b"report")
         self.assertEqual(plan.markdown, "# Title")
+
+    def test_render_plan_drops_private_chatgpt_image_urls_but_keeps_image_files(self):
+        result = ChatResult(
+            ok=True,
+            text="done",
+            conversation_id="conversation",
+            message_id="message",
+            image_urls=[
+                "https://chatgpt.com/backend-api/estuary/content?id=file_123",
+                "https://example.invalid/public.png",
+            ],
+            content=ChatContent(markdown="done", plain_text="done"),
+        )
+        result.files = [
+            IOFile(
+                content=b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
+                name="generated.png",
+                mime_type="image/png",
+            )
+        ]
+
+        plan = rendering.build_render_plan(result)
+
+        self.assertEqual(plan.image_urls, ["https://example.invalid/public.png"])
+        self.assertEqual(plan.files[0].name, "generated.png")
 
     def test_markdown_image_plan_keeps_original_markdown(self):
         content = ChatContent(
