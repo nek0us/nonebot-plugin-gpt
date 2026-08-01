@@ -97,8 +97,8 @@ def log_conflicting_gpt_settings(config: Any, logger: Any) -> list[dict[str, Any
             for value in item["assignments"]
         )
         logger.warning(
-            "环境配置冲突：%s 被重复设置（%s）；"
-            "最终生效的是 %s:%s=%s，请删除旧项以免能力被静默覆盖",
+            "环境配置冲突：{} 被重复设置（{}）；"
+            "最终生效的是 {}:{}={}，请删除旧项以免能力被静默覆盖",
             item["key"],
             assignments,
             item["effective_file"],

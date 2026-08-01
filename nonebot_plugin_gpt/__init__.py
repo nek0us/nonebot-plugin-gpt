@@ -692,16 +692,27 @@ if isinstance(config_gpt.gpt_session, list):
                 max_redirects=config_gpt.gpt_attachment_max_redirects,
             )
         if requested_images or requested_files:
+            extracted_images = sum(
+                1
+                for file in files
+                if (
+                    file.content_type == "image_asset_pointer"
+                    or str(file.mime_type or "").lower().startswith("image/")
+                )
+            )
             logger.info(
-                "聊天附件提取完成：请求图片 %s、其他文件 %s，成功 %s",
+                "聊天附件提取完成：请求图片 {}、其他文件 {}，成功 {}"
+                "（图片 {}、其他文件 {}）",
                 requested_images,
                 requested_files,
                 len(files),
+                extracted_images,
+                len(files) - extracted_images,
             )
         if (requested_images or requested_files) and not files:
             logger.warning(
                 "本条聊天包含附件，但没有附件可传给核心："
-                "gpt_free_image=%s, paid_preferred=%s, gpt_file_upload=%s",
+                "gpt_free_image={}, paid_preferred={}, gpt_file_upload={}",
                 config_gpt.gpt_free_image,
                 prefer_paid_account,
                 config_gpt.gpt_file_upload,
@@ -745,7 +756,7 @@ if isinstance(config_gpt.gpt_session, list):
             creator=creator,
         )
         if auto_result is not None and not auto_result.ok:
-            logger.warning("当前会话的自动人设初始化失败：%s，将继续使用普通聊天", auto_result.text)
+            logger.warning("当前会话的自动人设初始化失败：{}，将继续使用普通聊天", auto_result.text)
         await finish_message(matcher, event, await chat_reply(
             chat_runtime,
             key,
@@ -1104,7 +1115,7 @@ if isinstance(config_gpt.gpt_session, list):
             creator=creator,
         )
         if auto_result is not None and not auto_result.ok:
-            logger.warning("当前会话的智能体自动人设初始化失败：%s", auto_result.text)
+            logger.warning("当前会话的智能体自动人设初始化失败：{}", auto_result.text)
         await chat_runtime.ensure_session_creator(key, creator)
         runtime = agent_runtime if is_superuser else member_agent_runtime
         mentioned_user_ids, mention_context = _agent_mention_context(

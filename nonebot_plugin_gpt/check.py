@@ -401,7 +401,7 @@ async def ban_check(event: Event, matcher: Matcher, text: Any = None) -> None:
                 f"{banned_word}\n{plain_text}"
             )
             logger.info(
-                "屏蔽词黑名单触发，屏蔽词：%s\n触发人：%s\n原语句：%s",
+                "屏蔽词黑名单触发，屏蔽词：{}\n触发人：{}\n原语句：{}",
                 banned_word,
                 event.get_user_id(),
                 detail,

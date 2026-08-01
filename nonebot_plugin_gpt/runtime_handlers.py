@@ -73,6 +73,10 @@ def _error_message(
         for error in result.errors
         if isinstance(error, dict)
     }
+    logger.warning(
+        "GPT 请求未完成，错误类别：{}",
+        "、".join(sorted(error_kinds)) or "unknown",
+    )
     if error_kinds & _CONVERSATION_RECOVERY_KINDS:
         return UniMessage.text(conversation_recovery_message)
     if error_kinds & _SESSION_REAUTHENTICATION_KINDS:
