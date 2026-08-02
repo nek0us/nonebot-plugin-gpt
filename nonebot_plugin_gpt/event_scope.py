@@ -12,6 +12,7 @@ from nonebot.adapters import Event
 GROUP_SPEAKER_TAG = "[群聊发言者]"
 RECENT_GROUP_CONTEXT_TAG = "[最近群聊上下文]"
 RECENT_GROUP_CONTEXT_END_TAG = "[最近群聊上下文结束]"
+CURRENT_SPEAKER_RULE = "本轮只回复此发言者；不得沿用共享会话历史中的其他姓名"
 
 
 def strip_recent_group_context_prompt(message: str) -> str:
@@ -140,6 +141,8 @@ def format_group_speaker_prompt(event: Event, message: str) -> str:
         "name": resolve_participant_display_name(event) or None,
         # 这是本轮实际发言者，不应被共享群聊历史中的旧称呼覆盖。
         "current": True,
+        "reply_target": True,
+        "rule": CURRENT_SPEAKER_RULE,
     }
     return f"{GROUP_SPEAKER_TAG} {json.dumps(metadata, ensure_ascii=False)}\n{message}"
 

@@ -79,6 +79,9 @@ class GroupContextTests(unittest.TestCase):
         rendered = group_context.format_recent_group_context(next_selection.entries)
         self.assertIn("new ambient message", rendered)
         self.assertNotIn("first ambient message", rendered)
+        self.assertIn('"current":false', rendered)
+        self.assertIn('"reply_target":false', rendered)
+        self.assertIn("本轮唯一回复对象", rendered)
 
     def test_empty_at_trigger_still_creates_a_consumption_boundary(self):
         ambient = make_event("1")

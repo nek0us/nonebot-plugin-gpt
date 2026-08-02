@@ -429,7 +429,7 @@ SUPERUSERS=["admin user id"]
 
 ### 群聊、上下文与图片输出
 
-- `gpt_group_chat=true` 时，每一条群聊输入都会在发送给模型前附加固定的 `[群聊发言者]` 标签，包含稳定身份、适配器可用的显示名与“当前发言者”标记。它只辅助模型区分成员，不会强制替换模型回复。
+- `gpt_group_chat=true` 时，每一条群聊输入都会在发送给模型前附加固定的 `[群聊发言者]` 标签，包含稳定身份、适配器可用的显示名以及唯一 `reply_target=true` 标记；近期记录中的成员统一为 `reply_target=false`，避免共享会话沿用上一位用户的称呼。插件不会机械替换模型回复中的姓名。
 - `gpt_group_context_enabled=true` 时，插件会在内存中缓存群聊/频道消息，并在普通聊天被呼唤时，将机器人上一次成功回复之后、当前消息之前的记录作为 `[最近群聊上下文]` 交给模型。私聊、管理命令和智能体任务不使用这份背景。
 - 近期上下文同时受 `gpt_group_context_max_messages`、`gpt_group_context_max_age_seconds` 和 `gpt_group_context_max_chars` 限制：高频群最多取满消息数，低频群只取时间窗内的实际消息，不使用难以预测的频率算法。回复成功后会推进游标，已经交给模型的消息不会重复注入；缓存不落盘，重启后清空，内部上下文也不会显示在“历史聊天”中。
 - `gpt_group_context_include_images=true` 时，近期记录里的图片会按消息位置和附件名传递。当前触发消息的附件优先，历史图片最多 `gpt_group_context_max_images` 张，并继续受 `gpt_attachment_max_count`、`gpt_attachment_max_total_size` 和账户图片上传能力限制；下载或上传失败只会标为不可读取，不会中断本轮聊天。

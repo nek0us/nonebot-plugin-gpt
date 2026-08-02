@@ -97,7 +97,12 @@ from .plus_views import grant_paid_access, revoke_paid_access, set_global_paid_e
 from .personality_service import ensure_default_persona
 from .persona_migration import migrate_legacy_personas
 from .remote_service import RemoteChatService
-from .event_scope import format_group_speaker_prompt, resolve_event_scope
+from .event_scope import (
+    format_group_speaker_prompt,
+    resolve_event_scope,
+    resolve_participant_display_name,
+    resolve_participant_identity,
+)
 from .group_context import (
     GroupContextBuffer,
     GroupContextSelection,
@@ -877,6 +882,23 @@ if isinstance(config_gpt.gpt_session, list):
         if (
             config_gpt.gpt_group_chat or config_gpt.gpt_group_context_enabled
         ) and _is_group_context(event):
+            context_speakers = [
+                {
+                    "id": entry.speaker_id,
+                    "name": entry.speaker_name or None,
+                }
+                for entry in (
+                    group_context_selection.entries
+                    if group_context_selection is not None
+                    else ()
+                )
+            ]
+            logger.debug(
+                "群聊回复对象：id={}，name={}；近期语境发言者={}（不记录消息正文）",
+                resolve_participant_identity(event),
+                resolve_participant_display_name(event) or None,
+                context_speakers,
+            )
             prompt = format_group_speaker_prompt(event, prompt)
         if group_context_selection is not None and group_context_selection.entries:
             attachment_names = await extract_group_context_images(

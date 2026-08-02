@@ -78,7 +78,9 @@ class EventScopeTests(unittest.TestCase):
 
         self.assertEqual(
             prompt,
-            '[群聊发言者] {"id": "onebot.v11:user:42", "name": "小明", "current": true}\n你好',
+            '[群聊发言者] {"id": "onebot.v11:user:42", "name": "小明", '
+            '"current": true, "reply_target": true, '
+            '"rule": "本轮只回复此发言者；不得沿用共享会话历史中的其他姓名"}\n你好',
         )
 
     def test_group_speaker_tag_is_removed_from_history(self):
