@@ -257,6 +257,103 @@ async def restart_persona_reply(
     )
 
 
+async def new_conversation_reply(
+    runtime: ChatRuntime,
+    key: ConversationKey,
+    *,
+    supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
+    render_markdown: MarkdownRenderer | None = _render_markdown,
+    error_message: str = DEFAULT_ERROR_MESSAGE,
+    conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
+    session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
+    creator: ConversationCreator | None = None,
+) -> UniMessage:
+    """Start a new logical chat while retaining the active persona when present."""
+    try:
+        result = await runtime.start_new_conversation(key, creator=creator)
+    except Exception:
+        return _unexpected_error_message("另开对话", error_message, failure_diagnostics)
+    return await render_result(
+        result,
+        supports_markdown=supports_markdown,
+        render_mode=render_mode,
+        render_markdown=render_markdown,
+        error_message=error_message,
+        conversation_recovery_message=conversation_recovery_message,
+        session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
+        failure_diagnostics=failure_diagnostics,
+    )
+
+
+async def continue_previous_chapter_reply(
+    runtime: ChatRuntime,
+    key: ConversationKey,
+    *,
+    supports_markdown: bool = False,
+    render_mode: Literal["auto", "text", "image"] = "auto",
+    render_markdown: MarkdownRenderer | None = _render_markdown,
+    error_message: str = DEFAULT_ERROR_MESSAGE,
+    conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
+    session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
+    rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
+    failure_diagnostics: ChatFailureDiagnostics | None = None,
+) -> UniMessage:
+    """Force a summary-backed physical chat migration for the active persona."""
+    try:
+        result = await runtime.continue_previous_chapter(key)
+    except ValueError as error:
+        return UniMessage.text(str(error))
+    except Exception:
+        return _unexpected_error_message("续写前篇", error_message, failure_diagnostics)
+    return await render_result(
+        result,
+        supports_markdown=supports_markdown,
+        render_mode=render_mode,
+        render_markdown=render_markdown,
+        error_message=error_message,
+        conversation_recovery_message=conversation_recovery_message,
+        session_reauthentication_message=session_reauthentication_message,
+        rate_limit_message=rate_limit_message,
+        failure_diagnostics=failure_diagnostics,
+    )
+
+
+async def context_status_reply(runtime: ChatRuntime, key: ConversationKey) -> UniMessage:
+    """Format the non-authoritative local context estimate for an operator."""
+    try:
+        status = await runtime.get_context_status(key)
+    except Exception:
+        return UniMessage.text("暂时无法读取当前聊天的上下文状态。")
+    if not status.get("available"):
+        return UniMessage.text(f"上下文状态：{status.get('reason', '暂不可用')}。")
+
+    estimated_tokens = int(status.get("estimated_tokens") or 0)
+    message_count = int(status.get("message_count") or 0)
+    window = status.get("context_window_tokens")
+    utilization = status.get("estimated_utilization")
+    if isinstance(window, int) and window > 0:
+        window_text = f"{window:,}（{status.get('context_window_source', 'unknown')}）"
+    else:
+        window_text = "未识别"
+    utilization_text = (
+        f"{float(utilization) * 100:.1f}%"
+        if isinstance(utilization, (int, float)) else "未计算"
+    )
+    action = "下一条消息会自动维护。" if status.get("compact") else "下一条消息暂不会自动维护。"
+    return UniMessage.text(
+        "上下文状态（本地估算，非上游实际用量）\n"
+        f"消息数：{message_count}\n"
+        f"估算 token：{estimated_tokens:,}\n"
+        f"上下文窗口：{window_text}\n"
+        f"估算占用：{utilization_text}\n"
+        f"判断：{status.get('reason', '未知')}；{action}"
+    )
+
+
 async def rewind_reply(
     runtime: ChatRuntime,
     key: ConversationKey,

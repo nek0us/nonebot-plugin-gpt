@@ -16,6 +16,8 @@ class ContextPolicy:
     mode: ContextCompactionMode = "summarize_restart"
     utilization_threshold: float = 0.6
     minimum_estimated_tokens: int = 0
+    fallback_context_window_tokens: int = 0
+    maximum_estimated_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -38,11 +40,17 @@ def decide_context_maintenance(
         return ContextDecision(False, "策略已关闭")
     if not has_persona:
         return ContextDecision(False, "当前逻辑会话未绑定人设")
-    if context_window_tokens is None:
-        return ContextDecision(False, "模型未提供明确上下文窗口")
     if estimated_tokens < policy.minimum_estimated_tokens:
         return ContextDecision(False, "本地估算尚未达到最小触发值")
-    utilization = estimated_tokens / context_window_tokens
+    if (
+        policy.maximum_estimated_tokens > 0
+        and estimated_tokens >= policy.maximum_estimated_tokens
+    ):
+        return ContextDecision(True, "本地估算达到绝对上下文阈值")
+    effective_window = context_window_tokens or policy.fallback_context_window_tokens
+    if effective_window is None or effective_window <= 0:
+        return ContextDecision(False, "模型未提供明确上下文窗口，且未配置兜底窗口")
+    utilization = estimated_tokens / effective_window
     if utilization < policy.utilization_threshold:
         return ContextDecision(False, "本地估算占用比例低于阈值")
     return ContextDecision(True, "本地估算接近模型上下文安全阈值")

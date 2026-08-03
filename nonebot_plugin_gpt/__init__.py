@@ -53,7 +53,7 @@ from .command_compat import (
 from .chat_runtime import ChatRuntime
 from .context_policy import ContextPolicy
 from .conversation import ConversationCreator, ConversationKey, ConversationStore
-from .runtime_handlers import create_markdown_renderer, chat_reply, persona_reply, restart_persona_reply, rewind_reply
+from .runtime_handlers import create_markdown_renderer, chat_reply, continue_previous_chapter_reply, context_status_reply, new_conversation_reply, persona_reply, restart_persona_reply, rewind_reply
 from .session_commands import list_sessions, switch_session
 from .model_selection import resolve_paid_model, select_model
 from .attachments import extract_upload_files
@@ -403,6 +403,8 @@ if isinstance(config_gpt.gpt_session, list):
             mode=config_gpt.gpt_context_compaction_mode,
             utilization_threshold=config_gpt.gpt_context_compaction_threshold,
             minimum_estimated_tokens=config_gpt.gpt_context_compaction_min_tokens,
+            fallback_context_window_tokens=config_gpt.gpt_context_compaction_fallback_window_tokens,
+            maximum_estimated_tokens=config_gpt.gpt_context_compaction_max_estimated_tokens,
         ),
         agent_safety_policy=agent_safety_policy,
         agent_anchor_policy=agent_anchor_policy,
@@ -1024,7 +1026,67 @@ if isinstance(config_gpt.gpt_session, list):
             failure_diagnostics=failure_diagnostics,
             creator=ConversationCreator.from_event(event),
         ))
-    
+
+    new_conversation = legacy_command(
+        "new_conversation",
+        aliases={"另开对话", "开新篇"},
+        rule=gpt_operator_command_rule,
+        priority=config_gpt.gpt_command_priority,
+        block=True,
+    )
+    @new_conversation.handle()
+    async def new_conversation_handle(event: Event, matcher: Matcher):
+        await finish_message(matcher, event, await new_conversation_reply(
+            chat_runtime,
+            ConversationKey.from_event(event),
+            supports_markdown=supports_native_markdown(event),
+            render_mode=await get_current_render_mode(event),
+            render_markdown=chat_markdown_renderer,
+            error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
+            session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
+            failure_diagnostics=failure_diagnostics,
+            creator=ConversationCreator.from_event(event),
+        ))
+
+    continue_previous_chapter = legacy_command(
+        "continue_previous_chapter",
+        aliases={"续写前篇", "整理前情"},
+        rule=gpt_operator_command_rule,
+        priority=config_gpt.gpt_command_priority,
+        block=True,
+    )
+    @continue_previous_chapter.handle()
+    async def continue_previous_chapter_handle(event: Event, matcher: Matcher):
+        await finish_message(matcher, event, await continue_previous_chapter_reply(
+            chat_runtime,
+            ConversationKey.from_event(event),
+            supports_markdown=supports_native_markdown(event),
+            render_mode=await get_current_render_mode(event),
+            render_markdown=chat_markdown_renderer,
+            error_message=config_gpt.gpt_error_message,
+            conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
+            session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
+            rate_limit_message=config_gpt.gpt_rate_limit_message,
+            failure_diagnostics=failure_diagnostics,
+        ))
+
+    context_status = legacy_command(
+        "context_status",
+        aliases={"上下文状态"},
+        rule=gpt_operator_command_rule,
+        priority=config_gpt.gpt_command_priority,
+        block=True,
+    )
+    @context_status.handle()
+    async def context_status_handle(event: Event, matcher: Matcher):
+        await finish_message(
+            matcher,
+            event,
+            await context_status_reply(chat_runtime, ConversationKey.from_event(event)),
+        )
+
             
     last = legacy_command("backlast",aliases={"重置上一句","重置上句"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @last.handle()

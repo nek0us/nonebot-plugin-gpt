@@ -145,9 +145,11 @@ _✨ NoneBot GPT ✨_
 | gpt_history_show_timestamp | 否 | true | bool | 历史聊天是否显示每轮保存时间。旧数据缺少时间时自动省略。 |
 | gpt_history_show_message_id | 否 | false | bool | 历史聊天是否显示核心会话消息 ID，主要用于排障与“回到过去”定位；普通使用建议保持关闭。 |
 | gpt_management_recall_after | 否 | 0 | int | 多页帮助、列表、历史等管理输出的自动撤回秒数；`0` 关闭，适配器不支持撤回时自动忽略。 |
-| gpt_context_compaction_mode | 否 | summarize_restart | off/reinforce/summarize_restart | 接近上下文上限时：关闭、仅补发人设、或摘要后迁移到新逻辑会话。 |
+| gpt_context_compaction_mode | 否 | summarize_restart | off/reinforce/summarize_restart | 接近上下文上限时：关闭、仅补发人设、或摘要后迁移到新的网页物理会话；逻辑会话保持不变。 |
 | gpt_context_compaction_threshold | 否 | 0.6 | 0.1-0.95 | 估算上下文达到模型上限比例时触发维护。 |
 | gpt_context_compaction_min_tokens | 否 | 0 | int | 估算 token 未达到此值不触发维护；0 表示只看比例。 |
+| gpt_context_compaction_fallback_window_tokens | 否 | 0 | int | 模型目录未提供上下文窗口时的管理员兜底窗口；`0` 表示未知窗口不自动迁移。 |
+| gpt_context_compaction_max_estimated_tokens | 否 | 0 | int | 本地估算 token 的绝对触发线；`0` 关闭。可在模型窗口未知时作为保守兜底。 |
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_session_reauthentication_message | 否 | 连接正在自动恢复，请稍后再试一次。 | str | 核心检测到会话令牌过期并已启动自动重新登录时的提示；与普通失败和原会话失效提示分开，避免暴露账号细节。 |
@@ -306,6 +308,10 @@ gpt_image_font_scale=1.0
 gpt_context_compaction_mode="summarize_restart"
 gpt_context_compaction_threshold=0.6
 gpt_context_compaction_min_tokens=0
+# 模型目录没有 contextWindow 时可显式设置，例如 128000；0 表示不猜测。
+gpt_context_compaction_fallback_window_tokens=0
+# 可选的本地估算绝对上限，例如 60000；0 表示关闭。
+gpt_context_compaction_max_estimated_tokens=0
 
 # 多页帮助、列表、历史等管理输出在 60 秒后自动撤回；0 表示关闭
 gpt_management_recall_after=60
@@ -404,7 +410,10 @@ SUPERUSERS=["admin user id"]
 | @bot 聊天内容... | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | @或者叫名+内容 开始聊天，随所有者白名单模式设置改变 |
 | 初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 初始化(人设名) |
 | plus初始化 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | plus初始化(人设名) 会使用plus账户新开会话，可切换plus模型 |
-| 重置 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 用当前人设开启新的逻辑会话 |
+| 重置 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到当前人设初始化后的起点；复用同一网页会话并创建分支 |
+| 另开对话 / 开新篇 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 保留当前人设、模型和输出偏好，另起新的逻辑与网页会话 |
+| 续写前篇 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 主动整理当前前情并迁移到新的网页会话，继续当前逻辑会话 |
+| 上下文状态 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看本地估算 token、模型窗口来源和下一条消息的自动维护判断 |
 | 重置上一句 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 刷新上一句的回答 |
 | 回到过去 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 回到过去 <历史聊天可见轮次/p_id/最后一次出现的关键词>，回到对应时间点 |
 | 人设列表 | 兼容 | 无/白名单 | 是 | 群聊/私聊/频道 | 查看可用人设列表 |
@@ -448,7 +457,7 @@ SUPERUSERS=["admin user id"]
 - `gpt_chat_project`、`gpt_agent_project` 和 `gpt_persona_projects` 只影响**以后新建的物理网页会话**：普通聊天按“人设覆盖 > 普通聊天项目”选择，智能体协议会话使用独立的智能体项目。已经绑定网页会话 ID 的逻辑会话保持原处，插件不会自动移动历史会话。ChatGPT Projects 可能带有项目级记忆、指令或文件，适合收纳同一角色、同一用途或同一受信任范围的会话；不要为了网页整洁把不同群、不同用户或敏感人设全部放进同一个项目。默认留空即关闭。此能力依赖 ChatGPT 网页端而非公开 API，核心查找、创建或投递失败时会保留普通根目录会话并记录诊断，不会中断 bot 聊天。嵌入式模式使用 `gpt_project_auto_create=true` 自动创建缺失项目；远程模式由共享核心的 `CHATGPTWEB_PROJECT_AUTO_CREATE=true` 决定。
 - `gpt_history_anonymize=false` 时，历史聊天会将上述内部标签投影为“用户 · 昵称”；默认还会显示稳定 ID 与保存时间，可分别通过 `gpt_history_show_identity`、`gpt_history_show_timestamp` 关闭。开启匿名化后，昵称与 ID 都不会显示。
 - 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
-- `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。
+- `summarize_restart` 会在接近上下文上限时摘要并迁移到新的网页物理会话，但逻辑会话编号不变；`reinforce` 仅补发人设。`续写前篇` 可随时主动执行同样的摘要迁移，`上下文状态` 会显示本地估算、模型窗口来源和自动判断。网页端不稳定提供真实 token 用量，因此这些数值只作本地估算；模型窗口未知时可通过 `gpt_context_compaction_fallback_window_tokens` 或 `gpt_context_compaction_max_estimated_tokens` 明确设置自动策略。需要手动强化角色时可用 `初始化 <人设名> 继续`。
 - `gpt_render_mode=auto` 会根据内容复杂度与适配器能力选择文本或图片。Telegram 适配器会将常用 Markdown 转为 UniSeg 原生富文本（包括粗体、代码、列表和 URL）；其他适配器遇到复杂 Markdown 时转为图片。长帮助、历史、名单等管理内容优先分页图片；多页时优先以合并引用消息发送。
 - `输出模式 [自动/文本/图片/默认]` 只影响当前适配器内的当前群聊、私聊或频道。该偏好独立于逻辑会话，因此重置、初始化人设或切换逻辑会话后仍会保留；使用 `@机器人 输出模式 默认` 或 `机器人昵称 输出模式 默认` 即可恢复 `gpt_render_mode` 的全局默认策略。
 

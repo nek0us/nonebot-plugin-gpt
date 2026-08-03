@@ -35,6 +35,23 @@ class ContextPolicyTests(unittest.TestCase):
             has_persona=False,
         ).compact)
 
+    def test_fallback_and_absolute_threshold_cover_missing_model_windows(self):
+        fallback = context_policy.decide_context_maintenance(
+            estimated_tokens=15_000,
+            context_window_tokens=None,
+            policy=context_policy.ContextPolicy(fallback_context_window_tokens=20_000),
+            has_persona=True,
+        )
+        absolute = context_policy.decide_context_maintenance(
+            estimated_tokens=12_000,
+            context_window_tokens=None,
+            policy=context_policy.ContextPolicy(maximum_estimated_tokens=10_000),
+            has_persona=True,
+        )
+
+        self.assertTrue(fallback.compact)
+        self.assertTrue(absolute.compact)
+
     def test_restart_prompt_keeps_persona_summary_and_current_message(self):
         prompt = context_policy.build_restart_prompt("保持冷静", "已经到达港口", "接下来去哪？")
 

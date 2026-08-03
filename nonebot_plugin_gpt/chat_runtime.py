@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 
 from ChatGPTWeb import AgentAnchorPolicy, AgentSafetyPolicy, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn, ChatRequest, ChatResult, ChatService, ConversationOperation
 from ChatGPTWeb.api import ChatStreamEvent
@@ -287,34 +287,76 @@ class ChatRuntime:
         if updated_at not in (None, ""):
             state.metadata["upstream_updated_at"] = updated_at
 
-    async def _chat_with_context_maintenance(
+    async def _context_maintenance_status(
         self,
-        key: ConversationKey,
         state: ConversationState,
-        request: ChatRequest,
-        on_event: StreamObserver,
-    ) -> ChatResult:
+    ) -> dict[str, Any]:
         if not state.conversation_id:
-            return await self._service.stream_to_callback(request, on_event)
+            return {
+                "available": False,
+                "compact": False,
+                "reason": "当前逻辑会话尚未创建网页对话",
+            }
+        try:
+            estimate = await self._service.estimate_context(
+                state.conversation_id,
+                model=state.model,
+                account=str(state.metadata.get("account", "")),
+            )
+        except Exception:
+            return {
+                "available": False,
+                "compact": False,
+                "reason": "无法取得本地上下文估算",
+            }
 
-        estimate = await self._service.estimate_context(
-            state.conversation_id,
-            model=state.model,
-            account=str(state.metadata.get("account", "")),
-        )
         decision = decide_context_maintenance(
             estimated_tokens=estimate.estimated_tokens,
             context_window_tokens=estimate.context_window_tokens,
             policy=self._context_policy,
             has_persona=bool(state.persona_prompt),
         )
-        if not decision.compact:
-            return await self._service.stream_to_callback(request, on_event)
+        reported_window = estimate.context_window_tokens
+        effective_window = reported_window or self._context_policy.fallback_context_window_tokens
+        return {
+            "available": True,
+            "compact": decision.compact,
+            "reason": decision.reason,
+            "mode": self._context_policy.mode,
+            "message_count": estimate.message_count,
+            "character_count": estimate.character_count,
+            "estimated_tokens": estimate.estimated_tokens,
+            "model": state.model,
+            "reported_context_window_tokens": reported_window,
+            "context_window_tokens": effective_window or None,
+            "context_window_source": (
+                estimate.context_window_source
+                if reported_window
+                else ("configured_fallback" if effective_window else estimate.context_window_source)
+            ),
+            "estimated_utilization": (
+                estimate.estimated_tokens / effective_window
+                if effective_window else None
+            ),
+        }
 
-        if self._context_policy.mode == "reinforce":
-            request.prompt = build_reinforced_prompt(state.persona_prompt, request.prompt)
-            return await self._service.stream_to_callback(request, on_event)
+    async def get_context_status(self, key: ConversationKey) -> dict[str, Any]:
+        """Return the local estimate and the next automatic maintenance decision."""
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            status = await self._context_maintenance_status(state)
+            if state.logical_id:
+                state.metadata["context_maintenance_status"] = status
+                await self._conversations.save(key, state)
+            return status
 
+    async def _summarize_and_restart(
+        self,
+        key: ConversationKey,
+        state: ConversationState,
+        request: ChatRequest,
+        on_event: StreamObserver,
+    ) -> ChatResult:
         summary = await self._service.send(ChatRequest(
             prompt=build_summary_prompt(),
             conversation_id=state.conversation_id,
@@ -325,7 +367,7 @@ class ChatRuntime:
             **_conversation_project_options(self._project_for_persona(state.persona_name)),
         ))
         if not summary.ok or not summary.text:
-            return await self._service.stream_to_callback(request, on_event)
+            return summary
 
         restart_request = ChatRequest(
             prompt=build_restart_prompt(state.persona_prompt, summary.text, request.prompt),
@@ -349,6 +391,71 @@ class ChatRuntime:
                 summary=summary.text,
             )
         return result
+
+    async def continue_previous_chapter(
+        self,
+        key: ConversationKey,
+        *,
+        on_event: StreamObserver | None = None,
+    ) -> ChatResult:
+        """Summarize the active physical chat and continue it in a fresh one."""
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            if not state.persona_prompt or not state.conversation_id:
+                raise ValueError("当前会话没有可续写的人设聊天")
+            request = ChatRequest(
+                prompt=(
+                    "请用一句自然、简短的话表示你会继续当前话题；"
+                    "不要提及摘要、迁移、会话或任何内部实现。"
+                ),
+                model=state.model,
+                prefer_paid_account=bool(state.metadata.get("prefer_paid_account", False)),
+                client_id="nonebot-plugin-gpt",
+                request_priority=10,
+                **_conversation_project_options(self._project_for_persona(state.persona_name)),
+            )
+            result = await self._summarize_and_restart(
+                key,
+                state,
+                request,
+                on_event or (lambda _event: None),
+            )
+            if result.ok:
+                state.conversation_id = result.conversation_id
+                state.parent_message_id = result.message_id
+                state.model = result.used_model or state.model
+                state.metadata.update({
+                    "account": result.account,
+                    "usage": result.usage,
+                })
+                self._apply_upstream_metadata(state, result)
+                await self._conversations.save(key, state)
+            return result
+
+    async def _chat_with_context_maintenance(
+        self,
+        key: ConversationKey,
+        state: ConversationState,
+        request: ChatRequest,
+        on_event: StreamObserver,
+    ) -> ChatResult:
+        if not state.conversation_id:
+            return await self._service.stream_to_callback(request, on_event)
+
+        status = await self._context_maintenance_status(state)
+        state.metadata["context_maintenance_status"] = status
+        if not status["compact"]:
+            return await self._service.stream_to_callback(request, on_event)
+
+        if self._context_policy.mode == "reinforce":
+            request.prompt = build_reinforced_prompt(state.persona_prompt, request.prompt)
+            return await self._service.stream_to_callback(request, on_event)
+
+        result = await self._summarize_and_restart(key, state, request, on_event)
+        if result.ok:
+            return result
+        # Automatic maintenance must never make an otherwise usable chat fail.
+        return await self._service.stream_to_callback(request, on_event)
 
     async def create_session(
         self,
@@ -450,6 +557,11 @@ class ChatRuntime:
                 "usage": result.usage,
                 "prefer_paid_account": prefer_paid_account,
             })
+            if not continue_existing:
+                state.metadata.update({
+                    "initial_conversation_id": result.conversation_id,
+                    "initial_parent_message_id": result.message_id,
+                })
             self._apply_upstream_metadata(state, result)
             await self._conversations.save(key, state)
         return result
@@ -524,24 +636,93 @@ class ChatRuntime:
         """切换逻辑会话，而不是切到自动压缩产生的检查点。"""
         return await self._conversations.switch(key, logical_id)
 
+    async def reset_persona(
+        self,
+        key: ConversationKey,
+        *,
+        creator: ConversationCreator | None = None,
+    ) -> ChatResult:
+        """Return to the initial persona anchor in the same physical conversation."""
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            initial_conversation_id = str(state.metadata.get("initial_conversation_id") or "")
+            initial_parent_message_id = str(state.metadata.get("initial_parent_message_id") or "")
+            if not state.persona_name:
+                raise ValueError("当前逻辑会话没有已初始化的人设")
+            if not initial_conversation_id or not initial_parent_message_id:
+                # Pre-anchor sessions can still safely use the current physical
+                # conversation when they have never been compacted. A migrated
+                # legacy session has lost its original root, so guessing would
+                # reset it to a summary checkpoint instead of the persona start.
+                if state.conversation_id and not state.checkpoints:
+                    initial_conversation_id = state.conversation_id
+                    initial_parent_message_id = state.parent_message_id
+                else:
+                    raise ValueError("当前会话缺少人设起点记录，请使用另开对话重新开始")
+            self._apply_creator(state, creator)
+            result = await self._service.send(ChatRequest(
+                prompt="",
+                conversation_id=initial_conversation_id,
+                parent_message_id=initial_parent_message_id,
+                model=state.model,
+                prefer_paid_account=bool(state.metadata.get("prefer_paid_account", False)),
+                operation=ConversationOperation.RESET_TO_PERSONA,
+                client_id="nonebot-plugin-gpt",
+                request_priority=10,
+                **_conversation_project_options(self._project_for_persona(state.persona_name)),
+            ))
+            if result.ok:
+                state.conversation_id = result.conversation_id
+                state.parent_message_id = result.message_id
+                state.model = result.used_model or state.model
+                state.metadata.update({
+                    "account": result.account,
+                    "usage": result.usage,
+                })
+                self._apply_upstream_metadata(state, result)
+                await self._conversations.save(key, state)
+            return result
+
     async def restart_persona(
         self,
         key: ConversationKey,
         *,
         creator: ConversationCreator | None = None,
     ) -> ChatResult:
-        """以当前逻辑会话的人设开始一段新的逻辑会话。"""
-        state = await self._conversations.get(key)
-        if not state.persona_name:
-            raise ValueError("当前逻辑会话没有已初始化的人设")
-        return await self.initialize_persona(
-            key,
-            state.persona_name,
-            model=state.model,
-            prefer_paid_account=bool(state.metadata.get("prefer_paid_account", False)),
-            continue_existing=False,
-            creator=creator,
-        )
+        """Backward-compatible alias for the reset semantics."""
+        return await self.reset_persona(key, creator=creator)
+
+    async def start_new_conversation(
+        self,
+        key: ConversationKey,
+        *,
+        creator: ConversationCreator | None = None,
+    ) -> ChatResult:
+        """Create a fresh logical and physical conversation with the active persona."""
+        async with self._conversation_lock(key):
+            state = await self._conversations.get(key)
+            if state.persona_name:
+                return await self._initialize_persona_locked(
+                    key,
+                    state.persona_name,
+                    model=state.model,
+                    prefer_paid_account=bool(state.metadata.get("prefer_paid_account", False)),
+                    continue_existing=False,
+                    creator=creator,
+                )
+            next_state = await self.create_session(key, "另开对话", creator=creator)
+            next_state.model = state.model
+            next_state.metadata["prefer_paid_account"] = bool(
+                state.metadata.get("prefer_paid_account", False)
+            )
+            await self._conversations.save(key, next_state)
+            return ChatResult(
+                ok=True,
+                text="已另开一段聊天。",
+                conversation_id="",
+                message_id="",
+                requested_model=next_state.model,
+            )
 
     async def rewind(self, key: ConversationKey, reference: str) -> ChatResult:
         """在当前逻辑会话的活动物理检查点内回退到指定位置。"""

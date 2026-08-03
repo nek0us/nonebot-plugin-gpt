@@ -40,15 +40,21 @@ class FakeService:
         return ChatResult(
             ok=True,
             text="人设已初始化",
-            conversation_id="conversation-persona",
-            message_id="message-persona",
+            conversation_id=request.conversation_id or "conversation-persona",
+            message_id="message-reset" if request.conversation_id else "message-persona",
             used_model="gpt-5",
             account="account@example.com",
         )
 
 
     async def estimate_context(self, _conversation_id, **_kwargs):
-        return SimpleNamespace(estimated_tokens=15_000, context_window_tokens=20_000)
+        return SimpleNamespace(
+            estimated_tokens=15_000,
+            context_window_tokens=20_000,
+            message_count=12,
+            character_count=20_000,
+            context_window_source="test",
+        )
 
     async def get_history(self, _conversation_id):
         return [{"Q": "上一句", "A": "上一答"}]
@@ -349,6 +355,8 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state.persona_name, "船长")
             self.assertEqual(state.persona_prompt, "你是一位冷静的船长")
             self.assertEqual(state.conversation_id, "conversation-persona")
+            self.assertEqual(state.metadata["initial_conversation_id"], "conversation-persona")
+            self.assertEqual(state.metadata["initial_parent_message_id"], "message-persona")
 
     async def test_compaction_moves_only_the_active_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -375,24 +383,113 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("船员已抵达港口", service.requests[-1].prompt)
             self.assertIn("下一站去哪？", service.requests[-1].prompt)
 
-    async def test_restart_persona_creates_a_new_logical_session(self):
+    async def test_reset_persona_returns_to_the_initial_physical_anchor(self):
         with tempfile.TemporaryDirectory() as directory:
             store = conversation.ConversationStore(Path(directory) / "sessions.json")
             service = FakeService()
             runtime = chat_runtime.ChatRuntime(service, store)
             key = conversation.ConversationKey("satori:channel:7", "alice")
-            original = await store.create(key, "船长")
-            original.persona_name = "船长"
-            original.persona_prompt = "你是一位冷静的船长"
-            original.conversation_id = "conversation-old"
-            await store.save(key, original)
+            await runtime.initialize_persona(key, "船长")
+            original = await store.get(key)
+            await runtime.chat(key, "下一站去哪里？")
 
             result = await runtime.restart_persona(key)
             current = await store.get(key)
 
             self.assertTrue(result.ok)
+            self.assertEqual(current.logical_id, original.logical_id)
+            self.assertEqual(service.requests[-1].conversation_id, "conversation-persona")
+            self.assertEqual(service.requests[-1].parent_message_id, "message-persona")
+            self.assertEqual(service.requests[-1].operation.value, "reset_to_persona")
+            self.assertEqual(current.conversation_id, "conversation-persona")
+
+    async def test_reset_persona_keeps_unmigrated_legacy_session_compatible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            legacy = await store.create(key, "船长")
+            legacy.persona_name = "船长"
+            legacy.persona_prompt = "你是一位冷静的船长"
+            legacy.conversation_id = "legacy-conversation"
+            legacy.parent_message_id = "legacy-message"
+            await store.save(key, legacy)
+
+            result = await runtime.reset_persona(key)
+
+            self.assertTrue(result.ok)
+            self.assertEqual(service.requests[-1].conversation_id, "legacy-conversation")
+            self.assertEqual(service.requests[-1].operation.value, "reset_to_persona")
+
+    async def test_start_new_conversation_creates_a_new_logical_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store)
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            await runtime.initialize_persona(key, "船长")
+            original = await store.get(key)
+
+            result = await runtime.start_new_conversation(key)
+            current = await store.get(key)
+
+            self.assertTrue(result.ok)
             self.assertNotEqual(current.logical_id, original.logical_id)
-            self.assertEqual(current.persona_name, "船长")
+            self.assertEqual(service.requests[-1].conversation_id, "")
+            self.assertEqual(current.metadata["initial_conversation_id"], "conversation-persona")
+
+    async def test_continue_previous_chapter_forces_summary_migration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(service, store, context_policy.ContextPolicy(mode="off"))
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            await runtime.initialize_persona(key, "船长")
+            state = await store.get(key)
+            original_logical_id = state.logical_id
+
+            result = await runtime.continue_previous_chapter(key)
+            current = await store.get(key)
+
+            self.assertTrue(result.ok)
+            self.assertEqual(current.logical_id, original_logical_id)
+            self.assertEqual(current.conversation_id, "conversation-new")
+            self.assertEqual(len(current.checkpoints), 1)
+            self.assertIn("整理一份紧凑状态摘要", service.requests[-2].prompt)
+
+    async def test_context_status_reports_local_estimate_and_fallback_window(self):
+        class MissingWindowService(FakeService):
+            async def estimate_context(self, _conversation_id, **_kwargs):
+                return SimpleNamespace(
+                    estimated_tokens=15_000,
+                    context_window_tokens=None,
+                    message_count=12,
+                    character_count=20_000,
+                    context_window_source="unavailable",
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = MissingWindowService()
+            runtime = chat_runtime.ChatRuntime(
+                service,
+                store,
+                context_policy.ContextPolicy(fallback_context_window_tokens=20_000),
+            )
+            key = conversation.ConversationKey("satori:channel:7", "alice")
+            state = await store.create(key, "船长")
+            state.conversation_id = "conversation-old"
+            state.persona_name = "船长"
+            state.persona_prompt = "你是一位冷静的船长"
+            await store.save(key, state)
+
+            status = await runtime.get_context_status(key)
+
+            self.assertTrue(status["available"])
+            self.assertEqual(status["estimated_tokens"], 15_000)
+            self.assertEqual(status["context_window_tokens"], 20_000)
+            self.assertTrue(status["compact"])
 
     async def test_rewind_keeps_the_current_logical_session(self):
         with tempfile.TemporaryDirectory() as directory:
