@@ -150,6 +150,7 @@ class RemoteChatService:
             "stream_status_interval_seconds": request.stream_status_interval_seconds,
             "operation": request.operation.value,
             "reference": request.reference,
+            "conversation_project": getattr(request, "conversation_project", ""),
         }
 
     @staticmethod
@@ -268,6 +269,7 @@ class RemoteChatService:
         state: AgentState | None = None,
         tool_result: AgentToolResult | None = None,
         model: str = "auto",
+        conversation_project: str = "",
     ) -> AgentTurn:
         """Use the Bot-scoped Responses bridge for one host-executed turn.
 
@@ -313,6 +315,7 @@ class RemoteChatService:
                     "model": selected_model,
                     "input": active_task,
                     "tools": self._responses_tools(tools),
+                    "conversation_project": conversation_project.strip(),
                 }
             value = await self._json("/bot/responses", payload)
         except RemoteCoreError as error:
@@ -320,7 +323,10 @@ class RemoteChatService:
             # the Bot-scoped Responses route yet, but can still serve the
             # original Bot chat bridge until the core is updated.
             if "HTTP 404" in str(error):
-                return await AgentService(self).turn(
+                agent_options = {}
+                if "conversation_project" in inspect.signature(AgentService).parameters:
+                    agent_options["conversation_project"] = conversation_project
+                return await AgentService(self, **agent_options).turn(
                     task,
                     tools,
                     state=state,

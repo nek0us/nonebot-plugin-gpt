@@ -387,6 +387,7 @@ if isinstance(config_gpt.gpt_session, list):
             for name, value in {
                 **output_options,
                 **capability_quota_options,
+                "project_auto_create": config_gpt.gpt_project_auto_create,
             }.items()
             if name in core_parameters
         })
@@ -405,6 +406,9 @@ if isinstance(config_gpt.gpt_session, list):
         ),
         agent_safety_policy=agent_safety_policy,
         agent_anchor_policy=agent_anchor_policy,
+        conversation_project=config_gpt.gpt_chat_project,
+        agent_project=config_gpt.gpt_agent_project,
+        persona_projects=config_gpt.gpt_persona_projects,
     )
 
     async def deliver_scheduled_reminder(item: ScheduledReminder) -> None:

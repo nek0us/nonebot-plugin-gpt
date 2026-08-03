@@ -110,6 +110,10 @@ _✨ NoneBot GPT ✨_
 | gpt_group_context_max_chars | 否 | 6000 | int | 近期群聊文字的总字符预算；达到上限时优先保留较新的内容。 |
 | gpt_group_context_include_images | 否 | false | bool | 是否同时传递近期群聊消息中的图片；需要当前账户具备图片上传能力，并继续受全局附件限制。 |
 | gpt_group_context_max_images | 否 | 4 | int | 每次最多附带的历史群聊图片数；当前触发消息的附件优先。 |
+| gpt_chat_project | 否 | 空 | str | 可选的 ChatGPT 网页项目名称。仅让此后新建的普通物理会话归入该项目；已有会话不会移动。项目可能带有跨会话记忆，不建议多个互不相关的用户共用同一项目。 |
+| gpt_agent_project | 否 | 空 | str | 可选的 ChatGPT 网页项目名称。仅让此后新建的智能体协议会话归入该项目；建议与普通聊天项目分开。 |
+| gpt_persona_projects | 否 | `{}` | JSON Object[str, str] | 人设名称到网页项目名称的映射。命中时优先于 `gpt_chat_project`，例如 `'{"猪咪":"猪咪日常","助手":"技术助手"}'`。 |
+| gpt_project_auto_create | 否 | false | bool | 嵌入式核心中，是否自动创建不存在的上述网页项目。远程核心请在核心服务设置 `CHATGPTWEB_PROJECT_AUTO_CREATE=true`；项目操作失败会退回网页根目录，不中断聊天。 |
 | gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
 | gpt_chat_start_in_msg | 否 | false | bool | 是否把 `gpt_chat_start` 路由前缀原样交给模型；false 时会移除纯路由前缀，但 `NICKNAME` 的自然称呼会保留原句主语 |
 | gpt_empty_trigger_prompt | 否 | 有人在呼唤你…… | str | 仅提及机器人或只发送聊天前缀时交给模型的角色化提示 |
@@ -225,6 +229,14 @@ gpt_group_context_max_chars=6000
 # 历史图片默认不传；开启后仍需当前账户具备图片上传能力
 gpt_group_context_include_images=false
 gpt_group_context_max_images=4
+
+# 可选：把后续新建的网页物理会话分类到 ChatGPT Projects。
+# 项目记忆可能跨会话生效，不要把互不相关的群或用户混用一个项目。
+gpt_chat_project="猪咪日常"
+gpt_agent_project="猪咪智能体"
+# gpt_persona_projects='{"猪咪":"猪咪日常","技术助手":"技术助手"}'
+# 嵌入式核心才使用；远程核心请设置 CHATGPTWEB_PROJECT_AUTO_CREATE=true
+gpt_project_auto_create=false
 
 gpt_chat_start=[]
 
@@ -433,6 +445,7 @@ SUPERUSERS=["admin user id"]
 - `gpt_group_context_enabled=true` 时，插件会在内存中缓存群聊/频道消息，并在普通聊天被呼唤时，将机器人上一次成功回复之后、当前消息之前的记录作为 `[最近群聊上下文]` 交给模型。私聊、管理命令和智能体任务不使用这份背景。
 - 近期上下文同时受 `gpt_group_context_max_messages`、`gpt_group_context_max_age_seconds` 和 `gpt_group_context_max_chars` 限制：高频群最多取满消息数，低频群只取时间窗内的实际消息，不使用难以预测的频率算法。回复成功后会推进游标，已经交给模型的消息不会重复注入；缓存不落盘，重启后清空，内部上下文也不会显示在“历史聊天”中。
 - `gpt_group_context_include_images=true` 时，近期记录里的图片会按消息位置和附件名传递。当前触发消息的附件优先，历史图片最多 `gpt_group_context_max_images` 张，并继续受 `gpt_attachment_max_count`、`gpt_attachment_max_total_size` 和账户图片上传能力限制；下载或上传失败只会标为不可读取，不会中断本轮聊天。
+- `gpt_chat_project`、`gpt_agent_project` 和 `gpt_persona_projects` 只影响**以后新建的物理网页会话**：普通聊天按“人设覆盖 > 普通聊天项目”选择，智能体协议会话使用独立的智能体项目。已经绑定网页会话 ID 的逻辑会话保持原处，插件不会自动移动历史会话。ChatGPT Projects 可能带有项目级记忆、指令或文件，适合收纳同一角色、同一用途或同一受信任范围的会话；不要为了网页整洁把不同群、不同用户或敏感人设全部放进同一个项目。默认留空即关闭。此能力依赖 ChatGPT 网页端而非公开 API，核心查找、创建或投递失败时会保留普通根目录会话并记录诊断，不会中断 bot 聊天。嵌入式模式使用 `gpt_project_auto_create=true` 自动创建缺失项目；远程模式由共享核心的 `CHATGPTWEB_PROJECT_AUTO_CREATE=true` 决定。
 - `gpt_history_anonymize=false` 时，历史聊天会将上述内部标签投影为“用户 · 昵称”；默认还会显示稳定 ID 与保存时间，可分别通过 `gpt_history_show_identity`、`gpt_history_show_timestamp` 关闭。开启匿名化后，昵称与 ID 都不会显示。
 - 群聊和频道按稳定访问范围共享同一逻辑会话；私聊按用户独立。`历史会话` 的编号按最近使用排序，`切换会话 <编号>` 必须使用该列表里的编号。
 - `summarize_restart` 会在接近上下文上限时摘要并迁移到新逻辑会话；`reinforce` 仅补发人设。需要手动强化角色时可用 `初始化 <人设名> 继续`。

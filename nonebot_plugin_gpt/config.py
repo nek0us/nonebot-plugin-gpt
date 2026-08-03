@@ -40,6 +40,14 @@ class Config(BaseModel):
     gpt_group_context_max_chars: int = Field(default=6000, ge=500, le=50000)
     gpt_group_context_include_images: bool = False
     gpt_group_context_max_images: int = Field(default=4, ge=0, le=16)
+    # ChatGPT Projects are disabled by default because project memory can span
+    # multiple web conversations. These names only affect newly created ones.
+    gpt_chat_project: str = ""
+    gpt_agent_project: str = ""
+    gpt_persona_projects: dict[str, str] = Field(default_factory=dict)
+    # Used only for the embedded core. A remote core owns its own
+    # CHATGPTWEB_PROJECT_AUTO_CREATE setting.
+    gpt_project_auto_create: bool = False
     gpt_chat_start: list = []
     gpt_chat_start_in_msg: bool = False 
     gpt_empty_trigger_prompt: str = DEFAULT_EMPTY_TRIGGER_PROMPT
@@ -312,6 +320,22 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_plus(self) -> "Config":
+        def normalize_project(value: str, setting: str) -> str:
+            normalized = value.strip()
+            if len(normalized) > 120:
+                logger.warning("%s is over 120 characters and will be ignored", setting)
+                return ""
+            return normalized
+
+        self.gpt_chat_project = normalize_project(self.gpt_chat_project, "gpt_chat_project")
+        self.gpt_agent_project = normalize_project(self.gpt_agent_project, "gpt_agent_project")
+        self.gpt_persona_projects = {
+            normalized_name: normalized_project
+            for name, project in self.gpt_persona_projects.items()
+            if (normalized_name := name.strip())
+            and len(normalized_name) <= 120
+            and (normalized_project := normalize_project(project, "gpt_persona_projects"))
+        }
         if self.gpt_core_mode == "remote":
             self.gpt_core_base_url = self.gpt_core_base_url.strip().rstrip("/")
             self.gpt_core_api_key = self.gpt_core_api_key.strip()

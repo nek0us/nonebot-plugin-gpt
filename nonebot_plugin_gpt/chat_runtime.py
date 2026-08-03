@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Awaitable, Callable, Literal
 
 from ChatGPTWeb import AgentAnchorPolicy, AgentSafetyPolicy, AgentService, AgentState, AgentTool, AgentToolResult, AgentTurn, ChatRequest, ChatResult, ChatService, ConversationOperation
@@ -29,6 +30,21 @@ from .event_scope import strip_group_speaker_prompt
 StreamObserver = Callable[[ChatStreamEvent], None | Awaitable[None]]
 RenderMode = Literal["auto", "text", "image"]
 _RENDER_MODES = frozenset({"auto", "text", "image"})
+_CHAT_REQUEST_PARAMETERS = frozenset(inspect.signature(ChatRequest).parameters)
+_AGENT_SERVICE_PARAMETERS = frozenset(inspect.signature(AgentService).parameters)
+
+
+def _conversation_project_options(project: str) -> dict[str, str]:
+    """Allow a newer plugin to keep working with an older embedded core."""
+    if "conversation_project" not in _CHAT_REQUEST_PARAMETERS:
+        return {}
+    return {"conversation_project": project}
+
+
+def _agent_project_options(project: str) -> dict[str, str]:
+    if "conversation_project" not in _AGENT_SERVICE_PARAMETERS:
+        return {}
+    return {"conversation_project": project}
 
 
 class ChatRuntime:
@@ -42,13 +58,27 @@ class ChatRuntime:
         *,
         agent_safety_policy: AgentSafetyPolicy | None = None,
         agent_anchor_policy: AgentAnchorPolicy | None = None,
+        conversation_project: str = "",
+        agent_project: str = "",
+        persona_projects: dict[str, str] | None = None,
     ):
         self._service = service
         self._conversations = conversations
         self._context_policy = context_policy or ContextPolicy()
         self._agent_safety_policy = agent_safety_policy
         self._agent_anchor_policy = agent_anchor_policy
+        self._conversation_project = conversation_project.strip()
+        self._agent_project = agent_project.strip()
+        self._persona_projects = {
+            name.strip(): project.strip()
+            for name, project in (persona_projects or {}).items()
+            if isinstance(name, str) and isinstance(project, str)
+            and name.strip() and project.strip()
+        }
         self._conversation_locks: dict[str, asyncio.Lock] = {}
+
+    def _project_for_persona(self, persona_name: str) -> str:
+        return self._persona_projects.get(persona_name.strip(), self._conversation_project)
 
     def _conversation_lock(self, key: ConversationKey) -> asyncio.Lock:
         """同一逻辑会话的上游请求必须按顺序提交，避免父消息分叉。"""
@@ -108,6 +138,7 @@ class ChatRuntime:
                     state=cursor,
                     tool_result=tool_result,
                     model=selected_model,
+                    conversation_project=self._agent_project,
                 )
             return await AgentService(
                 self._service,
@@ -115,6 +146,7 @@ class ChatRuntime:
                 anchor_policy=self._agent_anchor_policy,
                 client_id="nonebot-plugin-gpt",
                 request_priority=20,
+                **_agent_project_options(self._agent_project),
             ).turn(
                 task,
                 tools,
@@ -184,6 +216,7 @@ class ChatRuntime:
             deep_research=deep_research,
             client_id="nonebot-plugin-gpt",
             request_priority=10,
+            **_conversation_project_options(self._project_for_persona(state.persona_name)),
         )
         result = await self._chat_with_context_maintenance(
             key,
@@ -289,6 +322,7 @@ class ChatRuntime:
             model=state.model,
             client_id="nonebot-plugin-gpt",
             request_priority=10,
+            **_conversation_project_options(self._project_for_persona(state.persona_name)),
         ))
         if not summary.ok or not summary.text:
             return await self._service.stream_to_callback(request, on_event)
@@ -302,6 +336,7 @@ class ChatRuntime:
             deep_research=request.deep_research,
             client_id="nonebot-plugin-gpt",
             request_priority=10,
+            **_conversation_project_options(self._project_for_persona(state.persona_name)),
         )
         result = await self._service.stream_to_callback(restart_request, on_event)
         if result.ok:
@@ -402,6 +437,7 @@ class ChatRuntime:
             operation=ConversationOperation.START_PERSONA,
             client_id="nonebot-plugin-gpt",
             request_priority=10,
+            **_conversation_project_options(self._project_for_persona(persona_name)),
         ))
         if result.ok:
             state.persona_name = persona_name

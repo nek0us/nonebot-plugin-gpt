@@ -228,6 +228,30 @@ class ChatRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.client_id, "nonebot-plugin-gpt")
         self.assertEqual(request.request_priority, 10)
 
+    async def test_projects_follow_persona_override_for_new_conversations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = conversation.ConversationStore(Path(directory) / "sessions.json")
+            service = FakeService()
+            runtime = chat_runtime.ChatRuntime(
+                service,
+                store,
+                context_policy.ContextPolicy(mode="off"),
+                conversation_project="General chats",
+                persona_projects={"船长": "Captain roleplay"},
+            )
+            plain_key = conversation.ConversationKey("satori:channel:plain", "alice")
+            persona_key = conversation.ConversationKey("satori:channel:persona", "alice")
+
+            await runtime.chat(plain_key, "hello")
+            await runtime.initialize_persona(persona_key, "船长")
+            await runtime.chat(persona_key, "hello again")
+
+        expected_general = "General chats" if hasattr(service.requests[0], "conversation_project") else ""
+        expected_persona = "Captain roleplay" if hasattr(service.requests[1], "conversation_project") else ""
+        self.assertEqual(getattr(service.requests[0], "conversation_project", ""), expected_general)
+        self.assertEqual(getattr(service.requests[1], "conversation_project", ""), expected_persona)
+        self.assertEqual(getattr(service.requests[2], "conversation_project", ""), expected_persona)
+
     async def test_chat_records_creator_and_first_upstream_title(self):
         class MetadataService(FakeService):
             async def stream_to_callback(self, request, _callback):

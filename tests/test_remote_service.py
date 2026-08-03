@@ -253,6 +253,7 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
             "read the README",
             [tool],
             state=AgentState(model="auto"),
+            conversation_project="Bot agents",
         )
         second = await self.service.agent_turn(
             "",
@@ -269,5 +270,6 @@ class RemoteChatServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second.ok)
         self.assertEqual(second.decision.answer, "tool result reviewed")
         self.assertIn("tools", self.response_requests[0])
+        self.assertEqual(self.response_requests[0]["conversation_project"], "Bot agents")
         self.assertEqual(self.response_requests[1]["previous_response_id"], "resp-tool")
         self.assertEqual(self.response_requests[1]["input"][0]["call_id"], "call-read")
