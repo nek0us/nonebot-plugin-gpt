@@ -1013,7 +1013,7 @@ if isinstance(config_gpt.gpt_session, list):
     reset = legacy_command("reset",aliases={"重置记忆","重置","重置对话"},rule=gpt_operator_command_rule,priority=config_gpt.gpt_command_priority,block=True)
     @reset.handle()
     async def reset_handle(event: Event, matcher: Matcher):
-        await finish_message(matcher, event, await restart_persona_reply(
+        reset_task = asyncio.create_task(restart_persona_reply(
             chat_runtime,
             ConversationKey.from_event(event),
             supports_markdown=supports_native_markdown(event),
@@ -1026,6 +1026,12 @@ if isinstance(config_gpt.gpt_session, list):
             failure_diagnostics=failure_diagnostics,
             creator=ConversationCreator.from_event(event),
         ))
+        try:
+            reply = await asyncio.wait_for(asyncio.shield(reset_task), timeout=12)
+        except TimeoutError:
+            await UniMessage.text("正在回到本次会话的人设开场，请稍候。").send(event)
+            reply = await reset_task
+        await finish_message(matcher, event, reply)
 
     new_conversation = legacy_command(
         "new_conversation",
