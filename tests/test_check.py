@@ -97,6 +97,29 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
             7200,
         )
 
+    def test_image_generation_quota_defaults_to_a_five_hour_window(self):
+        config = Config(gpt_session=[])
+
+        self.assertIsNone(config.gpt_free_image_generation_daily_limit)
+        self.assertEqual(config.gpt_free_image_generation_window_limit, 3)
+        self.assertEqual(
+            config.gpt_free_image_generation_window_seconds,
+            5 * 60 * 60,
+        )
+
+    def test_media_failure_messages_are_independently_configurable(self):
+        config = Config(
+            gpt_session=[],
+            gpt_image_generation_failure_message="生图失败提示",
+            gpt_file_failure_message="文件失败提示",
+        )
+
+        self.assertEqual(
+            config.gpt_image_generation_failure_message,
+            "生图失败提示",
+        )
+        self.assertEqual(config.gpt_file_failure_message, "文件失败提示")
+
     def test_remote_core_mode_does_not_require_local_sessions(self):
         config = Config(
             gpt_core_mode="remote",

@@ -376,6 +376,16 @@ if isinstance(config_gpt.gpt_session, list):
             "free_upload_daily_limit": config_gpt.gpt_free_upload_daily_limit,
             "free_image_generation_daily_limit": (
                 config_gpt.gpt_free_image_generation_daily_limit
+                if config_gpt.gpt_free_image_generation_daily_limit is not None
+                else config_gpt.gpt_free_image_generation_window_limit
+            ),
+            "free_image_generation_window_limit": (
+                config_gpt.gpt_free_image_generation_daily_limit
+                if config_gpt.gpt_free_image_generation_daily_limit is not None
+                else config_gpt.gpt_free_image_generation_window_limit
+            ),
+            "free_image_generation_window_seconds": (
+                config_gpt.gpt_free_image_generation_window_seconds
             ),
             "capability_rate_limit_cooldown_seconds": (
                 config_gpt.gpt_capability_rate_limit_cooldown_seconds
@@ -434,6 +444,8 @@ if isinstance(config_gpt.gpt_session, list):
             conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
             session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
             rate_limit_message=config_gpt.gpt_rate_limit_message,
+            image_generation_failure_message=config_gpt.gpt_image_generation_failure_message,
+            file_failure_message=config_gpt.gpt_file_failure_message,
             failure_diagnostics=failure_diagnostics,
         )
         await message.send(Target.load(item.target), at_sender=item.user_id or False)
@@ -944,6 +956,8 @@ if isinstance(config_gpt.gpt_session, list):
                 conversation_recovery_message=config_gpt.gpt_conversation_recovery_message,
                 session_reauthentication_message=config_gpt.gpt_session_reauthentication_message,
                 rate_limit_message=config_gpt.gpt_rate_limit_message,
+                image_generation_failure_message=config_gpt.gpt_image_generation_failure_message,
+                file_failure_message=config_gpt.gpt_file_failure_message,
                 failure_diagnostics=failure_diagnostics,
                 creator=creator,
             )

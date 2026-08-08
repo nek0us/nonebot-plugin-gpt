@@ -19,6 +19,8 @@ DEFAULT_RATE_LIMIT_MESSAGE = "当前上游服务请求较多，正在等待恢�
 DEFAULT_ATTACHMENT_UNAVAILABLE_MESSAGE = (
     "附件未能传给模型，请检查图片或文件上传开关、文件大小和下载地址后重试。"
 )
+DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE = "图片生成暂时未能完成，请稍后再试。"
+DEFAULT_FILE_FAILURE_MESSAGE = "图片或文件暂时未能处理，请检查附件后重试。"
 DEFAULT_EMPTY_TRIGGER_PROMPT = "有人正在呼唤你。请以当前人设自然回应，不要提及系统提示、空消息或内部实现。"
 DEFAULT_DIRECT_ADDRESS_CONTEXT_PROMPT = "【对话语境】用户正在直接称呼你，请结合当前人设自然理解消息中的主语，不要提及这段提示。"
 DEFAULT_AGENT_SENSITIVE_TASK_MESSAGE = "这个请求不适合交给智能体处理咩。猪咪可以帮你做不涉及法律、政治或其他敏感事务的日常任务。"
@@ -70,6 +72,8 @@ class Config(BaseModel):
     gpt_free_image: bool = False
     gpt_file_upload: bool = False
     gpt_attachment_unavailable_message: str = DEFAULT_ATTACHMENT_UNAVAILABLE_MESSAGE
+    gpt_image_generation_failure_message: str = DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE
+    gpt_file_failure_message: str = DEFAULT_FILE_FAILURE_MESSAGE
     gpt_file_max_size: int = Field(default=20 * 1024 * 1024, ge=1024, le=100 * 1024 * 1024)
     gpt_attachment_max_total_size: int = Field(
         default=40 * 1024 * 1024,
@@ -99,7 +103,15 @@ class Config(BaseModel):
     gpt_chat_rate_limit_cooldown_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
     gpt_capability_quota_enabled: bool = True
     gpt_free_upload_daily_limit: int = Field(default=2, ge=0, le=1000)
-    gpt_free_image_generation_daily_limit: int = Field(default=2, ge=0, le=1000)
+    # Deprecated compatibility input. New deployments should use the rolling
+    # window settings below.
+    gpt_free_image_generation_daily_limit: Optional[int] = Field(default=None, ge=0, le=1000)
+    gpt_free_image_generation_window_limit: int = Field(default=3, ge=0, le=1000)
+    gpt_free_image_generation_window_seconds: int = Field(
+        default=5 * 60 * 60,
+        ge=60,
+        le=24 * 60 * 60,
+    )
     gpt_capability_rate_limit_cooldown_seconds: int = Field(
         default=24 * 60 * 60,
         ge=60,
@@ -179,6 +191,20 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_rate_limit_message 配置无效，已使用默认限额提示")
         return DEFAULT_RATE_LIMIT_MESSAGE
+
+    @validator("gpt_image_generation_failure_message", always=True, pre=True)
+    def check_gpt_image_generation_failure_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_image_generation_failure_message 配置无效，已使用默认生图失败提示")
+        return DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE
+
+    @validator("gpt_file_failure_message", always=True, pre=True)
+    def check_gpt_file_failure_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_file_failure_message 配置无效，已使用默认文件失败提示")
+        return DEFAULT_FILE_FAILURE_MESSAGE
 
     @validator("gpt_agent_sensitive_task_message", always=True, pre=True)
     def check_gpt_agent_sensitive_task_message(cls, value):

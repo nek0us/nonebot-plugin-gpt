@@ -23,6 +23,8 @@ DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；�
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 DEFAULT_SESSION_REAUTHENTICATION_MESSAGE = "连接正在自动恢复，请稍后再试一次。"
 DEFAULT_RATE_LIMIT_MESSAGE = "当前上游服务请求较多，正在等待恢复，请稍后再试。"
+DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE = "图片生成暂时未能完成，请稍后再试。"
+DEFAULT_FILE_FAILURE_MESSAGE = "图片或文件暂时未能处理，请检查附件后重试。"
 
 
 # 这两类错误说明逻辑会话绑定的账号已经不再可用。临时未就绪等错误
@@ -42,6 +44,10 @@ _RATE_LIMIT_KINDS = {
     "capability_rate_limited",
     "conversation_capability_rate_limited",
 }
+_CHAT_RATE_LIMIT_KINDS = {"rate_limited", "conversation_rate_limited"}
+_IMAGE_GENERATION_FAILURE_KINDS = {"image_generation_no_result"}
+_IMAGE_GENERATION_CAPABILITY = "image_generation"
+_FILE_CAPABILITIES = {"image_upload", "file_upload"}
 
 
 async def _render_markdown(markdown: str) -> bytes | None:
@@ -63,6 +69,8 @@ def _error_message(
     conversation_recovery_message: str,
     session_reauthentication_message: str,
     rate_limit_message: str,
+    image_generation_failure_message: str,
+    file_failure_message: str,
     failure_diagnostics: ChatFailureDiagnostics | None,
 ) -> UniMessage:
     """将核心服务的失败结果收敛为不会泄露内部细节的用户提示。"""
@@ -81,6 +89,23 @@ def _error_message(
         return UniMessage.text(conversation_recovery_message)
     if error_kinds & _SESSION_REAUTHENTICATION_KINDS:
         return UniMessage.text(session_reauthentication_message)
+    if error_kinds & _CHAT_RATE_LIMIT_KINDS:
+        return UniMessage.text(rate_limit_message)
+    capabilities = {
+        str(error.get("capability", ""))
+        for error in result.errors
+        if isinstance(error, dict) and error.get("capability")
+    }
+    metadata_capabilities = result.metadata.get("required_capabilities", [])
+    if isinstance(metadata_capabilities, list):
+        capabilities.update(str(value) for value in metadata_capabilities)
+    if (
+        error_kinds & _IMAGE_GENERATION_FAILURE_KINDS
+        or _IMAGE_GENERATION_CAPABILITY in capabilities
+    ):
+        return UniMessage.text(image_generation_failure_message)
+    if capabilities & _FILE_CAPABILITIES:
+        return UniMessage.text(file_failure_message)
     if error_kinds & _RATE_LIMIT_KINDS:
         return UniMessage.text(rate_limit_message)
     return UniMessage.text(error_message)
@@ -108,6 +133,8 @@ async def render_result(
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
     rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
+    image_generation_failure_message: str = DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE,
+    file_failure_message: str = DEFAULT_FILE_FAILURE_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
 ) -> UniMessage:
     """把结构化聊天结果转换为可由 Alconna 发送的统一消息。"""
@@ -118,6 +145,8 @@ async def render_result(
             conversation_recovery_message,
             session_reauthentication_message,
             rate_limit_message,
+            image_generation_failure_message,
+            file_failure_message,
             failure_diagnostics,
         )
     return await build_unimessage(
@@ -146,6 +175,8 @@ async def chat_reply(
     conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE,
     session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE,
     rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE,
+    image_generation_failure_message: str = DEFAULT_IMAGE_GENERATION_FAILURE_MESSAGE,
+    file_failure_message: str = DEFAULT_FILE_FAILURE_MESSAGE,
     failure_diagnostics: ChatFailureDiagnostics | None = None,
     creator: ConversationCreator | None = None,
 ) -> UniMessage:
@@ -171,6 +202,8 @@ async def chat_reply(
         conversation_recovery_message=conversation_recovery_message,
         session_reauthentication_message=session_reauthentication_message,
         rate_limit_message=rate_limit_message,
+        image_generation_failure_message=image_generation_failure_message,
+        file_failure_message=file_failure_message,
         failure_diagnostics=failure_diagnostics,
     )
 

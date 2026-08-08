@@ -220,7 +220,7 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.extract_plain_text(), "请求较多，请稍后再试。")
         self.assertNotIn("secret", message.extract_plain_text())
 
-    async def test_capability_limit_uses_the_same_safe_rate_message(self):
+    async def test_image_capability_limit_uses_the_image_failure_message(self):
         class Runtime:
             async def chat(self, *args, **kwargs):
                 return ChatResult(
@@ -241,14 +241,89 @@ class RuntimeHandlerTests(unittest.IsolatedAsyncioTestCase):
             "生成一张图片",
             render_markdown=None,
             error_message="普通失败提示",
-            rate_limit_message="高级能力额度正在恢复，请稍后再试。",
+            rate_limit_message="普通额度提示",
+            image_generation_failure_message="生图额度正在恢复，请稍后再试。",
         )
 
         self.assertEqual(
             message.extract_plain_text(),
-            "高级能力额度正在恢复，请稍后再试。",
+            "生图额度正在恢复，请稍后再试。",
         )
         self.assertNotIn("secret", message.extract_plain_text())
+
+    async def test_file_request_failure_uses_the_file_failure_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal upload detail",
+                    conversation_id="",
+                    message_id="",
+                    metadata={"required_capabilities": ["file_upload"]},
+                    errors=[{"kind": "continue_chat_error", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "分析这个文件",
+            render_markdown=None,
+            error_message="普通失败提示",
+            file_failure_message="文件没有处理成功，请重新发送。",
+        )
+
+        self.assertEqual(
+            message.extract_plain_text(),
+            "文件没有处理成功，请重新发送。",
+        )
+        self.assertNotIn("secret", message.extract_plain_text())
+
+    async def test_chat_rate_limit_wins_over_request_media_metadata(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal quota detail",
+                    conversation_id="",
+                    message_id="",
+                    metadata={"required_capabilities": ["image_generation"]},
+                    errors=[{"kind": "rate_limited", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "画一张图",
+            render_markdown=None,
+            rate_limit_message="普通聊天额度正在恢复。",
+            image_generation_failure_message="生图失败提示",
+        )
+
+        self.assertEqual(message.extract_plain_text(), "普通聊天额度正在恢复。")
+
+    async def test_image_no_result_uses_the_image_failure_message(self):
+        class Runtime:
+            async def chat(self, *args, **kwargs):
+                return ChatResult(
+                    ok=False,
+                    text="internal image detail",
+                    conversation_id="",
+                    message_id="",
+                    errors=[{"kind": "image_generation_no_result", "message": "secret"}],
+                )
+
+        message = await runtime_handlers.chat_reply(
+            Runtime(),
+            conversation.ConversationKey("telegram:private:1", "alice"),
+            "画一张图",
+            render_markdown=None,
+            image_generation_failure_message="这次没有取得生成图片，请稍后重试。",
+        )
+
+        self.assertEqual(
+            message.extract_plain_text(),
+            "这次没有取得生成图片，请稍后重试。",
+        )
 
     async def test_runtime_exception_returns_safe_message(self):
         class Runtime:
