@@ -120,6 +120,22 @@ class CheckRuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(config.gpt_file_failure_message, "文件失败提示")
 
+    def test_reset_wait_message_is_independently_configurable(self):
+        config = Config(
+            gpt_session=[],
+            gpt_reset_wait_message="正在重置，请稍候。",
+        )
+
+        self.assertEqual(config.gpt_reset_wait_message, "正在重置，请稍候。")
+
+    def test_blank_reset_wait_message_uses_default(self):
+        config = Config(gpt_session=[], gpt_reset_wait_message="   ")
+
+        self.assertEqual(
+            config.gpt_reset_wait_message,
+            "正在回到本次会话的人设开场，请稍候。",
+        )
+
     def test_remote_core_mode_does_not_require_local_sessions(self):
         config = Config(
             gpt_core_mode="remote",

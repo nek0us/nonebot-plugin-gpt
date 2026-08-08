@@ -16,6 +16,7 @@ DEFAULT_ERROR_MESSAGE = "抱歉，这次没能顺利回应。请稍后再试；�
 DEFAULT_CONVERSATION_RECOVERY_MESSAGE = "当前对话已无法继续，请重新初始化人设后再试。"
 DEFAULT_SESSION_REAUTHENTICATION_MESSAGE = "连接正在自动恢复，请稍后再试一次。"
 DEFAULT_RATE_LIMIT_MESSAGE = "当前上游服务请求较多，正在等待恢复，请稍后再试。"
+DEFAULT_RESET_WAIT_MESSAGE = "正在回到本次会话的人设开场，请稍候。"
 DEFAULT_ATTACHMENT_UNAVAILABLE_MESSAGE = (
     "附件未能传给模型，请检查图片或文件上传开关、文件大小和下载地址后重试。"
 )
@@ -99,6 +100,7 @@ class Config(BaseModel):
     gpt_conversation_recovery_message: str = DEFAULT_CONVERSATION_RECOVERY_MESSAGE
     gpt_session_reauthentication_message: str = DEFAULT_SESSION_REAUTHENTICATION_MESSAGE
     gpt_rate_limit_message: str = DEFAULT_RATE_LIMIT_MESSAGE
+    gpt_reset_wait_message: str = DEFAULT_RESET_WAIT_MESSAGE
     gpt_session_recovery_wait_timeout: int = Field(default=60, ge=1, le=600)
     gpt_chat_rate_limit_cooldown_seconds: int = Field(default=5 * 60 * 60, ge=60, le=86400)
     gpt_capability_quota_enabled: bool = True
@@ -191,6 +193,13 @@ class Config(BaseModel):
             return value.strip()
         logger.warning("gpt_rate_limit_message 配置无效，已使用默认限额提示")
         return DEFAULT_RATE_LIMIT_MESSAGE
+
+    @validator("gpt_reset_wait_message", always=True, pre=True)
+    def check_gpt_reset_wait_message(cls, value):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        logger.warning("gpt_reset_wait_message 配置无效，已使用默认重置等待提示")
+        return DEFAULT_RESET_WAIT_MESSAGE
 
     @validator("gpt_image_generation_failure_message", always=True, pre=True)
     def check_gpt_image_generation_failure_message(cls, value):

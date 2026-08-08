@@ -1043,7 +1043,7 @@ if isinstance(config_gpt.gpt_session, list):
         try:
             reply = await asyncio.wait_for(asyncio.shield(reset_task), timeout=12)
         except TimeoutError:
-            await UniMessage.text("正在回到本次会话的人设开场，请稍候。").send(event)
+            await UniMessage.text(config_gpt.gpt_reset_wait_message).send(event)
             reply = await reset_task
         await finish_message(matcher, event, reply)
 
