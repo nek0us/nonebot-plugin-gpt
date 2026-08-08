@@ -153,6 +153,7 @@ _✨ NoneBot GPT ✨_
 | gpt_error_message | 否 | 抱歉，这次没能顺利回应。请稍后再试；若持续发生，请联系机器人管理员。 | str | 聊天请求失败时发送的中性提示，可按机器人身份自定义 |
 | gpt_conversation_recovery_message | 否 | 当前对话已无法继续，请重新初始化人设后再试。 | str | 原会话绑定的账号已移除或停用时发送的提示，不暴露账号状态，可按机器人身份自定义 |
 | gpt_session_reauthentication_message | 否 | 连接正在自动恢复，请稍后再试一次。 | str | 核心检测到会话令牌过期并已启动自动重新登录时的提示；与普通失败和原会话失效提示分开，避免暴露账号细节。 |
+| gpt_reset_wait_message | 否 | 正在回到本次会话的人设开场，请稍候。 | str | “重置”命令等待超过 12 秒时发送的进度提示；只提示任务仍在进行，不替代最终的重置回复。 |
 | gpt_session_recovery_wait_timeout | 否 | 60 | 1-600 | 账号正在自动恢复时，单条聊天请求等待就绪的秒数。恢复在此时间内完成时会继续发送原消息；仅超时后才发送 `gpt_session_reauthentication_message`，无需用户手动重发。 |
 | gpt_chat_rate_limit_cooldown_seconds | 否 | 18000 | 60-86400 | 上游未给出明确重试时间时，账号聊天额度等待恢复的估计秒数。核心会优先采用上游的明确等待提示；冷却账号不会承接新会话，旧会话会返回 `gpt_rate_limit_message`。 |
 | gpt_account_selection_strategy | 否 | least_recently_used | least_recently_used/usage_balanced | 新逻辑会话的账号选择策略。默认按最久未使用账号分配；`usage_balanced` 会在滚动窗口内优先选择近期被分配次数更少的可用账号。既有会话始终固定原账号。 |
@@ -329,6 +330,9 @@ gpt_session_reauthentication_message="bot正在重新连接，请稍后再试一
 
 # 账号自动恢复期间，单条聊天请求等待可用状态的最长秒数；超时后才发送上面的恢复提示
 gpt_session_recovery_wait_timeout=60
+
+# “重置”命令等待超过 12 秒时发送的进度提示
+gpt_reset_wait_message="正在回到本次会话的人设开场，请稍候。"
 
 # 上游没有给出明确重试时间时，免费账户聊天额度冷却的估计时长
 gpt_chat_rate_limit_cooldown_seconds=18000
