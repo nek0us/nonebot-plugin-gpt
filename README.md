@@ -112,7 +112,7 @@ _✨ NoneBot GPT ✨_
 | gpt_group_context_max_images | 否 | 4 | int | 每次最多附带的历史群聊图片数；当前触发消息的附件优先。 |
 | gpt_chat_project | 否 | 空 | str | 可选的 ChatGPT 网页项目名称。仅让此后新建的普通物理会话归入该项目；已有会话不会移动。项目可能带有跨会话记忆，不建议多个互不相关的用户共用同一项目。 |
 | gpt_agent_project | 否 | 空 | str | 可选的 ChatGPT 网页项目名称。仅让此后新建的智能体协议会话归入该项目；建议与普通聊天项目分开。 |
-| gpt_persona_projects | 否 | `{}` | JSON Object[str, str] | 人设名称到网页项目名称的映射。命中时优先于 `gpt_chat_project`，例如 `'{"猪咪":"猪咪日常","助手":"技术助手"}'`。 |
+| gpt_persona_projects | 否 | `{}` | JSON Object[str, str] | 人设名称到网页项目名称的映射。命中时优先于 `gpt_chat_project`，例如 `'{"喵喵":"喵喵日常","助手":"技术助手"}'`。 |
 | gpt_project_auto_create | 否 | false | bool | 嵌入式核心中，是否自动创建不存在的上述网页项目。远程核心请在核心服务设置 `CHATGPTWEB_PROJECT_AUTO_CREATE=true`；项目操作失败会退回网页根目录，不中断聊天。 |
 | gpt_chat_start | 否 | [] | list | 机器人文字称呼/聊天前缀；普通聊天与插件命令均需 @ 机器人或以此、`NICKNAME` 中的名称开头，避免群聊误触发 |
 | gpt_chat_start_in_msg | 否 | false | bool | 是否把 `gpt_chat_start` 路由前缀原样交给模型；false 时会移除纯路由前缀，但 `NICKNAME` 的自然称呼会保留原句主语 |
@@ -235,9 +235,9 @@ gpt_group_context_max_images=4
 
 # 可选：把后续新建的网页物理会话分类到 ChatGPT Projects。
 # 项目记忆可能跨会话生效，不要把互不相关的群或用户混用一个项目。
-gpt_chat_project="猪咪日常"
-gpt_agent_project="猪咪智能体"
-# gpt_persona_projects='{"猪咪":"猪咪日常","技术助手":"技术助手"}'
+gpt_chat_project="喵喵日常"
+gpt_agent_project="喵喵智能体"
+# gpt_persona_projects='{"喵喵":"喵喵日常","技术助手":"技术助手"}'
 # 嵌入式核心才使用；远程核心请设置 CHATGPTWEB_PROJECT_AUTO_CREATE=true
 gpt_project_auto_create=false
 
